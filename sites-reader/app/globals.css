@@ -1,0 +1,20 @@
+@import "../../styles.css";
+@import "../../local-reader/local-reader.css";
+
+.p2md-site-startup-error {
+  margin: 18vh auto 0;
+  max-width: 520px;
+  padding: 24px;
+  text-align: center;
+}
+
+.p2md-site-startup-error h1 {
+  color: var(--text-normal);
+  font-family: var(--p2md-serif);
+  font-size: 32px;
+  letter-spacing: -0.03em;
+}
+
+.p2md-site-startup-error p {
+  color: var(--text-muted);
+}

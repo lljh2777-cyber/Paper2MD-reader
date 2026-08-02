@@ -1,0 +1,9 @@
+{
+  "id": "paper2md-reader",
+  "name": "Paper2MD Reader",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Read Paper2MD packages in a focused article-and-figures view.",
+  "author": "Paper2MD",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paper2MD Reader preview</title>
+  <link rel="stylesheet" href="/preview/obsidian-preview.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="p2md-reader-view p2md-contract-mode">
+    <div class="p2md-reader">
+      <header class="p2md-toolbar">
+        <div class="p2md-toolbar-group">
+          <button class="p2md-icon-button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m15 18-6-6 6-6"/><path d="M9 12h11"/></svg></button>
+          <strong class="p2md-view-title">Paper2MD Reader</strong>
+        </div>
+        <div class="p2md-file-label">article.md</div>
+        <div class="p2md-toolbar-group p2md-toolbar-trailing">
+          <button class="p2md-contract-status" data-tone="ok"><span>Contract valid</span></button>
+          <button class="p2md-icon-button" aria-label="Reload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M18 9a7 7 0 0 0-12-2L4 11M6 15a7 7 0 0 0 12 2l2-4"/></svg></button>
+        </div>
+      </header>
+      <div class="p2md-reader-workspace">
+        <main class="p2md-article-scroll">
+          <article class="p2md-article markdown-rendered">
+            <h1>Topological domains in mammalian genomes identified by analysis of chromatin interactions</h1>
+            <p><strong>Jesse R. Dixon, Siddarth Selvaraj, Feng Yue, Audrey Kim, Yan Li, Yin Shen, Ming Hu, Jun S. Liu &amp; Bing Ren</strong></p>
+            <p class="metadata">Ludwig Institute for Cancer Research, University of California, San Diego · Department of Statistics, Harvard University</p>
+            <h2>Introduction</h2>
+            <p>The spatial organization of the genome is intimately linked to its biological function, yet our understanding of higher order genomic structure is coarse, fragmented and incomplete. Here we investigate the three-dimensional organization of the human and mouse genomes in embryonic stem cells and terminally differentiated cell types at unprecedented resolution.</p>
+            <p>At bin sizes less than 100 kilobases, highly self-interacting regions begin to emerge. These regions, which we term topological domains, are bounded by narrow segments where chromatin interactions appear to end abruptly.</p>
+            <div class="p2md-contract-anchor p2md-slot-anchor p2md-figure-slot" data-p2md-label="Figure 1">Figure 1</div>
+            <p class="p2md-inline-asset"><img src="/test/images/figure-0001.png" alt="Figure 1"></p>
+            <p class="p2md-inline-caption"><strong>Figure 1.</strong> Topological domains in the mouse ES cell genome. Normalized Hi-C interaction frequencies, directionality index, HMM states and genomic-distance comparisons.</p>
+            <p>To identify systematically all such topological domains in the genome, we devised a directionality index to quantify the degree of upstream or downstream interaction bias for a genomic region.</p>
+            <h2>Results</h2>
+            <h3>Genome-wide maps reveal topological domains</h3>
+            <p>The domains defined by the model were reproducible between replicates. Interaction frequencies within domains were consistently higher than interactions spanning domain boundaries.</p>
+            <p>These findings are best explained by a model of genomic DNA organized into spatial modules linked by short chromatin segments. The organization remains stable across cell types while interactions inside each domain can remain dynamic.</p>
+          </article>
+        </main>
+        <aside class="p2md-figures-host">
+          <div class="p2md-figures">
+            <header class="p2md-figures-header"><h2>Figures</h2></header>
+            <div class="p2md-figures-body">
+              <section class="p2md-figure-stage">
+                <div class="p2md-figure-stage-header"><h3>Figure 1</h3><span>1 / 4</span></div>
+                <button class="p2md-figure-image-button" data-lightbox><img src="/test/images/figure-0001.png" alt="Figure 1"></button>
+                <div class="p2md-figure-caption"><p><strong>Figure 1.</strong> Topological domains in the mouse ES cell genome. Normalized Hi-C interaction frequencies displayed with directionality index, HMM state calls, domain structure and genomic-distance comparisons.</p></div>
+                <div class="p2md-figure-actions"><button class="p2md-action-button" data-lightbox><span>↗</span><span>Open image</span></button><button class="p2md-action-button"><span>↑</span><span>Back to position</span></button></div>
+              </section>
+              <nav class="p2md-thumbnail-rail" aria-label="Paper figures">
+                <button class="p2md-thumbnail" data-selected="true" data-src="/test/images/figure-0001.png"><img src="/test/images/figure-0001.png" alt=""><span>Figure 1</span></button>
+                <button class="p2md-thumbnail" data-selected="false" data-src="/test/images/figure-0002.png"><img src="/test/images/figure-0002.png" alt=""><span>Figure 2</span></button>
+                <button class="p2md-thumbnail" data-selected="false" data-src="/test/images/figure-0003.png"><img src="/test/images/figure-0003.png" alt=""><span>Figure 3</span></button>
+                <button class="p2md-thumbnail" data-selected="false" data-src="/test/images/figure-0004.png"><img src="/test/images/figure-0004.png" alt=""><span>Figure 4</span></button>
+              </nav>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+  <dialog id="lightbox"><button aria-label="Close">×</button><img alt="Expanded figure"></dialog>
+  <script type="module" src="/preview/preview.js"></script>
+</body>
+</html>

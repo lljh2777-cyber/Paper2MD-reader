@@ -1,0 +1,134 @@
+import { isSafeRelativePath } from "../model/contract-validation";
+import { normalizeReaderPath, ReaderFileInfo, ReaderFileSystem } from "./reader-file-system";
+
+type IterableDirectoryHandle = FileSystemDirectoryHandle & {
+  values(): AsyncIterableIterator<FileSystemHandle>;
+};
+
+export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
+  private readonly objectUrls = new Map<string, string>();
+
+  private constructor(
+    readonly rootLabel: string,
+    private readonly directory?: FileSystemDirectoryHandle,
+    private readonly files?: Map<string, File>
+  ) {}
+
+  static fromDirectoryHandle(directory: FileSystemDirectoryHandle): BrowserDirectoryReaderFileSystem {
+    return new BrowserDirectoryReaderFileSystem(directory.name, directory);
+  }
+
+  static fromFileList(fileList: FileList | File[]): BrowserDirectoryReaderFileSystem {
+    const files = [...fileList];
+    const firstRelativePath = files[0]?.webkitRelativePath ?? "";
+    const rootLabel = firstRelativePath.split("/")[0] || "Local package";
+    const index = new Map<string, File>();
+
+    for (const file of files) {
+      const relativePath = file.webkitRelativePath || file.name;
+      const segments = normalizeReaderPath(relativePath).split("/");
+      if (segments[0] === rootLabel && segments.length > 1) segments.shift();
+      const packagePath = segments.join("/");
+      if (isSafeRelativePath(packagePath)) index.set(packagePath, file);
+    }
+
+    return new BrowserDirectoryReaderFileSystem(rootLabel, undefined, index);
+  }
+
+  resolvePath(relativePath: string): string {
+    const safePath = this.safePath(relativePath);
+    return `${this.rootLabel}/${safePath}`;
+  }
+
+  async exists(relativePath: string): Promise<boolean> {
+    return Boolean(await this.getFile(relativePath));
+  }
+
+  async fileInfo(relativePath: string): Promise<ReaderFileInfo | undefined> {
+    const file = await this.getFile(relativePath);
+    return file ? { size: file.size } : undefined;
+  }
+
+  async readText(relativePath: string): Promise<string> {
+    return (await this.requireFile(relativePath)).text();
+  }
+
+  async readBinary(relativePath: string): Promise<ArrayBuffer> {
+    return (await this.requireFile(relativePath)).arrayBuffer();
+  }
+
+  async listFiles(relativeDirectory: string): Promise<string[]> {
+    const directoryPath = this.safePath(relativeDirectory);
+    if (this.files) {
+      const prefix = `${directoryPath}/`;
+      return [...this.files.keys()].filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/"));
+    }
+
+    try {
+      const handle = await this.getDirectoryHandle(directoryPath);
+      const paths: string[] = [];
+      for await (const entry of (handle as IterableDirectoryHandle).values()) {
+        if (entry.kind === "file") paths.push(`${directoryPath}/${entry.name}`);
+      }
+      return paths;
+    } catch {
+      return [];
+    }
+  }
+
+  async resolveAssetUrl(relativePath: string): Promise<string> {
+    const safePath = this.safePath(relativePath);
+    const cached = this.objectUrls.get(safePath);
+    if (cached) return cached;
+    const file = await this.requireFile(safePath);
+    if (file.type === "image/svg+xml" || safePath.toLowerCase().endsWith(".svg")) {
+      throw new Error("SVG assets are not loaded by the local browser host.");
+    }
+    const url = URL.createObjectURL(file);
+    this.objectUrls.set(safePath, url);
+    return url;
+  }
+
+  dispose(): void {
+    this.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    this.objectUrls.clear();
+  }
+
+  private async requireFile(relativePath: string): Promise<File> {
+    const file = await this.getFile(relativePath);
+    if (!file) throw new Error(`File not found: ${this.safePath(relativePath)}`);
+    return file;
+  }
+
+  private async getFile(relativePath: string): Promise<File | undefined> {
+    const safePath = this.safePath(relativePath);
+    if (this.files) return this.files.get(safePath);
+    if (!this.directory) return undefined;
+
+    try {
+      const segments = safePath.split("/");
+      const filename = segments.pop();
+      if (!filename) return undefined;
+      let directory = this.directory;
+      for (const segment of segments) directory = await directory.getDirectoryHandle(segment);
+      return await (await directory.getFileHandle(filename)).getFile();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async getDirectoryHandle(relativePath: string): Promise<FileSystemDirectoryHandle> {
+    if (!this.directory) throw new Error("Directory handle unavailable");
+    let directory = this.directory;
+    for (const segment of relativePath.split("/").filter(Boolean)) {
+      directory = await directory.getDirectoryHandle(segment);
+    }
+    return directory;
+  }
+
+  private safePath(path: string): string {
+    const normalized = normalizeReaderPath(path);
+    if (!isSafeRelativePath(normalized)) throw new Error(`Unsafe package path: ${path}`);
+    return normalized;
+  }
+}

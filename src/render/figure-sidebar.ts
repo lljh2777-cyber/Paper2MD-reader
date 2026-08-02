@@ -1,0 +1,176 @@
+import { setReaderIcon } from "./icons";
+import { FigureFollowState } from "../sync/figure-follow-state";
+
+export interface FigurePresentation {
+  id: string;
+  label: string;
+  kind: string;
+  imageSrc: string;
+  captionElement?: HTMLElement;
+  slotElement?: HTMLElement;
+  available: boolean;
+}
+
+interface FigureSidebarOptions {
+  onOpenImage: (figure: FigurePresentation) => void;
+  onSelectionChange?: (figure: FigurePresentation, followingReading: boolean) => void;
+}
+
+function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  return node;
+}
+
+export class FigureSidebar {
+  private figures: FigurePresentation[] = [];
+  private readonly followState = new FigureFollowState();
+  private readonly body: HTMLElement;
+  private readonly followInput: HTMLInputElement;
+
+  constructor(private readonly container: HTMLElement, private readonly options: FigureSidebarOptions) {
+    this.container.classList.add("p2md-figures");
+    const header = element("header", "p2md-figures-header");
+    const heading = element("h2");
+    heading.textContent = "Visuals";
+    const followControl = element("label", "p2md-follow-control");
+    followControl.title = "Automatically show the visual at the current reading position";
+    this.followInput = element("input");
+    this.followInput.type = "checkbox";
+    this.followInput.checked = true;
+    this.followInput.setAttribute("role", "switch");
+    const track = element("span", "p2md-follow-track");
+    track.setAttribute("aria-hidden", "true");
+    const label = element("span", "p2md-follow-label");
+    label.textContent = "Follow reading";
+    followControl.append(this.followInput, track, label);
+    this.followInput.addEventListener("change", () => {
+      if (this.followState.setFollowing(this.followInput.checked)) this.render();
+    });
+    header.appendChild(heading);
+    header.appendChild(followControl);
+    this.body = element("div", "p2md-figures-body");
+    this.container.replaceChildren(header, this.body);
+  }
+
+  setFigures(figures: FigurePresentation[]): void {
+    this.figures = figures;
+    this.followState.setFigures(figures.map((figure) => figure.id));
+    this.followInput.disabled = figures.length === 0;
+    this.render();
+  }
+
+  select(id: string, notify = false): void {
+    if (!this.followState.select(id)) return;
+    this.render();
+    if (notify) {
+      const figure = this.figures.find((item) => item.id === id);
+      if (figure) this.options.onSelectionChange?.(figure, this.followState.isFollowing);
+    }
+  }
+
+  trackReadingTarget(id: string): void {
+    if (this.followState.trackReadingTarget(id)) this.render();
+  }
+
+  private render(): void {
+    this.body.replaceChildren();
+    if (!this.figures.length) {
+      const empty = element("div", "p2md-figures-empty");
+      empty.innerHTML = "<strong>No visual assets available</strong><span>The article remains available in the main column.</span>";
+      this.body.appendChild(empty);
+      return;
+    }
+
+    const selected = this.figures.find((figure) => figure.id === this.followState.selected) ?? this.figures[0];
+    const stage = element("section", "p2md-figure-stage");
+    const stageHeader = element("div", "p2md-figure-stage-header");
+    const title = element("h3");
+    title.textContent = selected.label;
+    const count = element("span");
+    count.textContent = `${this.figures.indexOf(selected) + 1} / ${this.figures.length}`;
+    stageHeader.append(title, count);
+
+    const imageButton = element("button", "p2md-figure-image-button");
+    imageButton.type = "button";
+    imageButton.ariaLabel = `Open ${selected.label}`;
+    imageButton.disabled = !selected.available;
+    if (selected.available) {
+      const image = element("img");
+      image.src = selected.imageSrc;
+      image.alt = selected.label;
+      image.loading = "lazy";
+      imageButton.appendChild(image);
+      imageButton.addEventListener("click", () => this.options.onOpenImage(selected));
+    } else {
+      const missing = element("div", "p2md-missing-image");
+      missing.textContent = "Image unavailable";
+      imageButton.appendChild(missing);
+    }
+
+    const caption = element("div", "p2md-figure-caption");
+    if (selected.captionElement) {
+      const clone = selected.captionElement.cloneNode(true) as HTMLElement;
+      clone.removeAttribute("id");
+      clone.classList.remove("p2md-inline-caption");
+      delete clone.dataset.p2mdAssetId;
+      caption.appendChild(clone);
+    } else {
+      caption.textContent = selected.label;
+    }
+
+    const actions = element("div", "p2md-figure-actions");
+    const openButton = element("button", "p2md-action-button");
+    openButton.type = "button";
+    openButton.disabled = !selected.available;
+    setReaderIcon(openButton, "expand");
+    const openLabel = element("span");
+    openLabel.textContent = "Open image";
+    openButton.appendChild(openLabel);
+    openButton.addEventListener("click", () => this.options.onOpenImage(selected));
+    actions.appendChild(openButton);
+
+    if (selected.slotElement) {
+      const backButton = element("button", "p2md-action-button");
+      backButton.type = "button";
+      setReaderIcon(backButton, "arrow-up-to-line");
+      const backLabel = element("span");
+      backLabel.textContent = "Back to position";
+      backButton.appendChild(backLabel);
+      backButton.addEventListener("click", () => selected.slotElement?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      actions.appendChild(backButton);
+    }
+
+    stage.append(stageHeader, imageButton, caption, actions);
+
+    const rail = element("nav", "p2md-thumbnail-rail");
+    rail.ariaLabel = "Paper visual assets";
+    for (const figure of this.figures) {
+      const button = element("button", "p2md-thumbnail");
+      button.type = "button";
+      button.dataset.selected = String(figure.id === selected.id);
+      button.dataset.readingTarget = String(figure.id === this.followState.readingTarget);
+      button.ariaPressed = String(figure.id === selected.id);
+      if (figure.id === this.followState.readingTarget) button.setAttribute("aria-current", "location");
+      button.ariaLabel = `Show ${figure.label}`;
+      if (figure.available) {
+        const image = element("img");
+        image.src = figure.imageSrc;
+        image.alt = "";
+        image.loading = "lazy";
+        button.appendChild(image);
+      }
+      const label = element("span");
+      label.textContent = figure.label;
+      button.appendChild(label);
+      button.addEventListener("click", () => {
+        this.followState.select(figure.id);
+        this.render();
+        this.options.onSelectionChange?.(figure, this.followState.isFollowing);
+      });
+      rail.appendChild(button);
+    }
+
+    this.body.append(stage, rail);
+  }
+}

@@ -1,0 +1,143 @@
+:root {
+  color-scheme: light;
+  --background-primary: #ffffff;
+  --background-secondary: #f7f8fa;
+  --background-modifier-hover: #edf1f6;
+  --text-normal: #1c232b;
+  --text-muted: #68717d;
+  --text-faint: #9aa2ab;
+  --text-error: #b42318;
+  --text-warning: #9a6700;
+  --font-interface: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-interface);
+}
+
+* { box-sizing: border-box; }
+
+html,
+body,
+#app { height: 100%; margin: 0; }
+
+body { overflow: hidden; }
+
+button { font-family: var(--font-interface); }
+button:focus-visible { outline: 2px solid #184f91; outline-offset: 2px; }
+button:disabled { cursor: default; opacity: 0.58; }
+
+.p2md-local-reader-view .p2md-toolbar {
+  grid-template-columns: minmax(300px, 1fr) auto minmax(230px, 1fr);
+}
+
+.p2md-local-folder-button,
+.p2md-local-primary-button {
+  align-items: center;
+  border-radius: 5px;
+  display: inline-flex;
+  font-size: 11.5px;
+  gap: 7px;
+  justify-content: center;
+}
+
+.p2md-local-folder-button {
+  background: transparent;
+  border: 1px solid var(--p2md-border);
+  color: var(--text-muted);
+  min-height: 28px;
+  padding: 4px 9px;
+}
+
+.p2md-local-folder-button:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+
+.p2md-local-folder-button svg,
+.p2md-local-primary-button svg,
+.p2md-local-dialog-close svg { height: 15px; stroke-width: 1.75; width: 15px; }
+
+.p2md-local-primary-button {
+  background: #184f91;
+  border: 1px solid #184f91;
+  color: #fff;
+  min-height: 38px;
+  padding: 8px 15px;
+}
+
+.p2md-local-primary-button:hover { background: #123f75; }
+.p2md-local-folder-input { display: none; }
+
+.p2md-local-welcome {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  margin-top: clamp(110px, 21vh, 220px);
+  max-width: 520px;
+}
+
+.p2md-local-welcome h1 {
+  color: var(--text-normal);
+  font-family: var(--p2md-serif);
+  font-size: clamp(32px, 3.3vw, 44px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin: 0 0 16px;
+}
+
+.p2md-local-welcome p { font-size: 14px; line-height: 1.6; margin: 0 0 24px; }
+.p2md-local-welcome small { color: var(--text-faint); font-size: 11px; margin-top: 14px; }
+.p2md-local-error .p2md-local-primary-button { margin-top: 12px; }
+
+.p2md-local-dialog {
+  background: var(--background-primary);
+  border: 1px solid color-mix(in srgb, var(--text-normal) 18%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgb(20 27 38 / 22%);
+  color: var(--text-normal);
+  max-height: min(82vh, 800px);
+  max-width: min(92vw, 720px);
+  padding: 0;
+  width: 620px;
+}
+
+.p2md-local-dialog::backdrop { background: rgb(18 25 34 / 48%); }
+.p2md-local-dialog-content { max-height: inherit; overflow: auto; padding: 28px; }
+.p2md-local-dialog-content h2 { font-family: var(--p2md-serif); margin: 0 38px 20px 0; }
+.p2md-local-dialog-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-muted);
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 32px;
+  z-index: 2;
+}
+.p2md-local-dialog-close:hover { background: var(--background-modifier-hover); }
+
+.p2md-local-lightbox-dialog { height: min(92vh, 1050px); max-width: min(95vw, 1500px); width: min(94vw, 1400px); }
+.p2md-local-lightbox-dialog .p2md-lightbox { height: 100%; }
+.p2md-local-lightbox-dialog .p2md-lightbox > img { max-height: calc(92vh - 170px); }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background-primary: #171a1f;
+    --background-secondary: #20242a;
+    --background-modifier-hover: #2a3038;
+    --text-normal: #e7e9ec;
+    --text-muted: #a5abb4;
+    --text-faint: #747b85;
+    --text-error: #f97066;
+    --text-warning: #fdb022;
+  }
+}
+
+@media (max-width: 760px) {
+  .p2md-local-reader-view .p2md-toolbar { grid-template-columns: minmax(170px, 1fr) minmax(70px, auto) auto; }
+  .p2md-local-folder-button span { display: none; }
+  .p2md-local-welcome { margin-top: 15vh; }
+  .p2md-local-dialog { width: calc(100vw - 24px); }
+}

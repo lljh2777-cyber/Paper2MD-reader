@@ -1,0 +1,15 @@
+node_modules/
+.npm-cache/
+main.js
+*.map
+.vite/
+coverage/
+dist-local/
+.playwright-cli/
+output/
+sites-reader/.next/
+sites-reader/.wrangler/
+sites-reader/dist/
+sites-reader/next-env.d.ts
+sites-reader/tsconfig.tsbuildinfo
+sites-reader/.dev-server.*.log

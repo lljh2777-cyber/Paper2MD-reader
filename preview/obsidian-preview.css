@@ -1,0 +1,31 @@
+:root {
+  --background-primary: #ffffff;
+  --background-secondary: #f7f8fa;
+  --background-modifier-hover: #eef1f5;
+  --text-normal: #17191d;
+  --text-muted: #68707c;
+  --text-faint: #9aa1aa;
+  --text-error: #bf3434;
+  --text-warning: #a36a10;
+  --font-interface: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { overflow: hidden; }
+button { cursor: pointer; }
+button:focus-visible { outline: 2px solid #184f91; outline-offset: 2px; }
+svg { stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.metadata { color: var(--text-muted); font-size: .88em; }
+
+#lightbox {
+  border: 1px solid #d9dde3;
+  border-radius: 6px;
+  height: 92vh;
+  max-width: 94vw;
+  padding: 38px 18px 18px;
+  width: 1100px;
+}
+#lightbox::backdrop { background: rgba(13, 17, 23, .72); }
+#lightbox > button { background: transparent; border: 0; font-size: 28px; position: absolute; right: 10px; top: 5px; }
+#lightbox img { height: 100%; object-fit: contain; width: 100%; }
