@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { ConversionTask, DESKTOP_CHANNELS, Paper2MDDesktopApi, StartConversionRequest } from "../shared/desktop-api";
+import {
+  ConversionTask,
+  DESKTOP_CHANNELS,
+  Paper2MDDesktopApi,
+  StartConversionRequest,
+  StartReviewedLayoutRequest
+} from "../shared/desktop-api";
 
 const api: Paper2MDDesktopApi = {
   choosePackage: () => ipcRenderer.invoke(DESKTOP_CHANNELS.choosePackage),
@@ -12,6 +18,10 @@ const api: Paper2MDDesktopApi = {
   listFiles: (rootId, directory) => ipcRenderer.invoke(DESKTOP_CHANNELS.listFiles, rootId, directory),
   readPdf: async (pdfId) => new Uint8Array(await ipcRenderer.invoke(DESKTOP_CHANNELS.readPdf, pdfId)),
   startConversion: (request: StartConversionRequest) => ipcRenderer.invoke(DESKTOP_CHANNELS.startConversion, request),
+  startReviewedLayout: (request: StartReviewedLayoutRequest) => ipcRenderer.invoke(DESKTOP_CHANNELS.startReviewedLayout, request),
+  importConfirmedRoi: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.importConfirmedRoi, taskId),
+  revealTaskArtifacts: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.revealTaskArtifacts, taskId),
+  validateAndApplyLayout: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.validateAndApplyLayout, taskId),
   listTasks: () => ipcRenderer.invoke(DESKTOP_CHANNELS.listTasks),
   cancelTask: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.cancelTask, taskId),
   onTaskUpdate: (callback) => {

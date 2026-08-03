@@ -75,10 +75,13 @@ Build the public Web entry with `npm run web:build`. Build the Electron entry wi
 renderer never imports Node or Electron modules. Directory reads, PDF bytes and
 Paper2MD processes cross a context-isolated preload API with fixed IPC methods.
 
-`Process PDF` currently invokes the installed `paper2md convert` command with the
-PDFium backend and a new output directory. This produces a readable direct package;
-reviewed hybrid layout remains a separate Paper2MD workflow until the desktop task
-manager gains structured visual-review orchestration.
+The desktop task rail offers two isolated workflows. `Process PDF (direct)` invokes
+`paper2md convert` for a quick readable package. `Start reviewed layout` orchestrates
+the non-destructive Paper2MD review gates: ROI proposal, confirmed ROI import,
+per-page visual layout review, strict result validation, and `layout-apply`. The
+renderer never supplies raw commands or paths; it advances only registered task IDs
+through fixed IPC methods. Visual models and human reviewers work on the exported
+review artifacts rather than receiving filesystem or Electron privileges.
 
 ## Expected package contract
 
