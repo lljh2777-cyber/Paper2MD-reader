@@ -27,7 +27,7 @@ The visible host-specific copy is limited to the implementation plan's required 
 
 ## Shared workspace migration check
 
-The `apps/web` entry was compared at 1280×720 against
+The `apps/web` entry was compared at the native 1600×900 size against
 `local-reader-welcome-render.png`. The accepted implementation capture is
 `web-shared-workspace-render.png`.
 
