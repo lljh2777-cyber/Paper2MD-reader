@@ -70,6 +70,13 @@ packages/reader-core/     contracts, loading and host interfaces
 packages/reader-ui/       shared article/Figure/caption workspace
 ```
 
+The shared Reader toolbar includes an English/中文 language selector. The choice is
+stored locally and reused by the Web, Electron and Obsidian entries; before a choice
+is saved, the Reader follows the system language. Reader controls, package states,
+visual navigation and desktop workflow controls are translated. Contract diagnostics
+and unexpected backend errors retain their original text so technical evidence is not
+silently rewritten.
+
 Build the public Web entry with `npm run web:build`. Build the Electron entry with
 `npm run desktop:build`, then start it with `npm run desktop:start`. The desktop
 renderer never imports Node or Electron modules. Directory reads, PDF bytes and

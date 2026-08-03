@@ -12,10 +12,18 @@ import {
 } from "../shared/desktop-api";
 import { DesktopPackagePicker } from "./desktop-package-picker";
 import { ElectronReaderFileSystem } from "./electron-reader-file-system";
+import {
+  getReaderLocale,
+  readerText,
+  ReaderLocale,
+  subscribeReaderLocale
+} from "../../../../src/ui/locale";
+import { desktopText, localizedTaskMessage, localizedTaskState } from "./desktop-copy";
 
 const api = window.paper2mdDesktop;
 const root = document.querySelector<HTMLElement>("#desktop-app");
 if (!root) throw new Error("Desktop application root is missing");
+let locale: ReaderLocale = getReaderLocale();
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -26,19 +34,22 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
 function optionSelect<T extends string>(labelText: string, values: Array<{ value: T; label: string }>): {
   wrapper: HTMLLabelElement;
   select: HTMLSelectElement;
+  label: HTMLSpanElement;
+  options: HTMLOptionElement[];
 } {
   const wrapper = element("label", "p2md-desktop-option");
   const label = element("span");
   label.textContent = labelText;
   const select = element("select");
-  values.forEach(({ value, label: optionLabel }) => {
+  const options = values.map(({ value, label: optionLabel }) => {
     const option = element("option");
     option.value = value;
     option.textContent = optionLabel;
     select.appendChild(option);
+    return option;
   });
   wrapper.append(label, select);
-  return { wrapper, select };
+  return { wrapper, select, label, options };
 }
 
 const shell = element("div", "p2md-desktop-shell");
@@ -108,16 +119,72 @@ root.appendChild(shell);
 
 const workspace = mountReaderWorkspace(readerHost, {
   picker: new DesktopPackagePicker(api),
-  title: "Paper2MD Reader Desktop",
-  emptyTitle: "Open or process a paper",
-  emptyCopy: "Open an existing Paper2MD package, or process a local PDF from the task panel.",
-  emptyNote: "Local filesystem access is isolated behind the desktop adapter",
-  openLabel: "Open package"
+  localizedCopy: {
+    en: {
+      title: readerText("en", "desktopReaderTitle"),
+      emptyTitle: readerText("en", "desktopEmptyTitle"),
+      emptyCopy: readerText("en", "desktopEmptyCopy"),
+      emptyNote: readerText("en", "desktopEmptyNote"),
+      toolbarOpenLabel: readerText("en", "openPackage"),
+      emptyOpenLabel: readerText("en", "openPackage"),
+      unselectedLabel: readerText("en", "noPackageSelected")
+    },
+    "zh-CN": {
+      title: readerText("zh-CN", "desktopReaderTitle"),
+      emptyTitle: readerText("zh-CN", "desktopEmptyTitle"),
+      emptyCopy: readerText("zh-CN", "desktopEmptyCopy"),
+      emptyNote: readerText("zh-CN", "desktopEmptyNote"),
+      toolbarOpenLabel: readerText("zh-CN", "openPackage"),
+      emptyOpenLabel: readerText("zh-CN", "openPackage"),
+      unselectedLabel: readerText("zh-CN", "noPackageSelected")
+    }
+  }
 });
 
 const tasks = new Map<string, ConversionTask>();
 const taskErrors = new Map<string, string>();
 let pdfUrl: string | undefined;
+let selectedPdfName: string | undefined;
+let startButtonsBusy = false;
+
+function updateOptionControl(
+  control: { label: HTMLSpanElement; options: HTMLOptionElement[] },
+  label: string,
+  optionLabels: string[]
+): void {
+  control.label.textContent = label;
+  control.options.forEach((option, index) => {
+    option.textContent = optionLabels[index];
+  });
+}
+
+function applyDesktopLocale(nextLocale: ReaderLocale): void {
+  locale = nextLocale;
+  document.title = readerText(locale, "desktopReaderTitle");
+  taskTitle.textContent = desktopText(locale, "tasks");
+  taskCopy.textContent = desktopText(locale, "taskCopy");
+  updateOptionControl(profileControl, desktopText(locale, "extraction"), [
+    desktopText(locale, "standard"), desktopText(locale, "fast"), desktopText(locale, "forensic")
+  ]);
+  updateOptionControl(reviewModeControl, desktopText(locale, "reviewInput"), [
+    desktopText(locale, "visualDirect"), desktopText(locale, "candidateAssisted")
+  ]);
+  updateOptionControl(referencesControl, desktopText(locale, "references"), [
+    desktopText(locale, "keep"), desktopText(locale, "separate"), desktopText(locale, "omit")
+  ]);
+  updateOptionControl(evidenceControl, desktopText(locale, "evidence"), [
+    desktopText(locale, "standard"), desktopText(locale, "minimal"), desktopText(locale, "full")
+  ]);
+  sourcePdfText.textContent = desktopText(locale, "includeSourcePdf");
+  setStartButtonsDisabled(startButtonsBusy);
+  if (!selectedPdfName) {
+    pdfLabel.textContent = desktopText(locale, "pdfPreview");
+    if (pdfContent.classList.contains("p2md-desktop-pdf-empty")) {
+      pdfContent.textContent = desktopText(locale, "previewEmpty");
+    }
+  }
+  renderTasks();
+}
 
 function actionButton(label: string, callback: () => Promise<void>, tone?: "quiet"): HTMLButtonElement {
   const button = element("button", "p2md-desktop-task-action");
@@ -144,7 +211,7 @@ function renderTasks(): void {
   const ordered = [...tasks.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   if (!ordered.length) {
     const empty = element("p");
-    empty.textContent = "No conversion tasks yet.";
+    empty.textContent = desktopText(locale, "noTasks");
     taskList.appendChild(empty);
     return;
   }
@@ -156,12 +223,12 @@ function renderTasks(): void {
     const name = element("strong");
     name.textContent = task.pdfName;
     const workflow = element("small");
-    const recoveryLabel = task.recovered ? " · recovered" : "";
+    const recoveryLabel = task.recovered ? ` · ${desktopText(locale, "recovered")}` : "";
     workflow.textContent = task.workflow === "reviewed-layout"
-      ? `Reviewed · ${task.stage}${recoveryLabel}`
-      : `Direct conversion${recoveryLabel}`;
+      ? `${desktopText(locale, "reviewed")} · ${task.stage}${recoveryLabel}`
+      : `${desktopText(locale, "directConversion")}${recoveryLabel}`;
     const state = element("span");
-    state.textContent = `${task.state} · ${task.message}`;
+    state.textContent = `${localizedTaskState(task, locale)} · ${localizedTaskMessage(task, locale)}`;
     item.append(name, workflow, state);
     const actionError = taskErrors.get(task.id);
     if (actionError) {
@@ -171,7 +238,7 @@ function renderTasks(): void {
     }
     const actions = element("div", "p2md-desktop-task-actions");
     if (task.state === "succeeded" && task.packageRootId) {
-      actions.appendChild(actionButton("Open result", async () => {
+      actions.appendChild(actionButton(desktopText(locale, "openResult"), async () => {
         await workspace.attachFileSystem(new ElectronReaderFileSystem(api, {
           id: task.packageRootId!,
           label: task.outputName
@@ -180,13 +247,13 @@ function renderTasks(): void {
     }
     if (task.artifactRootId) {
       actions.appendChild(actionButton(
-        task.state === "succeeded" ? "Show files" : "Open review folder",
+        task.state === "succeeded" ? desktopText(locale, "showFiles") : desktopText(locale, "openReviewFolder"),
         () => api.revealTaskArtifacts(task.id),
         "quiet"
       ));
     }
     if (task.state === "awaiting-review" && task.stage === "roi-review") {
-      actions.appendChild(actionButton("Import confirmed ROI", async () => {
+      actions.appendChild(actionButton(desktopText(locale, "importRoi"), async () => {
         const updated = await api.importConfirmedRoi(task.id);
         if (updated) {
           taskErrors.delete(task.id);
@@ -196,7 +263,7 @@ function renderTasks(): void {
       }));
     }
     if (task.state === "awaiting-review" && task.stage === "layout-review") {
-      actions.appendChild(actionButton("Validate & build", async () => {
+      actions.appendChild(actionButton(desktopText(locale, "validateBuild"), async () => {
         const updated = await api.validateAndApplyLayout(task.id);
         taskErrors.delete(task.id);
         tasks.set(updated.id, updated);
@@ -204,12 +271,12 @@ function renderTasks(): void {
       }));
     }
     if (task.state === "running" || task.state === "queued") {
-      actions.appendChild(actionButton("Cancel", async () => {
+      actions.appendChild(actionButton(desktopText(locale, "cancel"), async () => {
         await api.cancelTask(task.id);
       }, "quiet"));
     }
     if (managedTask && (task.state === "failed" || task.state === "cancelled")) {
-      actions.appendChild(actionButton("Retry", async () => {
+      actions.appendChild(actionButton(desktopText(locale, "retry"), async () => {
         const updated = await api.resumeTask(task.id);
         taskErrors.delete(task.id);
         tasks.set(updated.id, updated);
@@ -217,7 +284,7 @@ function renderTasks(): void {
       }));
     }
     if (managedTask && ["succeeded", "failed", "cancelled"].includes(task.state)) {
-      actions.appendChild(actionButton("Remove record", async () => {
+      actions.appendChild(actionButton(desktopText(locale, "removeRecord"), async () => {
         if (await api.removeTask(task.id)) {
           taskErrors.delete(task.id);
           tasks.delete(task.id);
@@ -236,8 +303,9 @@ async function showPdf(pdf: DesktopPdfSelection): Promise<void> {
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   pdfUrl = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
   pdfLabel.textContent = pdf.name;
+  selectedPdfName = pdf.name;
   const frame = element("iframe", "p2md-desktop-pdf-frame");
-  frame.title = `PDF preview: ${pdf.name}`;
+  frame.title = `${desktopText(locale, "pdfPreview")}: ${pdf.name}`;
   frame.src = pdfUrl;
   pdfContent.replaceWith(frame);
   pdfContent = frame;
@@ -247,7 +315,7 @@ function addRequestError(message: string): void {
   const now = new Date().toISOString();
   const failed: ConversionTask = {
     id: `local-${Date.now()}`,
-    pdfName: "Workflow request",
+    pdfName: desktopText(locale, "workflowRequest"),
     outputName: "",
     workflow: "direct",
     stage: "direct-convert",
@@ -270,7 +338,7 @@ async function chooseWorkflowInputs(): Promise<{ pdf: DesktopPdfSelection; outpu
 }
 
 async function startDirectConversion(): Promise<void> {
-  setStartButtonsDisabled(true, "Selecting…");
+  setStartButtonsDisabled(true, desktopText(locale, "selecting"));
   try {
     const input = await chooseWorkflowInputs();
     if (!input) return;
@@ -290,7 +358,7 @@ async function startDirectConversion(): Promise<void> {
 }
 
 async function startReviewedLayout(): Promise<void> {
-  setStartButtonsDisabled(true, "Selecting…");
+  setStartButtonsDisabled(true, desktopText(locale, "selecting"));
   try {
     const input = await chooseWorkflowInputs();
     if (!input) return;
@@ -314,10 +382,12 @@ async function startReviewedLayout(): Promise<void> {
 }
 
 function setStartButtonsDisabled(disabled: boolean, temporaryLabel?: string): void {
+  startButtonsBusy = disabled;
   reviewedButton.disabled = disabled;
   processButton.disabled = disabled;
-  reviewedButton.textContent = temporaryLabel ?? "Start reviewed layout";
-  processButton.textContent = temporaryLabel ?? "Process PDF (direct)";
+  const busyLabel = disabled ? desktopText(locale, "selecting") : undefined;
+  reviewedButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "startReviewed");
+  processButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "processDirect");
 }
 
 processButton.addEventListener("click", () => void startDirectConversion());
@@ -327,14 +397,17 @@ const stopTaskUpdates = api.onTaskUpdate((task) => {
   tasks.set(task.id, task);
   renderTasks();
 });
+const stopDesktopLocale = subscribeReaderLocale((nextLocale) => applyDesktopLocale(nextLocale));
 void api.listTasks().then((existing) => {
   existing.forEach((task) => tasks.set(task.id, task));
   renderTasks();
 });
+applyDesktopLocale(locale);
 renderTasks();
 
 window.addEventListener("beforeunload", () => {
   stopTaskUpdates();
+  stopDesktopLocale();
   workspace.destroy();
   if (pdfUrl) URL.revokeObjectURL(pdfUrl);
 }, { once: true });

@@ -8,7 +8,14 @@ import { bindContractAssets, renderArticle, RenderedArticle } from "../render/ar
 import { UnsafeMarkdownResourceError } from "../render/markdown-resource-policy";
 import { FigurePresentation, FigureSidebar } from "../render/figure-sidebar";
 import { ScrollController } from "../sync/scroll-controller";
-import { STATUS_COPY } from "../ui/status-copy";
+import {
+  getReaderLocale,
+  readerText,
+  ReaderLocale,
+  setReaderLocale,
+  subscribeReaderLocale
+} from "../ui/locale";
+import { statusCopy } from "../ui/status-copy";
 
 export const PAPER2MD_READER_VIEW = "paper2md-reader-view";
 
@@ -34,6 +41,8 @@ export class Paper2MDReaderView extends ItemView {
   private package?: LoadedPaperPackage;
   private fileSystem?: ReaderFileSystem;
   private readonly scrollController = new ScrollController();
+  private locale: ReaderLocale = getReaderLocale();
+  private stopLocaleSubscription?: () => void;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -45,7 +54,7 @@ export class Paper2MDReaderView extends ItemView {
   }
 
   getDisplayText(): string {
-    return this.articlePath ? `Paper2MD · ${this.articlePath.split("/").pop()}` : "Paper2MD Reader";
+    return this.articlePath ? `Paper2MD · ${this.articlePath.split("/").pop()}` : readerText(this.locale, "readerTitle");
   }
 
   getIcon(): string {
@@ -63,13 +72,21 @@ export class Paper2MDReaderView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    document.documentElement.lang = this.locale;
     this.renderShell();
     await this.loadCurrentArticle();
+    this.stopLocaleSubscription = subscribeReaderLocale((locale) => {
+      if (locale === this.locale) return;
+      this.locale = locale;
+      this.renderShell();
+      void this.loadCurrentArticle();
+    });
   }
 
   async onClose(): Promise<void> {
     this.scrollController.disconnect();
     this.fileSystem?.dispose();
+    this.stopLocaleSubscription?.();
   }
 
   private renderShell(): void {
@@ -81,30 +98,41 @@ export class Paper2MDReaderView extends ItemView {
     const leading = createElement("div", "p2md-toolbar-group");
     const closeButton = createElement("button", "p2md-icon-button");
     closeButton.type = "button";
-    closeButton.ariaLabel = "Close Paper2MD Reader";
+    closeButton.ariaLabel = readerText(this.locale, "closeReader");
     setIcon(closeButton, "arrow-left");
     closeButton.addEventListener("click", () => this.leaf.detach());
     const title = createElement("strong", "p2md-view-title");
-    title.textContent = "Paper2MD Reader";
+    title.textContent = readerText(this.locale, "readerTitle");
     leading.append(closeButton, title);
 
     this.fileLabel = createElement("div", "p2md-file-label");
-    this.fileLabel.textContent = "No article";
+    this.fileLabel.textContent = readerText(this.locale, "noArticle");
 
     const trailing = createElement("div", "p2md-toolbar-group p2md-toolbar-trailing");
     this.diagnosticsButton = createElement("button", "p2md-contract-status");
     this.diagnosticsButton.type = "button";
     this.diagnosticsButton.disabled = true;
     this.statusLabel = createElement("span");
-    this.statusLabel.textContent = "No package";
+    this.statusLabel.textContent = readerText(this.locale, "noPackage");
     this.diagnosticsButton.appendChild(this.statusLabel);
     this.diagnosticsButton.addEventListener("click", () => this.openDiagnostics());
+    const languageSelect = createElement("select", "p2md-language-select");
+    languageSelect.ariaLabel = readerText(this.locale, "language");
+    const english = createElement("option");
+    english.value = "en";
+    english.textContent = readerText(this.locale, "english");
+    const chinese = createElement("option");
+    chinese.value = "zh-CN";
+    chinese.textContent = readerText(this.locale, "chinese");
+    languageSelect.append(english, chinese);
+    languageSelect.value = this.locale;
+    languageSelect.addEventListener("change", () => setReaderLocale(languageSelect.value as ReaderLocale));
     const refreshButton = createElement("button", "p2md-icon-button");
     refreshButton.type = "button";
-    refreshButton.ariaLabel = "Reload article";
+    refreshButton.ariaLabel = readerText(this.locale, "reloadArticle");
     setIcon(refreshButton, "refresh-cw");
     refreshButton.addEventListener("click", () => void this.loadCurrentArticle());
-    trailing.append(this.diagnosticsButton, refreshButton);
+    trailing.append(languageSelect, this.diagnosticsButton, refreshButton);
 
     toolbar.append(leading, this.fileLabel, trailing);
 
@@ -118,6 +146,7 @@ export class Paper2MDReaderView extends ItemView {
     this.contentEl.appendChild(reader);
 
     this.sidebar = new FigureSidebar(this.figureHost, {
+      locale: this.locale,
       onOpenImage: (figure) => this.openLightbox(figure),
       onSelectionChange: (figure, followingReading) => {
         if (followingReading) figure.slotElement?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -129,13 +158,13 @@ export class Paper2MDReaderView extends ItemView {
     this.scrollController.disconnect();
     if (!this.articleContent || !this.articleScroll || !this.figureHost || !this.sidebar) return;
     if (!this.articlePath) {
-      this.renderEmptyState("Open an article.md file, then run “Open in Paper2MD Reader”.");
+      this.renderEmptyState(readerText(this.locale, "openArticleInstruction"));
       return;
     }
 
     const file = this.app.vault.getAbstractFileByPath(this.articlePath);
     if (!(file instanceof TFile)) {
-      this.renderEmptyState(`Article not found: ${this.articlePath}`);
+      this.renderEmptyState(readerText(this.locale, "articleNotFound", { path: this.articlePath }));
       return;
     }
 
@@ -162,9 +191,9 @@ export class Paper2MDReaderView extends ItemView {
       console.error("Paper2MD Reader failed to load", error);
       const message = error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
         ? error.message
-        : "The paper could not be loaded. Open diagnostics or retry.";
+        : readerText(this.locale, "articleLoadFailed");
       this.renderEmptyState(message);
-      new Notice("Paper2MD Reader could not load this article.");
+      new Notice(readerText(this.locale, "articleLoadNotice"));
     } finally {
       this.articleContent.removeAttribute("aria-busy");
     }
@@ -201,7 +230,7 @@ export class Paper2MDReaderView extends ItemView {
   }
 
   private updateStatus(loaded: LoadedPaperPackage): void {
-    const status = STATUS_COPY[loaded.state];
+    const status = statusCopy(loaded.state, this.locale);
     this.statusLabel!.textContent = status.label;
     this.diagnosticsButton!.dataset.tone = status.tone;
     this.diagnosticsButton!.disabled = false;
@@ -213,7 +242,7 @@ export class Paper2MDReaderView extends ItemView {
     this.articleContent.empty();
     const empty = createElement("div", "p2md-reader-empty");
     const title = createElement("h2");
-    title.textContent = "Paper2MD Reader";
+    title.textContent = readerText(this.locale, "readerTitle");
     const copy = createElement("p");
     copy.textContent = message;
     empty.append(title, copy);
@@ -223,7 +252,7 @@ export class Paper2MDReaderView extends ItemView {
 
   private openDiagnostics(): void {
     if (!this.package) return;
-    new DiagnosticsModal(this.app, this.package).open();
+    new DiagnosticsModal(this.app, this.package, this.locale).open();
   }
 
   private openLightbox(figure: FigurePresentation): void {
@@ -232,23 +261,27 @@ export class Paper2MDReaderView extends ItemView {
 }
 
 class DiagnosticsModal extends Modal {
-  constructor(app: import("obsidian").App, private readonly loaded: LoadedPaperPackage) {
+  constructor(
+    app: import("obsidian").App,
+    private readonly loaded: LoadedPaperPackage,
+    private readonly locale: ReaderLocale
+  ) {
     super(app);
   }
 
   onOpen(): void {
     const { contentEl } = this;
     contentEl.addClass("p2md-diagnostics");
-    contentEl.createEl("h2", { text: "Reader diagnostics" });
+    contentEl.createEl("h2", { text: readerText(this.locale, "readerDiagnostics") });
     const summary = contentEl.createDiv({ cls: "p2md-diagnostic-summary" });
-    summary.createEl("strong", { text: STATUS_COPY[this.loaded.state].label });
-    summary.createEl("span", { text: this.loaded.contractVersion ?? "No reader contract" });
+    summary.createEl("strong", { text: statusCopy(this.loaded.state, this.locale).label });
+    summary.createEl("span", { text: this.loaded.contractVersion ?? readerText(this.locale, "noReaderContract") });
     const list = contentEl.createEl("ul");
     for (const diagnostic of this.loaded.diagnostics) {
       const item = list.createEl("li", { text: diagnostic.message });
       item.dataset.level = diagnostic.level;
     }
-    if (!this.loaded.diagnostics.length) list.createEl("li", { text: "No contract problems detected." });
+    if (!this.loaded.diagnostics.length) list.createEl("li", { text: readerText(this.locale, "noContractProblems") });
   }
 
   onClose(): void {

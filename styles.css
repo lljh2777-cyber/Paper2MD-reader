@@ -45,6 +45,23 @@
   justify-content: flex-end;
 }
 
+.p2md-language-select {
+  background: var(--p2md-paper);
+  border: 1px solid var(--p2md-border);
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-family: var(--p2md-sans);
+  font-size: 11px;
+  min-height: 28px;
+  padding: 3px 5px;
+}
+
+.p2md-language-select:focus-visible {
+  border-color: var(--p2md-accent);
+  outline: 2px solid color-mix(in srgb, var(--p2md-accent) 30%, transparent);
+  outline-offset: 1px;
+}
+
 .p2md-view-title,
 .p2md-file-label,
 .p2md-contract-status,

@@ -1,0 +1,152 @@
+import { ConversionTask } from "../shared/desktop-api";
+import { ReaderLocale } from "../../../../src/ui/locale";
+
+const ENGLISH = {
+  tasks: "Paper2MD tasks",
+  taskCopy: "Use direct conversion, or pause at ROI and layout review gates for an auditable visual workflow.",
+  extraction: "Extraction",
+  reviewInput: "Review input",
+  references: "References",
+  evidence: "Evidence",
+  includeSourcePdf: "Include source PDF",
+  startReviewed: "Start reviewed layout",
+  processDirect: "Process PDF (direct)",
+  pdfPreview: "PDF preview",
+  previewEmpty: "Choose a workflow to preview the source document here.",
+  noTasks: "No conversion tasks yet.",
+  directConversion: "Direct conversion",
+  reviewed: "Reviewed",
+  recovered: "recovered",
+  openResult: "Open result",
+  showFiles: "Show files",
+  openReviewFolder: "Open review folder",
+  importRoi: "Import confirmed ROI",
+  validateBuild: "Validate & build",
+  cancel: "Cancel",
+  retry: "Retry",
+  removeRecord: "Remove record",
+  selecting: "Selecting…",
+  workflowRequest: "Workflow request",
+  standard: "Standard",
+  fast: "Fast",
+  forensic: "Forensic",
+  visualDirect: "Visual direct",
+  candidateAssisted: "Candidate assisted",
+  keep: "Keep",
+  separate: "Separate",
+  omit: "Omit",
+  minimal: "Minimal",
+  full: "Full",
+  queued: "queued",
+  running: "running",
+  awaitingReview: "awaiting review",
+  succeeded: "succeeded",
+  failed: "failed",
+  cancelled: "cancelled"
+} as const;
+
+type DesktopCopyKey = keyof typeof ENGLISH;
+
+const CHINESE: Record<DesktopCopyKey, string> = {
+  tasks: "Paper2MD 任务",
+  taskCopy: "可直接转换 PDF，也可在 ROI 和布局审阅门暂停，执行可审计的视觉工作流。",
+  extraction: "提取配置",
+  reviewInput: "审阅输入",
+  references: "参考文献",
+  evidence: "证据级别",
+  includeSourcePdf: "包含原始 PDF",
+  startReviewed: "启动审阅式布局",
+  processDirect: "直接处理 PDF",
+  pdfPreview: "PDF 预览",
+  previewEmpty: "请选择一种工作流，源 PDF 将显示在这里。",
+  noTasks: "暂无转换任务。",
+  directConversion: "直接转换",
+  reviewed: "审阅式布局",
+  recovered: "已恢复",
+  openResult: "打开结果",
+  showFiles: "显示文件",
+  openReviewFolder: "打开审阅文件夹",
+  importRoi: "导入已确认 ROI",
+  validateBuild: "校验并构建",
+  cancel: "取消",
+  retry: "重试",
+  removeRecord: "移除记录",
+  selecting: "正在选择…",
+  workflowRequest: "工作流请求",
+  standard: "标准",
+  fast: "快速",
+  forensic: "取证级",
+  visualDirect: "视觉直接审阅",
+  candidateAssisted: "候选框辅助",
+  keep: "保留",
+  separate: "分离",
+  omit: "省略",
+  minimal: "最少",
+  full: "完整",
+  queued: "排队中",
+  running: "运行中",
+  awaitingReview: "等待审阅",
+  succeeded: "已完成",
+  failed: "失败",
+  cancelled: "已取消"
+};
+
+const COPY: Record<ReaderLocale, Record<DesktopCopyKey, string>> = { en: ENGLISH, "zh-CN": CHINESE };
+
+export function desktopText(locale: ReaderLocale, key: DesktopCopyKey): string {
+  return COPY[locale][key];
+}
+
+const CHINESE_MESSAGES: Record<string, string> = {
+  "Conversion finished": "转换完成",
+  "Review content-roi.json and page ROI previews, then import the confirmed ROI": "请审阅 content-roi.json 和逐页 ROI 预览，然后导入已确认 ROI",
+  "All page layouts passed; building the reviewed package": "所有页面布局均已通过，正在构建审阅式内容包",
+  "Reviewed layout package finished": "审阅式布局内容包已完成",
+  "Cancelled by user": "用户已取消",
+  "Retrying direct conversion": "正在重试直接转换",
+  "ROI proposal is ready for confirmation": "ROI 提案已可确认",
+  "Retrying the ROI proposal": "正在重试 ROI 提案",
+  "Retrying layout review preparation": "正在重试布局审阅准备",
+  "Retrying layout validation and package build": "正在重试布局校验和内容包构建",
+  "Paper2MD is processing the PDF": "Paper2MD 正在处理 PDF",
+  "Preparing a non-destructive content ROI proposal": "正在准备非破坏性的正文 ROI 提案",
+  "Confirmed ROI imported; preparing per-page visual review tasks": "已导入确认 ROI，正在准备逐页视觉审阅任务",
+  "Checking every page review result": "正在检查每一页的审阅结果",
+  "Interrupted when the desktop app closed; retry from the recorded stage": "桌面应用关闭时任务被中断，可从已记录阶段重试",
+  "Recovered completed direct conversion": "已恢复完成的直接转换",
+  "Direct conversion was interrupted; retry only after removing any partial output": "直接转换曾被中断；移除残留的部分输出后方可重试",
+  "Recovered completed reviewed package": "已恢复完成的审阅式内容包",
+  "Layout apply was interrupted; partial output must be inspected and removed before retry": "布局应用曾被中断；重试前必须检查并移除部分输出",
+  "Recovered layout review files, but the source PDF is unavailable": "已恢复布局审阅文件，但源 PDF 不可用",
+  "Layout preparation was interrupted; remove any partial 02-layout-review folder, then retry": "布局准备曾被中断；请移除残留的 02-layout-review 文件夹后重试",
+  "Confirmed ROI was recovered, but the source PDF is unavailable": "已恢复确认 ROI，但源 PDF 不可用",
+  "Recovered ROI proposal; review and import a confirmed ROI": "已恢复 ROI 提案；请审阅并导入确认 ROI",
+  "Recovered ROI proposal, but the source PDF is unavailable": "已恢复 ROI 提案，但源 PDF 不可用",
+  "ROI preparation was interrupted; remove any partial 01-roi-proposal folder, then retry": "ROI 准备曾被中断；请移除残留的 01-roi-proposal 文件夹后重试",
+  "Reviewed task cannot resume because the source PDF is unavailable": "源 PDF 不可用，无法恢复审阅任务"
+};
+
+export function localizedTaskMessage(task: ConversionTask, locale: ReaderLocale): string {
+  if (locale === "en") return task.message;
+  const exact = CHINESE_MESSAGES[task.message];
+  if (exact) return exact;
+  const ready = task.message.match(/^(\d+) page review tasks are ready; add final-layout\.json to every page$/);
+  if (ready) return `${ready[1]} 个页面审阅任务已就绪；请为每页添加 final-layout.json`;
+  const validating = task.message.match(/^Validating page (\d+) of (\d+)$/);
+  if (validating) return `正在校验第 ${validating[1]}/${validating[2]} 页`;
+  const recovered = task.message.match(/^Recovered (\d+) page review tasks; confirm final-layout\.json files before building$/);
+  if (recovered) return `已恢复 ${recovered[1]} 个页面审阅任务；构建前请确认所有 final-layout.json`;
+  return task.message;
+}
+
+export function localizedTaskState(task: ConversionTask, locale: ReaderLocale): string {
+  const keys = {
+    queued: "queued",
+    running: "running",
+    "awaiting-review": "awaitingReview",
+    succeeded: "succeeded",
+    failed: "failed",
+    cancelled: "cancelled"
+  } as const;
+  return desktopText(locale, keys[task.state]);
+}

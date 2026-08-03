@@ -9,7 +9,14 @@ import { setReaderIcon } from "../../../src/render/icons";
 import { renderLocalArticle } from "../../../src/render/local-article-renderer";
 import { UnsafeMarkdownResourceError } from "../../../src/render/markdown-resource-policy";
 import { ScrollController } from "../../../src/sync/scroll-controller";
-import { STATUS_COPY } from "../../../src/ui/status-copy";
+import {
+  getReaderLocale,
+  readerText,
+  ReaderLocale,
+  setReaderLocale,
+  subscribeReaderLocale
+} from "../../../src/ui/locale";
+import { statusCopy } from "../../../src/ui/status-copy";
 import type { ReaderPackagePicker } from "../../reader-core/src/index";
 
 export interface ReaderWorkspaceOptions {
@@ -22,6 +29,17 @@ export interface ReaderWorkspaceOptions {
   toolbarOpenLabel?: string;
   emptyOpenLabel?: string;
   unselectedLabel?: string;
+  localizedCopy?: Partial<Record<ReaderLocale, Partial<ReaderWorkspaceLocalizedCopy>>>;
+}
+
+export interface ReaderWorkspaceLocalizedCopy {
+  title: string;
+  emptyTitle: string;
+  emptyCopy: string;
+  emptyNote: string;
+  toolbarOpenLabel: string;
+  emptyOpenLabel: string;
+  unselectedLabel: string;
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
@@ -52,17 +70,44 @@ export class ReaderWorkspace {
   private reloadButton!: HTMLButtonElement;
   private figureSidebar!: FigureSidebar;
   private readonly scrollController = new ScrollController();
+  private locale: ReaderLocale = getReaderLocale();
+  private readonly stopLocaleSubscription: () => void;
 
   constructor(private readonly root: HTMLElement, private readonly options: ReaderWorkspaceOptions) {
+    if (typeof document !== "undefined") document.documentElement.lang = this.locale;
     this.renderShell();
     this.renderWelcome();
+    this.stopLocaleSubscription = subscribeReaderLocale((locale) => this.applyLocale(locale));
   }
 
   destroy(): void {
     this.scrollController.disconnect();
     this.fileSystem?.dispose();
     this.options.picker.dispose?.();
+    this.stopLocaleSubscription();
     this.root.replaceChildren();
+  }
+
+  private localizedCopy(key: keyof ReaderWorkspaceLocalizedCopy, fallback: Parameters<typeof readerText>[1]): string {
+    const localized = this.options.localizedCopy?.[this.locale]?.[key];
+    if (localized) return localized;
+    const openFallback = key === "toolbarOpenLabel" || key === "emptyOpenLabel" ? this.options.openLabel : undefined;
+    const legacy = this.locale === "en" ? this.options[key] ?? openFallback : undefined;
+    return legacy ?? readerText(this.locale, fallback);
+  }
+
+  private applyLocale(locale: ReaderLocale): void {
+    if (locale === this.locale) return;
+    this.locale = locale;
+    this.scrollController.disconnect();
+    this.renderShell();
+    if (this.fileSystem) {
+      this.fileLabel.textContent = this.fileSystem.rootLabel;
+      this.reloadButton.disabled = false;
+      void this.loadPackage();
+    } else {
+      this.renderWelcome();
+    }
   }
 
   async attachFileSystem(fileSystem: ReaderFileSystem): Promise<void> {
@@ -80,28 +125,39 @@ export class ReaderWorkspace {
     const toolbar = element("header", "p2md-toolbar");
     const leading = element("div", "p2md-toolbar-group");
     const title = element("strong", "p2md-view-title");
-    title.textContent = this.options.title ?? "Paper2MD Reader";
-    const chooseButton = button(this.options.toolbarOpenLabel ?? this.options.openLabel ?? "Open folder", "p2md-local-folder-button", "folder");
+    title.textContent = this.localizedCopy("title", "readerTitle");
+    const chooseButton = button(this.localizedCopy("toolbarOpenLabel", "openFolder"), "p2md-local-folder-button", "folder");
     chooseButton.addEventListener("click", () => void this.choosePackage());
     leading.append(title, chooseButton);
 
     this.fileLabel = element("div", "p2md-file-label");
-    this.fileLabel.textContent = this.options.unselectedLabel ?? "No package selected";
+    this.fileLabel.textContent = this.localizedCopy("unselectedLabel", "noPackageSelected");
     const trailing = element("div", "p2md-toolbar-group p2md-toolbar-trailing");
+    const languageSelect = element("select", "p2md-language-select");
+    languageSelect.ariaLabel = readerText(this.locale, "language");
+    const english = element("option");
+    english.value = "en";
+    english.textContent = readerText(this.locale, "english");
+    const chinese = element("option");
+    chinese.value = "zh-CN";
+    chinese.textContent = readerText(this.locale, "chinese");
+    languageSelect.append(english, chinese);
+    languageSelect.value = this.locale;
+    languageSelect.addEventListener("change", () => setReaderLocale(languageSelect.value as ReaderLocale));
     this.statusButton = element("button", "p2md-contract-status");
     this.statusButton.type = "button";
     this.statusButton.disabled = true;
     this.statusLabel = element("span");
-    this.statusLabel.textContent = "No package";
+    this.statusLabel.textContent = readerText(this.locale, "noPackage");
     this.statusButton.appendChild(this.statusLabel);
     this.statusButton.addEventListener("click", () => this.openDiagnostics());
     this.reloadButton = element("button", "p2md-icon-button");
     this.reloadButton.type = "button";
-    this.reloadButton.ariaLabel = "Reload package";
+    this.reloadButton.ariaLabel = readerText(this.locale, "reloadPackage");
     this.reloadButton.disabled = true;
     setReaderIcon(this.reloadButton, "refresh");
     this.reloadButton.addEventListener("click", () => void this.loadPackage());
-    trailing.append(this.statusButton, this.reloadButton);
+    trailing.append(languageSelect, this.statusButton, this.reloadButton);
     toolbar.append(leading, this.fileLabel, trailing);
 
     const workspace = element("div", "p2md-reader-workspace");
@@ -114,6 +170,7 @@ export class ReaderWorkspace {
     this.root.replaceChildren(reader);
 
     this.figureSidebar = new FigureSidebar(figureHost, {
+      locale: this.locale,
       onOpenImage: (figure) => this.openLightbox(figure),
       onSelectionChange: (figure, followingReading) => {
         if (followingReading) figure.slotElement?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -127,7 +184,7 @@ export class ReaderWorkspace {
       if (fileSystem) await this.attachFileSystem(fileSystem);
     } catch (error) {
       console.error("Could not open Paper2MD package", error);
-      this.renderFailure("The selected package could not be opened.");
+      this.renderFailure(readerText(this.locale, "selectedPackageOpenFailed"));
     }
   }
 
@@ -136,12 +193,12 @@ export class ReaderWorkspace {
     this.scrollController.disconnect();
     this.articleContent.setAttribute("aria-busy", "true");
     this.statusButton.disabled = true;
-    this.statusLabel.textContent = "Loading…";
+    this.statusLabel.textContent = readerText(this.locale, "loading");
     this.root.dataset.state = "loading";
     try {
       if (!await this.fileSystem.exists("article.md")) {
         this.loaded = undefined;
-        this.renderFailure("This folder does not contain article.md.");
+        this.renderFailure(readerText(this.locale, "missingArticle"));
         return;
       }
       const loaded = await new PackageLoader(this.fileSystem).load("article.md");
@@ -160,7 +217,7 @@ export class ReaderWorkspace {
       this.loaded = undefined;
       const message = error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
         ? error.message
-        : "The paper package could not be loaded. Check the folder and retry.";
+        : readerText(this.locale, "packageLoadFailed");
       this.renderFailure(message);
     } finally {
       this.articleContent.removeAttribute("aria-busy");
@@ -207,7 +264,7 @@ export class ReaderWorkspace {
   }
 
   private updateStatus(loaded: LoadedPaperPackage): void {
-    const status = STATUS_COPY[loaded.state];
+    const status = statusCopy(loaded.state, this.locale);
     this.statusLabel.textContent = status.label;
     this.statusButton.dataset.tone = status.tone;
     this.statusButton.disabled = false;
@@ -219,13 +276,13 @@ export class ReaderWorkspace {
     this.articleContent.replaceChildren();
     const empty = element("div", "p2md-reader-empty p2md-local-welcome");
     const title = element("h1");
-    title.textContent = this.options.emptyTitle ?? "Read a Paper2MD package";
+    title.textContent = this.localizedCopy("emptyTitle", "readPackage");
     const copy = element("p");
-    copy.textContent = this.options.emptyCopy ?? "Choose a folder containing article.md and _paper2md/reader.json.";
-    const openButton = button(this.options.emptyOpenLabel ?? this.options.openLabel ?? "Open paper folder", "p2md-local-primary-button", "folder");
+    copy.textContent = this.localizedCopy("emptyCopy", "choosePackageCopy");
+    const openButton = button(this.localizedCopy("emptyOpenLabel", "openPaperFolder"), "p2md-local-primary-button", "folder");
     openButton.addEventListener("click", () => void this.choosePackage());
     const note = element("small");
-    note.textContent = this.options.emptyNote ?? "Contract validated before linked reading is enabled";
+    note.textContent = this.localizedCopy("emptyNote", "contractValidatedNote");
     empty.append(title, copy, openButton, note);
     this.articleContent.appendChild(empty);
     this.figureSidebar.setFigures([]);
@@ -237,35 +294,35 @@ export class ReaderWorkspace {
     this.articleContent.replaceChildren();
     const empty = element("div", "p2md-reader-empty p2md-local-error");
     const title = element("h2");
-    title.textContent = "Unable to open package";
+    title.textContent = readerText(this.locale, "unableOpenPackage");
     const copy = element("p");
     copy.textContent = message;
-    const chooseButton = button("Choose another folder", "p2md-local-primary-button", "folder");
+    const chooseButton = button(readerText(this.locale, "chooseAnotherFolder"), "p2md-local-primary-button", "folder");
     chooseButton.addEventListener("click", () => void this.choosePackage());
     empty.append(title, copy, chooseButton);
     this.articleContent.appendChild(empty);
     this.figureSidebar.setFigures([]);
-    this.statusLabel.textContent = "Load failed";
+    this.statusLabel.textContent = readerText(this.locale, "loadFailed");
     this.statusButton.dataset.tone = "error";
     this.statusButton.disabled = true;
   }
 
   private openDiagnostics(): void {
     if (!this.loaded) return;
-    const status = STATUS_COPY[this.loaded.state];
+    const status = statusCopy(this.loaded.state, this.locale);
     const content = element("div", "p2md-local-dialog-content p2md-diagnostics");
     const heading = element("h2");
-    heading.textContent = "Reader diagnostics";
+    heading.textContent = readerText(this.locale, "readerDiagnostics");
     const summary = element("div", "p2md-diagnostic-summary");
     const label = element("strong");
     label.textContent = status.label;
     const version = element("span");
-    version.textContent = this.loaded.contractVersion ?? "No reader contract";
+    version.textContent = this.loaded.contractVersion ?? readerText(this.locale, "noReaderContract");
     summary.append(label, version);
     const list = element("ul");
     const diagnostics = this.loaded.diagnostics.length
       ? this.loaded.diagnostics
-      : [{ level: "info" as const, code: "valid", message: "No contract problems detected." }];
+      : [{ level: "info" as const, code: "valid", message: readerText(this.locale, "noContractProblems") }];
     diagnostics.forEach((diagnostic) => {
       const item = element("li");
       item.dataset.level = diagnostic.level;
@@ -273,7 +330,7 @@ export class ReaderWorkspace {
       list.appendChild(item);
     });
     content.append(heading, summary, list);
-    this.openDialog(content, "Close diagnostics");
+    this.openDialog(content, readerText(this.locale, "closeDiagnostics"));
   }
 
   private openLightbox(figure: FigurePresentation): void {
@@ -286,7 +343,7 @@ export class ReaderWorkspace {
     image.alt = figure.label;
     content.append(heading, image);
     if (figure.captionElement) content.appendChild(figure.captionElement.cloneNode(true));
-    this.openDialog(content, `Close ${figure.label}`, true);
+    this.openDialog(content, readerText(this.locale, "closeNamed", { name: figure.label }), true);
   }
 
   private openDialog(content: HTMLElement, closeLabel: string, lightbox = false): void {

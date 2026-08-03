@@ -1,5 +1,6 @@
 import { setReaderIcon } from "./icons";
 import { FigureFollowState } from "../sync/figure-follow-state";
+import { readerText, ReaderLocale } from "../ui/locale";
 
 export interface FigurePresentation {
   id: string;
@@ -14,6 +15,7 @@ export interface FigurePresentation {
 interface FigureSidebarOptions {
   onOpenImage: (figure: FigurePresentation) => void;
   onSelectionChange?: (figure: FigurePresentation, followingReading: boolean) => void;
+  locale?: ReaderLocale;
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
@@ -27,14 +29,16 @@ export class FigureSidebar {
   private readonly followState = new FigureFollowState();
   private readonly body: HTMLElement;
   private readonly followInput: HTMLInputElement;
+  private readonly locale: ReaderLocale;
 
   constructor(private readonly container: HTMLElement, private readonly options: FigureSidebarOptions) {
+    this.locale = options.locale ?? "en";
     this.container.classList.add("p2md-figures");
     const header = element("header", "p2md-figures-header");
     const heading = element("h2");
-    heading.textContent = "Visuals";
+    heading.textContent = readerText(this.locale, "visuals");
     const followControl = element("label", "p2md-follow-control");
-    followControl.title = "Automatically show the visual at the current reading position";
+    followControl.title = readerText(this.locale, "followReadingHelp");
     this.followInput = element("input");
     this.followInput.type = "checkbox";
     this.followInput.checked = true;
@@ -42,7 +46,7 @@ export class FigureSidebar {
     const track = element("span", "p2md-follow-track");
     track.setAttribute("aria-hidden", "true");
     const label = element("span", "p2md-follow-label");
-    label.textContent = "Follow reading";
+    label.textContent = readerText(this.locale, "followReading");
     followControl.append(this.followInput, track, label);
     this.followInput.addEventListener("change", () => {
       if (this.followState.setFollowing(this.followInput.checked)) this.render();
@@ -77,7 +81,11 @@ export class FigureSidebar {
     this.body.replaceChildren();
     if (!this.figures.length) {
       const empty = element("div", "p2md-figures-empty");
-      empty.innerHTML = "<strong>No visual assets available</strong><span>The article remains available in the main column.</span>";
+      const heading = element("strong");
+      heading.textContent = readerText(this.locale, "noVisuals");
+      const copy = element("span");
+      copy.textContent = readerText(this.locale, "noVisualsCopy");
+      empty.append(heading, copy);
       this.body.appendChild(empty);
       return;
     }
@@ -93,7 +101,7 @@ export class FigureSidebar {
 
     const imageButton = element("button", "p2md-figure-image-button");
     imageButton.type = "button";
-    imageButton.ariaLabel = `Open ${selected.label}`;
+    imageButton.ariaLabel = readerText(this.locale, "openNamed", { name: selected.label });
     imageButton.disabled = !selected.available;
     if (selected.available) {
       const image = element("img");
@@ -104,7 +112,7 @@ export class FigureSidebar {
       imageButton.addEventListener("click", () => this.options.onOpenImage(selected));
     } else {
       const missing = element("div", "p2md-missing-image");
-      missing.textContent = "Image unavailable";
+      missing.textContent = readerText(this.locale, "imageUnavailable");
       imageButton.appendChild(missing);
     }
 
@@ -125,7 +133,7 @@ export class FigureSidebar {
     openButton.disabled = !selected.available;
     setReaderIcon(openButton, "expand");
     const openLabel = element("span");
-    openLabel.textContent = "Open image";
+    openLabel.textContent = readerText(this.locale, "openImage");
     openButton.appendChild(openLabel);
     openButton.addEventListener("click", () => this.options.onOpenImage(selected));
     actions.appendChild(openButton);
@@ -135,7 +143,7 @@ export class FigureSidebar {
       backButton.type = "button";
       setReaderIcon(backButton, "arrow-up-to-line");
       const backLabel = element("span");
-      backLabel.textContent = "Back to position";
+      backLabel.textContent = readerText(this.locale, "backToPosition");
       backButton.appendChild(backLabel);
       backButton.addEventListener("click", () => selected.slotElement?.scrollIntoView({ behavior: "smooth", block: "center" }));
       actions.appendChild(backButton);
@@ -144,7 +152,7 @@ export class FigureSidebar {
     stage.append(stageHeader, imageButton, caption, actions);
 
     const rail = element("nav", "p2md-thumbnail-rail");
-    rail.ariaLabel = "Paper visual assets";
+    rail.ariaLabel = readerText(this.locale, "paperVisualAssets");
     for (const figure of this.figures) {
       const button = element("button", "p2md-thumbnail");
       button.type = "button";
@@ -152,7 +160,7 @@ export class FigureSidebar {
       button.dataset.readingTarget = String(figure.id === this.followState.readingTarget);
       button.ariaPressed = String(figure.id === selected.id);
       if (figure.id === this.followState.readingTarget) button.setAttribute("aria-current", "location");
-      button.ariaLabel = `Show ${figure.label}`;
+      button.ariaLabel = readerText(this.locale, "showNamed", { name: figure.label });
       if (figure.available) {
         const image = element("img");
         image.src = figure.imageSrc;
