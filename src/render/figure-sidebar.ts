@@ -8,6 +8,8 @@ export interface FigurePresentation {
   kind: string;
   imageSrc: string;
   captionElement?: HTMLElement;
+  captionText?: string;
+  pageIndex?: number;
   slotElement?: HTMLElement;
   available: boolean;
 }
@@ -96,7 +98,10 @@ export class FigureSidebar {
     const title = element("h3");
     title.textContent = selected.label;
     const count = element("span");
-    count.textContent = `${this.figures.indexOf(selected) + 1} / ${this.figures.length}`;
+    const page = selected.pageIndex === undefined
+      ? ""
+      : ` · ${readerText(this.locale, "pageNumber", { page: selected.pageIndex + 1 })}`;
+    count.textContent = `${this.figures.indexOf(selected) + 1} / ${this.figures.length}${page}`;
     stageHeader.append(title, count);
 
     const imageButton = element("button", "p2md-figure-image-button");
@@ -123,6 +128,8 @@ export class FigureSidebar {
       clone.classList.remove("p2md-inline-caption");
       delete clone.dataset.p2mdAssetId;
       caption.appendChild(clone);
+    } else if (selected.captionText) {
+      caption.textContent = selected.captionText;
     } else {
       caption.textContent = selected.label;
     }

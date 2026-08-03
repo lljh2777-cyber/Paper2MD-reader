@@ -180,7 +180,7 @@ export class Paper2MDReaderView extends ItemView {
       this.fileLabel!.textContent = file.name;
       this.updateStatus(loaded);
 
-      const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable";
+      const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru";
       this.contentEl.toggleClass("p2md-contract-mode", contractUsable);
       const rendered = await renderArticle(this.app, loaded.articleText, this.articleContent, file.path, this, this.fileSystem, contractUsable);
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
@@ -211,6 +211,8 @@ export class Paper2MDReaderView extends ItemView {
         kind: asset.kind,
         imageSrc,
         captionElement: asset.caption_block_id ? rendered.blockElements.get(asset.caption_block_id) : undefined,
+        captionText: asset.captionText,
+        pageIndex: asset.pageIndex,
         slotElement: slotId ? rendered.slotElements.get(slotId) : undefined,
         available: asset.exists && Boolean(imageSrc)
       };
@@ -300,7 +302,11 @@ class FigureLightbox extends Modal {
     const heading = this.contentEl.createEl("h2", { text: this.figure.label });
     heading.tabIndex = -1;
     const image = this.contentEl.createEl("img", { attr: { src: this.figure.imageSrc, alt: this.figure.label } });
-    if (this.figure.captionElement) this.contentEl.appendChild(this.figure.captionElement.cloneNode(true));
+    if (this.figure.captionElement) {
+      this.contentEl.appendChild(this.figure.captionElement.cloneNode(true));
+    } else if (this.figure.captionText) {
+      this.contentEl.createEl("p", { cls: "p2md-figure-caption", text: this.figure.captionText });
+    }
     requestAnimationFrame(() => heading.focus());
     image.addEventListener("dblclick", () => this.close());
   }

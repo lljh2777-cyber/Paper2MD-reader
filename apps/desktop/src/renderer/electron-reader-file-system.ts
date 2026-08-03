@@ -8,6 +8,7 @@ function mimeType(path: string): string {
   if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
   if (extension === "webp") return "image/webp";
   if (extension === "gif") return "image/gif";
+  if (extension === "bmp") return "image/bmp";
   return "application/octet-stream";
 }
 
@@ -41,7 +42,7 @@ export class ElectronReaderFileSystem implements ReaderFileSystem {
   }
 
   listFiles(relativeDirectory: string): Promise<string[]> {
-    return this.api.listFiles(this.root.id, this.safePath(relativeDirectory));
+    return this.api.listFiles(this.root.id, relativeDirectory ? this.safePath(relativeDirectory) : "");
   }
 
   async resolveAssetUrl(relativePath: string): Promise<string> {

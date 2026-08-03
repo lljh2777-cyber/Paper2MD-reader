@@ -1,0 +1,30 @@
+[
+  {
+    "type": "text",
+    "text": "MinerU Reader fixture",
+    "text_level": 1,
+    "bbox": [80, 80, 920, 130],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/figure-1.png",
+    "image_caption": [
+      "Fig. 1. The first MinerU visual is linked to page 2 and keeps its complete caption."
+    ],
+    "image_footnote": [],
+    "bbox": [100, 180, 900, 650],
+    "page_idx": 1
+  },
+  {
+    "type": "table",
+    "img_path": "images/table-1.png",
+    "table_caption": [
+      "Table 1. The second MinerU visual is represented as a table on page 3."
+    ],
+    "table_footnote": [],
+    "table_body": "<html><body><table><tr><th>Group</th><th>Value</th></tr><tr><td>A</td><td>42</td></tr></table></body></html>",
+    "bbox": [120, 220, 880, 720],
+    "page_idx": 2
+  }
+]

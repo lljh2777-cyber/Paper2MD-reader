@@ -32,9 +32,9 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
     }
     return new Promise((resolve) => {
       const onChange = () => {
-        const files = this.input.files;
+        const files = [...(this.input.files ?? [])];
         this.input.value = "";
-        resolve(files?.length ? BrowserDirectoryReaderFileSystem.fromFileList(files) : undefined);
+        resolve(files.length ? BrowserDirectoryReaderFileSystem.fromFileList(files) : undefined);
       };
       this.input.addEventListener("change", onChange, { once: true });
       this.input.click();

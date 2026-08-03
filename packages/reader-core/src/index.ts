@@ -1,8 +1,10 @@
 export * from "../../../src/filesystem/reader-file-system";
 export * from "../../../src/model/contract-validation";
 export * from "../../../src/model/manifest-validation";
+export * from "../../../src/model/mineru-content-list";
 export * from "../../../src/model/package-limits";
 export * from "../../../src/model/package-loader";
+export * from "../../../src/model/package-source";
 export * from "../../../src/model/reader-contract";
 
 export interface ReaderPackagePicker {

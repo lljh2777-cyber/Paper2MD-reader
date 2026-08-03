@@ -33,8 +33,9 @@ export class ObsidianReaderFileSystem implements ReaderFileSystem {
   }
 
   async listFiles(relativeDirectory: string): Promise<string[]> {
-    this.assertSafe(relativeDirectory);
-    const folder = this.app.vault.getAbstractFileByPath(this.resolvePath(relativeDirectory));
+    if (relativeDirectory) this.assertSafe(relativeDirectory);
+    const folderPath = relativeDirectory ? this.resolvePath(relativeDirectory) : this.packageRoot;
+    const folder = this.app.vault.getAbstractFileByPath(folderPath);
     if (!(folder instanceof TFolder)) return [];
     return folder.children
       .filter((child): child is TFile => child instanceof TFile)

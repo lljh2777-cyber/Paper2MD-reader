@@ -291,7 +291,7 @@ function validateReviewedOptions(request: StartReviewedLayoutRequest): ReviewedL
 function installIpcHandlers(): void {
   ipcMain.handle(DESKTOP_CHANNELS.choosePackage, async (event) => {
     assertTrusted(event);
-    return pickDirectory("Open Paper2MD package");
+    return pickDirectory("Open Paper2MD package or MinerU result folder");
   });
   ipcMain.handle(DESKTOP_CHANNELS.chooseOutputParent, async (event) => {
     assertTrusted(event);
@@ -350,14 +350,14 @@ function installIpcHandlers(): void {
   });
   ipcMain.handle(DESKTOP_CHANNELS.listFiles, async (event, rootId: string, directory: string) => {
     assertTrusted(event);
-    const normalized = normalizeDesktopRelativePath(directory);
+    const normalized = directory ? normalizeDesktopRelativePath(directory) : "";
     const root = requireRoot(rootId);
-    const target = await resolvePackagePath(root, normalized);
+    const target = normalized ? await resolvePackagePath(root, normalized) : root;
     try {
       const entries = await readdir(target, { withFileTypes: true });
       return entries
         .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
-        .map((entry) => `${normalized}/${entry.name}`)
+        .map((entry) => normalized ? `${normalized}/${entry.name}` : entry.name)
         .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];

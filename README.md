@@ -11,7 +11,8 @@ Paper2MD Reader provides multiple hosts over the same contract-driven reading co
 - A public/browser Reader that opens one Paper2MD output directory without uploading it.
 - An Electron desktop Reader with local PDF preview, Paper2MD conversion tasks and a restricted filesystem adapter.
 
-Both hosts consume explicit Paper2MD contract data; neither infers paper structure nor rewrites `article.md`.
+Both hosts consume explicit Paper2MD contract data. They can also adapt official MinerU
+Markdown and structured content-list output at load time without rewriting the source files.
 
 ## Phase-one features
 
@@ -49,7 +50,49 @@ Run the independent local-folder host:
 npm run local:dev
 ```
 
-Open `http://127.0.0.1:4174/local-reader/` in Chrome or Edge, choose a directory containing `article.md`, and grant read-only access. The browser reads files directly from the selected directory. It does not upload package content or write files back.
+Open `http://127.0.0.1:4174/local-reader/` in Chrome or Edge, choose a Paper2MD package
+or MinerU result directory, and grant read-only access. The browser reads files directly
+from the selected directory. It does not upload package content or write files back.
+
+## MinerU result compatibility
+
+Official references: [MinerU output files](https://opendatalab.github.io/MinerU/reference/output_files/),
+[MinerU Ecosystem](https://mineru.net/ecosystem), and the
+[official MCP implementation](https://github.com/opendatalab/MinerU-Ecosystem/tree/main/mcp).
+
+The Reader accepts three directory shapes, in this priority order:
+
+1. A Paper2MD package containing `article.md` (and optionally `_paper2md/reader.json`).
+2. A full MinerU result containing a same-stem Markdown/content-list pair and `images/`.
+3. A directory containing exactly one non-README Markdown file, including Markdown saved by MinerU MCP.
+
+```text
+paper-result/
+├─ paper.md
+├─ paper_content_list.json
+├─ paper_content_list_v2.json   # optional; v1 remains preferred
+└─ images/
+   ├─ ...jpg
+   └─ ...png
+```
+
+For full results, the Reader consumes visual records from the official stable
+`*_content_list.json`: `type`, `img_path`, the type-specific caption, `page_idx`, and
+the normalized 0–1000 `bbox`. It uses these fields to populate the visual rail, display
+captions and page numbers, and bind a visual back to its Markdown image position. MinerU
+3.0 `*_content_list_v2.json` is also recognized using its current public common fields,
+but the Reader reports that format as provisional because MinerU documents it as a
+development format. Unsafe paths, unsupported image types and missing assets are never
+resolved outside the selected directory.
+
+MinerU MCP and the full result bundle are different integration surfaces. The current
+official `parse_documents` tool returns Markdown inline for a normal single-file request;
+for batches or oversized output it saves `.md` and returns `extract_path`. It does not
+return `content_list.json` through the MCP result. Such Markdown is readable immediately,
+but Figure/caption/page/bbox linking requires the full result ZIP or CLI/API output folder.
+Keep MinerU API tokens in the MCP/CLI/desktop process—never in the browser Reader.
+The Reader does not consume `model.json` or `middle.json`; its structured compatibility
+boundary is the public content-list format plus the corresponding Markdown and images.
 
 Build the static application with:
 

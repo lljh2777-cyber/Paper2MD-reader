@@ -37,8 +37,8 @@ export class MemoryReaderFileSystem implements ReaderFileSystem {
   }
 
   async listFiles(relativeDirectory: string): Promise<string[]> {
-    this.assertSafe(relativeDirectory);
-    const prefix = `${relativeDirectory}/`;
+    if (relativeDirectory) this.assertSafe(relativeDirectory);
+    const prefix = relativeDirectory ? `${relativeDirectory}/` : "";
     return [...this.files.keys()].filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/"));
   }
 

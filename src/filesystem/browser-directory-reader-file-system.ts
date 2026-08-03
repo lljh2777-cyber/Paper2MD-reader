@@ -58,17 +58,18 @@ export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
   }
 
   async listFiles(relativeDirectory: string): Promise<string[]> {
-    const directoryPath = this.safePath(relativeDirectory);
+    const directoryPath = relativeDirectory ? this.safePath(relativeDirectory) : "";
     if (this.files) {
-      const prefix = `${directoryPath}/`;
+      const prefix = directoryPath ? `${directoryPath}/` : "";
       return [...this.files.keys()].filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/"));
     }
 
     try {
-      const handle = await this.getDirectoryHandle(directoryPath);
+      const handle = directoryPath ? await this.getDirectoryHandle(directoryPath) : this.directory;
+      if (!handle) return [];
       const paths: string[] = [];
       for await (const entry of (handle as IterableDirectoryHandle).values()) {
-        if (entry.kind === "file") paths.push(`${directoryPath}/${entry.name}`);
+        if (entry.kind === "file") paths.push(directoryPath ? `${directoryPath}/${entry.name}` : entry.name);
       }
       return paths;
     } catch {

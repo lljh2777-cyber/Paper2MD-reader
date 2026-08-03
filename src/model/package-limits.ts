@@ -1,5 +1,6 @@
 export const PACKAGE_LIMITS = Object.freeze({
   articleBytes: 32 * 1024 * 1024,
+  mineruContentListBytes: 32 * 1024 * 1024,
   contractBytes: 4 * 1024 * 1024,
   manifestBytes: 4 * 1024 * 1024,
   assetCount: 256,

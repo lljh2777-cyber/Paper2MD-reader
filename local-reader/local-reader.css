@@ -136,7 +136,9 @@ button:disabled { cursor: default; opacity: 0.58; }
 }
 
 @media (max-width: 760px) {
-  .p2md-local-reader-view .p2md-toolbar { grid-template-columns: minmax(170px, 1fr) minmax(70px, auto) auto; }
+  .p2md-local-reader-view .p2md-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .p2md-local-reader-view .p2md-file-label { display: none; }
+  .p2md-local-reader-view .p2md-view-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .p2md-local-folder-button span { display: none; }
   .p2md-local-welcome { margin-top: 15vh; }
   .p2md-local-dialog { width: calc(100vw - 24px); }

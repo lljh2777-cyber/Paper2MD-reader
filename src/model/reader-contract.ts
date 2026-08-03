@@ -13,6 +13,7 @@ export type PackageState =
   | "valid"
   | "edited-with-anchors"
   | "recoverable"
+  | "mineru"
   | "ambiguous"
   | "reader-missing"
   | "unsupported-version"
@@ -141,6 +142,9 @@ export interface LoadedAsset {
   vaultPath: string;
   exists: boolean;
   integrityMatches?: boolean;
+  captionText?: string;
+  pageIndex?: number;
+  sourceBBox?: NormalizedBBox;
 }
 
 export interface LoadedPaperPackage {
@@ -155,6 +159,7 @@ export interface LoadedPaperPackage {
   anchors: AnchorInventory;
   assets: LoadedAsset[];
   diagnostics: Diagnostic[];
+  sourceFormat?: "paper2md" | "mineru" | "markdown";
 }
 
 export type RawReaderContract = unknown;

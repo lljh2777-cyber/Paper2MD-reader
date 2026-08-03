@@ -1,6 +1,7 @@
 import { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
 import { assetDisplayLabel, LoadedPaperPackage } from "../../../src/model/reader-contract";
 import { PackageLoader } from "../../../src/model/package-loader";
+import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
 import type { RenderedArticle } from "../../../src/render/contract-renderer";
@@ -196,15 +197,10 @@ export class ReaderWorkspace {
     this.statusLabel.textContent = readerText(this.locale, "loading");
     this.root.dataset.state = "loading";
     try {
-      if (!await this.fileSystem.exists("article.md")) {
-        this.loaded = undefined;
-        this.renderFailure(readerText(this.locale, "missingArticle"));
-        return;
-      }
-      const loaded = await new PackageLoader(this.fileSystem).load("article.md");
+      const loaded = await new PackageLoader(this.fileSystem).loadDetected();
       this.loaded = loaded;
       this.updateStatus(loaded);
-      const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable";
+      const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru";
       this.root.classList.toggle("p2md-contract-mode", contractUsable);
       const rendered = await renderLocalArticle(loaded.articleText, this.articleContent, this.fileSystem, contractUsable);
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
@@ -215,7 +211,9 @@ export class ReaderWorkspace {
     } catch (error) {
       console.error("Paper2MD Reader failed to load", error);
       this.loaded = undefined;
-      const message = error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
+      const message = error instanceof PackageSourceNotFoundError
+        ? readerText(this.locale, "noReadablePackage")
+        : error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
         ? error.message
         : readerText(this.locale, "packageLoadFailed");
       this.renderFailure(message);
@@ -243,6 +241,8 @@ export class ReaderWorkspace {
         kind: asset.kind,
         imageSrc,
         captionElement: asset.caption_block_id ? rendered.blockElements.get(asset.caption_block_id) : undefined,
+        captionText: asset.captionText,
+        pageIndex: asset.pageIndex,
         slotElement: slotId ? rendered.slotElements.get(slotId) : undefined,
         available: asset.exists && Boolean(imageSrc)
       };
@@ -342,7 +342,13 @@ export class ReaderWorkspace {
     image.src = figure.imageSrc;
     image.alt = figure.label;
     content.append(heading, image);
-    if (figure.captionElement) content.appendChild(figure.captionElement.cloneNode(true));
+    if (figure.captionElement) {
+      content.appendChild(figure.captionElement.cloneNode(true));
+    } else if (figure.captionText) {
+      const caption = element("p", "p2md-figure-caption");
+      caption.textContent = figure.captionText;
+      content.appendChild(caption);
+    }
     this.openDialog(content, readerText(this.locale, "closeNamed", { name: figure.label }), true);
   }
 

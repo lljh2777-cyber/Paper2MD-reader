@@ -33,6 +33,7 @@ describe("Reader locale", () => {
   it("localizes package states without changing their tone", () => {
     expect(statusCopy("recoverable", "en")).toEqual({ label: "Anchor mismatch", tone: "warning" });
     expect(statusCopy("recoverable", "zh-CN")).toEqual({ label: "锚点不匹配", tone: "warning" });
+    expect(statusCopy("mineru", "zh-CN")).toEqual({ label: "MinerU 结构化结果", tone: "ok" });
   });
 
   it("localizes desktop task states and structured progress messages", () => {

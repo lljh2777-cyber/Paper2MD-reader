@@ -8,7 +8,7 @@ function webCopy(locale: ReaderLocale) {
   return {
     title: readerText(locale, "webTitle"),
     emptyTitle: readerText(locale, "webEmptyTitle"),
-    emptyCopy: readerText(locale, "webEmptyCopy"),
+    emptyCopy: readerText(locale, "choosePackageCopy"),
     emptyNote: readerText(locale, "webEmptyNote"),
     toolbarOpenLabel: readerText(locale, "openFolder"),
     emptyOpenLabel: readerText(locale, "openPaperFolder"),
