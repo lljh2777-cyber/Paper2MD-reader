@@ -3,7 +3,9 @@ import { ObsidianReaderFileSystem } from "../filesystem/obsidian-reader-file-sys
 import { ReaderFileSystem } from "../filesystem/reader-file-system";
 import { assetDisplayLabel, LoadedPaperPackage } from "../model/reader-contract";
 import { PackageLoader } from "../model/package-loader";
+import { PackageLimitError } from "../model/package-limits";
 import { bindContractAssets, renderArticle, RenderedArticle } from "../render/article-renderer";
+import { UnsafeMarkdownResourceError } from "../render/markdown-resource-policy";
 import { FigurePresentation, FigureSidebar } from "../render/figure-sidebar";
 import { ScrollController } from "../sync/scroll-controller";
 import { STATUS_COPY } from "../ui/status-copy";
@@ -151,14 +153,17 @@ export class Paper2MDReaderView extends ItemView {
 
       const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable";
       this.contentEl.toggleClass("p2md-contract-mode", contractUsable);
-      const rendered = await renderArticle(this.app, loaded.articleText, this.articleContent, file.path, this, contractUsable);
+      const rendered = await renderArticle(this.app, loaded.articleText, this.articleContent, file.path, this, this.fileSystem, contractUsable);
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
       const figures = await this.createFigurePresentations(loaded, rendered, contractUsable);
       this.sidebar.setFigures(figures);
       this.connectScrollSync(loaded, rendered, contractUsable);
     } catch (error) {
       console.error("Paper2MD Reader failed to load", error);
-      this.renderEmptyState("The paper could not be loaded. Open diagnostics or retry.");
+      const message = error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
+        ? error.message
+        : "The paper could not be loaded. Open diagnostics or retry.";
+      this.renderEmptyState(message);
       new Notice("Paper2MD Reader could not load this article.");
     } finally {
       this.articleContent.removeAttribute("aria-busy");

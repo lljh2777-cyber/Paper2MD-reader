@@ -4,10 +4,12 @@ import { BrowserDirectoryReaderFileSystem } from "../src/filesystem/browser-dire
 import { ReaderFileSystem } from "../src/filesystem/reader-file-system";
 import { assetDisplayLabel, LoadedPaperPackage } from "../src/model/reader-contract";
 import { PackageLoader } from "../src/model/package-loader";
+import { PackageLimitError } from "../src/model/package-limits";
 import { bindContractAssets, RenderedArticle } from "../src/render/contract-renderer";
 import { FigurePresentation, FigureSidebar } from "../src/render/figure-sidebar";
 import { setReaderIcon } from "../src/render/icons";
 import { renderLocalArticle } from "../src/render/local-article-renderer";
+import { UnsafeMarkdownResourceError } from "../src/render/markdown-resource-policy";
 import { ScrollController } from "../src/sync/scroll-controller";
 import { STATUS_COPY } from "../src/ui/status-copy";
 
@@ -178,7 +180,10 @@ class LocalReaderApp {
     } catch (error) {
       console.error("Paper2MD Local Reader failed to load", error);
       this.loaded = undefined;
-      this.renderFailure("The paper package could not be loaded. Check the folder and retry.");
+      const message = error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
+        ? error.message
+        : "The paper package could not be loaded. Check the folder and retry.";
+      this.renderFailure(message);
     } finally {
       this.articleContent.removeAttribute("aria-busy");
     }

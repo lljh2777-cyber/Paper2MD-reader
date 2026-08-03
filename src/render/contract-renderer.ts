@@ -1,4 +1,5 @@
 import { assetDisplayLabel, LoadedAsset } from "../model/reader-contract";
+import { decodeUriComponentSafely } from "./markdown-resource-policy";
 
 export interface RenderedArticle {
   blockElements: Map<string, HTMLElement>;
@@ -58,7 +59,8 @@ function matchesAssetImage(element: HTMLElement, asset: LoadedAsset): boolean {
   return [...element.querySelectorAll<HTMLImageElement>("img")].some((image) => {
     const sourcePath = image.dataset.p2mdSourcePath?.toLowerCase();
     if (sourcePath) return sourcePath.endsWith(filename);
-    const src = decodeURIComponent(image.getAttribute("src") ?? "").toLowerCase();
+    const src = decodeUriComponentSafely(image.getAttribute("src") ?? "")?.toLowerCase();
+    if (src === undefined) return false;
     return src.endsWith(filename) || src.includes(`/${filename}`);
   });
 }

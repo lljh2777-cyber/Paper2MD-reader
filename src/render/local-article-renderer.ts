@@ -1,15 +1,14 @@
 import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import { ReaderFileSystem } from "../filesystem/reader-file-system";
-import { isSafeRelativePath } from "../model/contract-validation";
 import { collectAnchors, materializeContractAnchors, RenderedArticle } from "./contract-renderer";
+import { assertMarkdownResourcesSafe, safeLocalResourcePath } from "./markdown-resource-policy";
 
 const markdown = new MarkdownIt({ html: true, linkify: true, typographer: false });
 
 function localImagePath(src: string): string | undefined {
-  if (!src || src.startsWith("#") || /^(?:[a-z]+:|\/|\\)/i.test(src)) return undefined;
-  const decoded = decodeURIComponent(src.split(/[?#]/, 1)[0]).replace(/^\.\//, "");
-  return isSafeRelativePath(decoded) ? decoded : undefined;
+  if (!src || src.startsWith("#")) return undefined;
+  return safeLocalResourcePath(src);
 }
 
 async function bindLocalImageSources(container: HTMLElement, fileSystem: ReaderFileSystem): Promise<void> {
@@ -34,6 +33,7 @@ export async function renderLocalArticle(
   fileSystem: ReaderFileSystem,
   materializeAnchors: boolean
 ): Promise<RenderedArticle> {
+  await assertMarkdownResourcesSafe(markdownSource, fileSystem);
   const source = materializeAnchors ? materializeContractAnchors(markdownSource) : markdownSource;
   const html = markdown.render(source);
   const sanitized = DOMPurify.sanitize(html, {

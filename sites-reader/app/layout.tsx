@@ -1,16 +1,14 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import "./globals.css";
 
 const title = "Paper2MD Reader";
 const description = "Read a local Paper2MD paper package with synchronized figures and contract diagnostics.";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const metadataBase = new URL(`${protocol}://${host}`);
+const metadataBase = new URL(
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://paper2md-reader.lljh2777.chatgpt.site"
+);
 
+export function generateMetadata(): Metadata {
   return {
     metadataBase,
     title,

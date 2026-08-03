@@ -1,16 +1,13 @@
-import { DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES, handleImageOptimization } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import {
+  isAllowedSiteMethod,
+  isBlockedSitePath,
+  methodNotAllowedResponse,
+  notFoundResponse,
+  withSiteSecurityHeaders
+} from "./security";
 
-interface SiteEnvironment {
-  ASSETS: Fetcher;
-  IMAGES: {
-    input(stream: ReadableStream): {
-      transform(options: Record<string, unknown>): {
-        output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
-      };
-    };
-  };
-}
+type SiteEnvironment = Record<string, unknown>;
 
 interface SiteExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -19,26 +16,13 @@ interface SiteExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: SiteEnvironment, context: SiteExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === "/_vinext/image") {
-      const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(
-        request,
-        {
-          fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
-          transformImage: async (body, { width, format, quality }) => {
-            const result = await env.IMAGES.input(body)
-              .transform(width > 0 ? { width } : {})
-              .output({ format, quality });
-            return result.response();
-          }
-        },
-        allowedWidths
-      );
+    if (!isAllowedSiteMethod(request.method)) {
+      return withSiteSecurityHeaders(methodNotAllowedResponse());
     }
-
-    return handler.fetch(request, env, context);
+    if (isBlockedSitePath(new URL(request.url).pathname)) {
+      return withSiteSecurityHeaders(notFoundResponse());
+    }
+    return withSiteSecurityHeaders(await handler.fetch(request, env, context));
   }
 };
 

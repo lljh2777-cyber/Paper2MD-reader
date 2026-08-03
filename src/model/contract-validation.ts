@@ -15,6 +15,7 @@ import {
   READER_CONTRACT_VERSION,
   SourceSpan
 } from "./reader-contract";
+import { PACKAGE_LIMITS } from "./package-limits";
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 const HEX_16 = /^[0-9a-f]{16}$/;
@@ -211,7 +212,12 @@ function validateAssets(value: unknown, diagnostics: Diagnostic[]): void {
     error(diagnostics, "invalid-assets", "reader.json.assets 必须是数组。");
     return;
   }
+  if (value.length > PACKAGE_LIMITS.assetCount) {
+    error(diagnostics, "too-many-assets", `reader.json.assets exceeds the safe limit of ${PACKAGE_LIMITS.assetCount}.`);
+    return;
+  }
 
+  let declaredAssetBytes = 0;
   value.forEach((asset, index) => {
     const context = `assets[${index}]`;
     if (!isRecord(asset) || !hasExactKeys(asset, [
@@ -238,6 +244,12 @@ function validateAssets(value: unknown, diagnostics: Diagnostic[]): void {
       error(diagnostics, "invalid-asset-path", `${context}.path 必须是安全的 images/*.png 路径。`);
     }
     if (typeof asset.sha256 !== "string" || !HEX_64.test(asset.sha256)) error(diagnostics, "invalid-asset-hash", `${context}.sha256 非法。`);
+    if (isInteger(asset.size_bytes, 1)) {
+      declaredAssetBytes += asset.size_bytes;
+      if (asset.size_bytes > PACKAGE_LIMITS.assetBytes) {
+        error(diagnostics, "asset-too-large", `${context}.size_bytes exceeds the safe limit of ${PACKAGE_LIMITS.assetBytes}.`);
+      }
+    }
     if (!isInteger(asset.size_bytes, 1) || !isInteger(asset.width_px, 1) || !isInteger(asset.height_px, 1)) {
       error(diagnostics, "invalid-asset-metadata", `${context} 的大小或像素尺寸非法。`);
     }
@@ -252,6 +264,9 @@ function validateAssets(value: unknown, diagnostics: Diagnostic[]): void {
     }
     validateSourceSpans(asset.source_spans, diagnostics, context, true);
   });
+  if (declaredAssetBytes > PACKAGE_LIMITS.totalAssetBytes) {
+    error(diagnostics, "asset-total-too-large", `reader.json.assets declares ${declaredAssetBytes} bytes; the safe aggregate limit is ${PACKAGE_LIMITS.totalAssetBytes}.`);
+  }
 }
 
 function validateRelations(value: unknown, diagnostics: Diagnostic[]): void {

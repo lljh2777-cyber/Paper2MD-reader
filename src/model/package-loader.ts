@@ -7,6 +7,7 @@ import {
   supportsContractVersion
 } from "./contract-validation";
 import { validateManifestBinding } from "./manifest-validation";
+import { mapWithConcurrency, PACKAGE_LIMITS, PackageLimitError } from "./package-limits";
 import {
   Diagnostic,
   LoadedAsset,
@@ -14,21 +15,38 @@ import {
   RawReaderContract
 } from "./reader-contract";
 
-const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg"]);
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 
-async function sha256(data: string | ArrayBuffer): Promise<string> {
+async function sha256(data: string | ArrayBuffer | Uint8Array): Promise<string> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const buffer = bytes instanceof Uint8Array
+    ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    : bytes;
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 export class PackageLoader {
   constructor(private readonly fileSystem: ReaderFileSystem) {}
 
+  private async readTextWithinLimit(relativePath: string, limit: number, label: string): Promise<{ text: string; bytes: Uint8Array }> {
+    const info = await this.fileSystem.fileInfo(relativePath);
+    if (info && info.size > limit) {
+      throw new PackageLimitError(`${label} is ${info.size} bytes; the safe limit is ${limit}.`, info.size, limit);
+    }
+    const text = await this.fileSystem.readText(relativePath);
+    const bytes = new TextEncoder().encode(text);
+    if (bytes.byteLength > limit) {
+      throw new PackageLimitError(`${label} is ${bytes.byteLength} bytes; the safe limit is ${limit}.`, bytes.byteLength, limit);
+    }
+    return { text, bytes };
+  }
+
   async load(articleRelativePath = "article.md"): Promise<LoadedPaperPackage> {
     if (!isSafeRelativePath(articleRelativePath)) throw new Error(`Unsafe article path: ${articleRelativePath}`);
-    const articleText = await this.fileSystem.readText(articleRelativePath);
-    const articleHash = await sha256(articleText);
+    const article = await this.readTextWithinLimit(articleRelativePath, PACKAGE_LIMITS.articleBytes, "article.md");
+    const articleText = article.text;
+    const articleHash = await sha256(article.bytes);
     const anchors = parseAnchorInventory(articleText);
     const articlePath = this.fileSystem.resolvePath(articleRelativePath);
     const contractRelativePath = "_paper2md/reader.json";
@@ -55,9 +73,10 @@ export class PackageLoader {
     let readerText: string;
     let raw: RawReaderContract;
     try {
-      readerText = await this.fileSystem.readText(contractRelativePath);
+      readerText = (await this.readTextWithinLimit(contractRelativePath, PACKAGE_LIMITS.contractBytes, "reader.json")).text;
       raw = JSON.parse(readerText) as unknown;
-    } catch {
+    } catch (error) {
+      if (error instanceof PackageLimitError) throw error;
       diagnostics.push({ level: "error", code: "invalid-json", message: "reader.json 不是有效 JSON，已降级为普通 Markdown。" });
       return {
         state: "invalid-contract",
@@ -119,9 +138,11 @@ export class PackageLoader {
     const manifestExists = await this.fileSystem.exists(manifestRelativePath);
     if (manifestExists) {
       try {
-        const rawManifest = JSON.parse(await this.fileSystem.readText(manifestRelativePath)) as unknown;
+        const manifestText = await this.readTextWithinLimit(manifestRelativePath, PACKAGE_LIMITS.manifestBytes, "manifest.json");
+        const rawManifest = JSON.parse(manifestText.text) as unknown;
         diagnostics.push(...validateManifestBinding(rawManifest, contract, await sha256(readerText)));
-      } catch {
+      } catch (error) {
+        if (error instanceof PackageLimitError) throw error;
         diagnostics.push({ level: "error", code: "invalid-manifest-json", message: "manifest.json 不是有效 JSON。" });
       }
     } else {
@@ -132,9 +153,34 @@ export class PackageLoader {
       });
     }
 
-    const assets = await Promise.all(contract.assets.map(async (asset): Promise<LoadedAsset> => {
+    const assetInfos = await mapWithConcurrency(
+      contract.assets,
+      PACKAGE_LIMITS.assetHashConcurrency,
+      (asset) => this.fileSystem.fileInfo(asset.path)
+    );
+    let actualAssetBytes = 0;
+    assetInfos.forEach((info, index) => {
+      if (!info) return;
+      if (info.size > PACKAGE_LIMITS.assetBytes) {
+        throw new PackageLimitError(
+          `Paper asset ${contract.assets[index].path} is ${info.size} bytes; the safe limit is ${PACKAGE_LIMITS.assetBytes}.`,
+          info.size,
+          PACKAGE_LIMITS.assetBytes
+        );
+      }
+      actualAssetBytes += info.size;
+      if (actualAssetBytes > PACKAGE_LIMITS.totalAssetBytes) {
+        throw new PackageLimitError(
+          `Paper assets total ${actualAssetBytes} bytes; the safe aggregate limit is ${PACKAGE_LIMITS.totalAssetBytes}.`,
+          actualAssetBytes,
+          PACKAGE_LIMITS.totalAssetBytes
+        );
+      }
+    });
+
+    const assets = await mapWithConcurrency(contract.assets, PACKAGE_LIMITS.assetHashConcurrency, async (asset, index): Promise<LoadedAsset> => {
       const vaultPath = this.fileSystem.resolvePath(asset.path);
-      const info = await this.fileSystem.fileInfo(asset.path);
+      const info = assetInfos[index];
       const exists = Boolean(info);
       let integrityMatches: boolean | undefined;
       if (!exists) {
@@ -144,15 +190,19 @@ export class PackageLoader {
         if (!sizeMatches) {
           diagnostics.push({ level: "error", code: "asset-size-mismatch", message: `资源大小不匹配：${asset.path}` });
         }
-        const actualHash = await sha256(await this.fileSystem.readBinary(asset.path));
-        const hashMatches = actualHash.toLowerCase() === asset.sha256.toLowerCase();
-        if (!hashMatches) {
-          diagnostics.push({ level: "error", code: "asset-hash-mismatch", message: `资源哈希不匹配：${asset.path}` });
+        if (!sizeMatches) {
+          integrityMatches = false;
+        } else {
+          const actualHash = await sha256(await this.fileSystem.readBinary(asset.path));
+          const hashMatches = actualHash.toLowerCase() === asset.sha256.toLowerCase();
+          if (!hashMatches) {
+            diagnostics.push({ level: "error", code: "asset-hash-mismatch", message: `资源哈希不匹配：${asset.path}` });
+          }
+          integrityMatches = hashMatches;
         }
-        integrityMatches = sizeMatches && hashMatches;
       }
       return { ...asset, vaultPath, exists, integrityMatches };
-    }));
+    });
 
     const state = derivePackageState(contract, diagnostics, articleHash, anchors);
     return {
@@ -172,9 +222,37 @@ export class PackageLoader {
 
   private async loadFallbackAssets(): Promise<LoadedAsset[]> {
     const files = await this.fileSystem.listFiles("images");
-    return files
+    const imageFiles = files
       .filter((path) => IMAGE_EXTENSIONS.has(path.split(".").pop()?.toLowerCase() ?? ""))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (imageFiles.length > PACKAGE_LIMITS.assetCount) {
+      throw new PackageLimitError(
+        `The images directory contains ${imageFiles.length} supported images; the safe limit is ${PACKAGE_LIMITS.assetCount}.`,
+        imageFiles.length,
+        PACKAGE_LIMITS.assetCount
+      );
+    }
+    let totalBytes = 0;
+    for (const path of imageFiles) {
+      const info = await this.fileSystem.fileInfo(path);
+      if (!info) continue;
+      if (info.size > PACKAGE_LIMITS.assetBytes) {
+        throw new PackageLimitError(
+          `Paper asset ${path} is ${info.size} bytes; the safe limit is ${PACKAGE_LIMITS.assetBytes}.`,
+          info.size,
+          PACKAGE_LIMITS.assetBytes
+        );
+      }
+      totalBytes += info.size;
+      if (totalBytes > PACKAGE_LIMITS.totalAssetBytes) {
+        throw new PackageLimitError(
+          `Paper assets total ${totalBytes} bytes; the safe aggregate limit is ${PACKAGE_LIMITS.totalAssetBytes}.`,
+          totalBytes,
+          PACKAGE_LIMITS.totalAssetBytes
+        );
+      }
+    }
+    return imageFiles
       .map((path) => ({
         id: `fallback:${path}`,
         kind: "unknown",
