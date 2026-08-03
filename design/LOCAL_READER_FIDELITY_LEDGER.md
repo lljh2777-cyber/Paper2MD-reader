@@ -24,3 +24,22 @@ Browser checks used 1600×1000 desktop and 720×1000 narrow viewports.
 | Host controls | Obsidian back button and file label | Required local folder picker, directory label and reload control | Intentional host adaptation |
 
 The visible host-specific copy is limited to the implementation plan's required directory-selection workflow. No decorative badges, extra navigation, gradients, alternate card system, or inferred paper controls were introduced. The browser console was clear after the local image handoff and favicon fixes.
+
+## Shared workspace migration check
+
+The `apps/web` entry was compared at 1280×720 against
+`local-reader-welcome-render.png`. The accepted implementation capture is
+`web-shared-workspace-render.png`.
+
+| Check | Existing design | Shared Web render | Result |
+|---|---|---|---|
+| App skeleton | Compact toolbar, main article and 32% visual rail | Same three-region composition | Matched |
+| Copy | Local Reader title, folder labels and privacy note | Exact host copy restored after initial drift | Matched |
+| Typography | Serif reading headline and compact sans-serif chrome | Same shared tokens and hierarchy | Matched |
+| Palette | True white, cool gray and deep blue | No new tint, gradient or overlay | Matched |
+| Spacing | Centered empty state with restrained controls | Same rhythm at the tested viewport | Matched |
+| Figure rail | Visible heading, follow switch and empty state | Same responsive rail behavior | Matched |
+
+No above-the-fold copy remains added, removed or reordered relative to the
+existing Local Reader specification. The new desktop task and PDF panes are an
+intentional host-only extension; they do not change shared article/Figure UI.

@@ -2,13 +2,25 @@
   "name": "paper2md-reader",
   "version": "0.1.0",
   "private": true,
-  "description": "Contract-driven Paper2MD reading views for Obsidian and local browser directories.",
+  "description": "Shared contract-driven Paper2MD Reader for web, Electron desktop, and Obsidian hosts.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "main": "main.js",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "local:build": "vite build --config vite.local.config.mjs",
     "local:dev": "vite --config vite.local.config.mjs",
+    "web:build": "vite build --config apps/web/vite.config.mjs",
+    "web:dev": "vite --config apps/web/vite.config.mjs",
+    "desktop:build": "node apps/desktop/build.mjs",
+    "desktop:start": "electron apps/desktop",
+    "desktop:dev": "npm run desktop:build && electron apps/desktop",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "preview": "vite --host 127.0.0.1"
@@ -21,6 +33,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.10.2",
     "esbuild": "^0.28.1",
+    "electron": "43.2.0",
     "obsidian": "^1.8.7",
     "typescript": "^5.7.3",
     "vite": "^8.2.0",

@@ -1,7 +1,13 @@
 export const READER_CONTRACT_VERSION = "paper2md-reader-v0.1";
 export const MARKDOWN_ANCHOR_CONTRACT_VERSION = "paper2md-markdown-anchor-v0.1";
 export const BLOCK_FINGERPRINT_VERSION = "paper2md-visible-block-fingerprint-v0.1";
-export const HYBRID_MANIFEST_VERSION = "paper2md-manifest-v0.8";
+export const READER_BOUND_MANIFEST_VERSIONS = [
+  "paper2md-manifest-v0.8",
+  "paper2md-manifest-v0.9",
+  "paper2md-manifest-v0.10"
+] as const;
+export type ReaderBoundManifestVersion = typeof READER_BOUND_MANIFEST_VERSIONS[number];
+export const HYBRID_MANIFEST_VERSION: ReaderBoundManifestVersion = "paper2md-manifest-v0.9";
 
 export type PackageState =
   | "valid"

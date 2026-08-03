@@ -13,5 +13,11 @@
     "target": "ES2022",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "local-reader/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "local-reader/**/*.ts",
+    "apps/**/*.ts",
+    "packages/**/*.ts",
+    "test/**/*.ts"
+  ]
 }

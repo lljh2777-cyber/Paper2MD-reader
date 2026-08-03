@@ -3,6 +3,7 @@ import { validateManifestBinding } from "../src/model/manifest-validation";
 import {
   HYBRID_MANIFEST_VERSION,
   MARKDOWN_ANCHOR_CONTRACT_VERSION,
+  READER_BOUND_MANIFEST_VERSIONS,
   READER_CONTRACT_VERSION
 } from "../src/model/reader-contract";
 import { HASHES, makeContract } from "./reader-fixture";
@@ -27,8 +28,10 @@ function makeManifest() {
 }
 
 describe("validateManifestBinding", () => {
-  it("accepts the Paper2MD manifest v0.8 reader binding", () => {
-    expect(validateManifestBinding(makeManifest(), makeContract(), HASHES.reader)).toEqual([]);
+  it.each(READER_BOUND_MANIFEST_VERSIONS)("accepts the Paper2MD %s reader binding", (version) => {
+    const manifest = makeManifest();
+    manifest.manifest_version = version;
+    expect(validateManifestBinding(manifest, makeContract(), HASHES.reader)).toEqual([]);
   });
 
   it("rejects a reader hash that does not match the manifest", () => {
@@ -47,7 +50,7 @@ describe("validateManifestBinding", () => {
 
   it("rejects unknown future manifest semantics", () => {
     const diagnostics = validateManifestBinding(
-      { manifest_version: "paper2md-manifest-v0.9" },
+      { manifest_version: "paper2md-manifest-v0.11" },
       makeContract(),
       HASHES.reader
     );

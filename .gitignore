@@ -5,6 +5,7 @@ main.js
 .vite/
 coverage/
 dist-local/
+dist-web/
 .playwright-cli/
 output/
 sites-reader/.next/
@@ -13,3 +14,5 @@ sites-reader/dist/
 sites-reader/next-env.d.ts
 sites-reader/tsconfig.tsbuildinfo
 sites-reader/.dev-server.*.log
+apps/desktop/dist/
+apps/desktop/out/

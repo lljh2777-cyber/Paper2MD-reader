@@ -5,7 +5,7 @@ The Local Reader is a separate browser entry over the same Reader contract loade
 ## Included
 
 1. Read-only directory selection through the File System Access API, with `webkitdirectory` input fallback.
-2. Strict loading of `article.md`, `_paper2md/reader.json`, optional manifest v0.8, and declared image assets.
+2. Strict loading of `article.md`, `_paper2md/reader.json`, optional manifest v0.8–v0.10, and declared image assets.
 3. Host-neutral SHA-256, contract state derivation, anchor handling, diagnostics, and filename-only fallback.
 4. Sanitized Markdown rendering with local image URLs scoped to the selected package.
 5. Figure rail, thumbnail selection, lightbox, explicit slot synchronization, responsive inline restoration, reload, and directory switching.

@@ -5,10 +5,11 @@ the independent Local Reader and shared Reader core, so hosted and desktop
 browser behavior remain contract-driven without duplicating paper-structure
 recognition.
 
-Paper2MD Reader provides two hosts over the same contract-driven reading core:
+Paper2MD Reader provides multiple hosts over the same contract-driven reading core:
 
 - An Obsidian `ItemView`.
-- A browser-based Local Reader that opens one Paper2MD output directory without uploading it.
+- A public/browser Reader that opens one Paper2MD output directory without uploading it.
+- An Electron desktop Reader with local PDF preview, Paper2MD conversion tasks and a restricted filesystem adapter.
 
 Both hosts consume explicit Paper2MD contract data; neither infers paper structure nor rewrites `article.md`.
 
@@ -21,7 +22,7 @@ Both hosts consume explicit Paper2MD contract data; neither infers paper structu
 - Image lightbox and return-to-placement action.
 - `IntersectionObserver` synchronization driven by explicit `p2md:slot` anchors.
 - Container-responsive narrow mode that restores Figure and caption content inline.
-- Strict Reader v0.1 field/graph/path validation, manifest v0.8 binding, article hash, and asset size/hash checks.
+- Strict Reader v0.1 field/graph/path validation, manifest v0.8–v0.10 binding, article hash, and asset size/hash checks.
 - Explicit package states: valid, edited with anchors, recoverable, ambiguous, missing, unsupported and invalid.
 - Safe fallback: ordinary Markdown plus a filename-only `images/` list when `reader.json` is absent. No Figure/caption inference is performed.
 
@@ -57,6 +58,27 @@ npm run local:build
 ```
 
 The output is written to `dist-local/`. Because browser directory access requires a secure context, serve that directory through localhost rather than opening the HTML through `file://`.
+
+## Shared Web and desktop applications
+
+The gradual workspace migration now has two application entries and two shared boundaries:
+
+```text
+apps/web/                 browser-only package picker and Vite entry
+apps/desktop/             Electron main, preload, renderer and task adapter
+packages/reader-core/     contracts, loading and host interfaces
+packages/reader-ui/       shared article/Figure/caption workspace
+```
+
+Build the public Web entry with `npm run web:build`. Build the Electron entry with
+`npm run desktop:build`, then start it with `npm run desktop:start`. The desktop
+renderer never imports Node or Electron modules. Directory reads, PDF bytes and
+Paper2MD processes cross a context-isolated preload API with fixed IPC methods.
+
+`Process PDF` currently invokes the installed `paper2md convert` command with the
+PDFium backend and a new output directory. This produces a readable direct package;
+reviewed hybrid layout remains a separate Paper2MD workflow until the desktop task
+manager gains structured visual-review orchestration.
 
 ## Expected package contract
 
@@ -119,7 +141,7 @@ The Reader looks for `_paper2md/reader.json` beside the selected article. It con
 }
 ```
 
-The example is structural; Paper2MD generates the hashes, stable IDs, complete source spans, all non-visual blocks, and required `places`/`caption-of` relations. `_paper2md/manifest.json` v0.8 is used as an integrity binding for `reader.json` and `article.md`. A missing manifest is reported, while a contradictory v0.8 binding invalidates contract mode.
+The example is structural; Paper2MD generates the hashes, stable IDs, complete source spans, all non-visual blocks, and required `places`/`caption-of` relations. `_paper2md/manifest.json` v0.8, v0.9 or v0.10 is used as an integrity binding for `reader.json` and `article.md`. A missing manifest is reported, while a contradictory Reader binding invalidates contract mode.
 
 Expected public anchors in `article.md`:
 
@@ -143,6 +165,9 @@ Unknown contract versions are never guessed. The Reader renders ordinary Markdow
 - `npm run build` — production plugin bundle.
 - `npm run local:dev` — Local Reader at `http://127.0.0.1:4174/local-reader/`.
 - `npm run local:build` — production Local Reader bundle.
+- `npm run web:build` — workspace Web application bundle.
+- `npm run desktop:build` — Electron main/preload/renderer bundles.
+- `npm run desktop:start` — start the previously built Electron desktop application.
 - `npm run preview` — visual preview at `http://127.0.0.1:4173/preview/`.
 
 The Quarto/HTML experiment under `test/` remains a visual prototype only and is not a production input path.

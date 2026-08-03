@@ -1,7 +1,7 @@
 import {
   Diagnostic,
-  HYBRID_MANIFEST_VERSION,
   MARKDOWN_ANCHOR_CONTRACT_VERSION,
+  READER_BOUND_MANIFEST_VERSIONS,
   ReaderContract,
   READER_CONTRACT_VERSION
 } from "./reader-contract";
@@ -39,14 +39,16 @@ export function validateManifestBinding(
     return diagnostics;
   }
 
-  if (raw.manifest_version !== HYBRID_MANIFEST_VERSION) {
+  const supported = typeof raw.manifest_version === "string"
+    && (READER_BOUND_MANIFEST_VERSIONS as readonly string[]).includes(raw.manifest_version);
+  if (!supported) {
     const legacy = typeof raw.manifest_version === "string" && LEGACY_HYBRID_MANIFEST.test(raw.manifest_version);
     add(
       diagnostics,
       legacy ? "warning" : "error",
       "unsupported-manifest-version",
       legacy
-        ? `Reader 契约可读取，但旧 manifest ${raw.manifest_version} 不提供 v0.8 完整性绑定。`
+        ? `Reader 契约可读取，但旧 manifest ${raw.manifest_version} 不提供 Reader 完整性绑定。`
         : `不支持 manifest 版本 ${String(raw.manifest_version)}；不会猜测未来清单语义。`
     );
     return diagnostics;
@@ -65,7 +67,7 @@ export function validateManifestBinding(
     "article_sha256",
     "anchor_contract"
   ])) {
-    add(diagnostics, "error", "invalid-manifest-reader", "manifest v0.8 缺少有效的 reader 摘要。");
+    add(diagnostics, "error", "invalid-manifest-reader", "manifest 缺少有效的 reader 摘要。");
     return diagnostics;
   }
 
