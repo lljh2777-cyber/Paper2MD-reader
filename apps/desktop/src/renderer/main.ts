@@ -149,13 +149,17 @@ function renderTasks(): void {
     return;
   }
   ordered.forEach((task) => {
+    const managedTask = !task.id.startsWith("local-");
     const item = element("article", "p2md-desktop-task");
     item.dataset.state = task.state;
     item.dataset.taskId = task.id;
     const name = element("strong");
     name.textContent = task.pdfName;
     const workflow = element("small");
-    workflow.textContent = task.workflow === "reviewed-layout" ? `Reviewed · ${task.stage}` : "Direct conversion";
+    const recoveryLabel = task.recovered ? " · recovered" : "";
+    workflow.textContent = task.workflow === "reviewed-layout"
+      ? `Reviewed · ${task.stage}${recoveryLabel}`
+      : `Direct conversion${recoveryLabel}`;
     const state = element("span");
     state.textContent = `${task.state} · ${task.message}`;
     item.append(name, workflow, state);
@@ -202,6 +206,23 @@ function renderTasks(): void {
     if (task.state === "running" || task.state === "queued") {
       actions.appendChild(actionButton("Cancel", async () => {
         await api.cancelTask(task.id);
+      }, "quiet"));
+    }
+    if (managedTask && (task.state === "failed" || task.state === "cancelled")) {
+      actions.appendChild(actionButton("Retry", async () => {
+        const updated = await api.resumeTask(task.id);
+        taskErrors.delete(task.id);
+        tasks.set(updated.id, updated);
+        renderTasks();
+      }));
+    }
+    if (managedTask && ["succeeded", "failed", "cancelled"].includes(task.state)) {
+      actions.appendChild(actionButton("Remove record", async () => {
+        if (await api.removeTask(task.id)) {
+          taskErrors.delete(task.id);
+          tasks.delete(task.id);
+          renderTasks();
+        }
       }, "quiet"));
     }
     if (actions.childElementCount) item.appendChild(actions);

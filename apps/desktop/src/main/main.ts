@@ -16,13 +16,20 @@ import {
   layoutApplyArgs,
   layoutPrepareArgs,
   ReviewedLayoutOptions,
-  ReviewedWorkflowPaths,
   reviewedWorkflowPaths,
   roiProposalArgs,
   safePaperStem,
   validateConfirmedRoi,
   validateLayoutArgs
 } from "./reviewed-workflow";
+import {
+  availablePdf,
+  DesktopTaskStore,
+  DirectJob,
+  readableFile,
+  reviewPageCount,
+  ReviewedJob
+} from "./desktop-task-store";
 
 const MAX_PDF_BYTES = 256 * 1024 * 1024;
 const MAX_IPC_FILE_BYTES = 64 * 1024 * 1024;
@@ -33,12 +40,7 @@ const pdfs = new Map<string, string>();
 const tasks = new Map<string, ConversionTask>();
 const processes = new Map<string, ChildProcessWithoutNullStreams>();
 
-interface ReviewedJob {
-  pdfPath: string;
-  paths: ReviewedWorkflowPaths;
-  options: ReviewedLayoutOptions;
-}
-
+const directJobs = new Map<string, DirectJob>();
 const reviewedJobs = new Map<string, ReviewedJob>();
 
 class TaskCancelledError extends Error {}
@@ -54,6 +56,8 @@ async function registerRoot(path: string): Promise<DesktopRootSelection> {
   roots.set(id, canonical);
   return { id, label: basename(canonical) };
 }
+
+const taskStore = new DesktopTaskStore(tasks, directJobs, reviewedJobs, registerRoot, MAX_PDF_BYTES);
 
 function requireRoot(id: string): string {
   const root = roots.get(id);
@@ -81,6 +85,7 @@ function requireReviewedJob(id: string): ReviewedJob {
 
 function emitTask(task: ConversionTask): void {
   tasks.set(task.id, task);
+  taskStore.schedulePersist();
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(DESKTOP_CHANNELS.taskUpdate, task);
   });
@@ -150,7 +155,12 @@ function failTask(taskId: string, error: unknown): void {
   });
 }
 
-async function runDirectConversion(taskId: string, pdfPath: string, outputPath: string, request: StartConversionRequest): Promise<void> {
+async function runDirectConversion(
+  taskId: string,
+  pdfPath: string,
+  outputPath: string,
+  request: Pick<StartConversionRequest, "backend" | "regionRenderMode">
+): Promise<void> {
   try {
     await runPaper2md(taskId, [
       "convert",
@@ -373,6 +383,81 @@ function installIpcHandlers(): void {
     updateTask(taskId, { state: "cancelled", message: "Cancelled by user" });
     return true;
   });
+  ipcMain.handle(DESKTOP_CHANNELS.removeTask, (event, taskId: string) => {
+    assertTrusted(event);
+    const task = requireTask(taskId);
+    if (["running", "queued", "awaiting-review"].includes(task.state)) {
+      throw new Error("Active or review-pending tasks cannot be removed");
+    }
+    if (task.packageRootId) roots.delete(task.packageRootId);
+    if (task.artifactRootId) roots.delete(task.artifactRootId);
+    tasks.delete(taskId);
+    directJobs.delete(taskId);
+    reviewedJobs.delete(taskId);
+    taskStore.schedulePersist();
+    return true;
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.resumeTask, async (event, taskId: string) => {
+    assertTrusted(event);
+    const task = requireTask(taskId);
+    if (!["failed", "cancelled"].includes(task.state)) throw new Error("Only failed or cancelled tasks can be retried");
+    const direct = directJobs.get(taskId);
+    if (direct) {
+      if (!await availablePdf(direct.pdfPath, MAX_PDF_BYTES)) throw new Error("Source PDF is unavailable");
+      await assertPathAbsent(direct.outputPath);
+      const next = updateTask(taskId, {
+        stage: "direct-convert",
+        state: "running",
+        message: "Retrying direct conversion"
+      });
+      void runDirectConversion(taskId, direct.pdfPath, direct.outputPath, direct.request);
+      return next;
+    }
+    const reviewed = requireReviewedJob(taskId);
+    if (!await availablePdf(reviewed.pdfPath, MAX_PDF_BYTES)) throw new Error("Source PDF is unavailable");
+    if (task.stage === "roi-review") {
+      if (!await readableFile(join(reviewed.paths.roiProposalPath, "content-roi.json"))) {
+        throw new Error("ROI proposal is unavailable");
+      }
+      return updateTask(taskId, {
+        state: "awaiting-review",
+        message: "ROI proposal is ready for confirmation"
+      });
+    }
+    if (task.stage === "roi-proposal") {
+      await assertPathAbsent(reviewed.paths.roiProposalPath);
+      const next = updateTask(taskId, {
+        state: "running",
+        message: "Retrying the ROI proposal"
+      });
+      void runRoiProposal(taskId);
+      return next;
+    }
+    if (task.stage === "layout-prepare") {
+      if (!await readableFile(reviewed.paths.confirmedRoiPath)) throw new Error("Confirmed ROI is unavailable");
+      await assertPathAbsent(reviewed.paths.layoutReviewPath);
+      const next = updateTask(taskId, {
+        state: "running",
+        message: "Retrying layout review preparation"
+      });
+      void runLayoutPreparation(taskId);
+      return next;
+    }
+    if (["layout-review", "layout-validation", "layout-apply"].includes(task.stage)) {
+      if (await reviewPageCount(reviewed.paths.layoutReviewPath) === undefined) {
+        throw new Error("Layout review package is incomplete");
+      }
+      await assertPathAbsent(reviewed.paths.outputPath);
+      const next = updateTask(taskId, {
+        stage: "layout-validation",
+        state: "running",
+        message: "Retrying layout validation and package build"
+      });
+      void runValidationAndApply(taskId);
+      return next;
+    }
+    throw new Error("This task stage cannot be retried safely");
+  });
   ipcMain.handle(DESKTOP_CHANNELS.startConversion, async (event, request: StartConversionRequest) => {
     assertTrusted(event);
     if (request.backend !== "pdfium" || !["off", "auto"].includes(request.regionRenderMode)) {
@@ -394,6 +479,11 @@ function installIpcHandlers(): void {
       updatedAt: now,
       message: "Paper2MD is processing the PDF"
     };
+    directJobs.set(task.id, {
+      pdfPath,
+      outputPath,
+      request: { backend: request.backend, regionRenderMode: request.regionRenderMode }
+    });
     emitTask(task);
     void runDirectConversion(task.id, pdfPath, outputPath, request);
     return task;
@@ -505,12 +595,30 @@ function createWindow(): void {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await taskStore.restore(app.getPath("userData"));
   installIpcHandlers();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+let shutdownPersistenceStarted = false;
+app.on("before-quit", (event) => {
+  if (shutdownPersistenceStarted) return;
+  event.preventDefault();
+  processes.forEach((child, taskId) => {
+    if (child.exitCode === null) child.kill();
+    if (tasks.get(taskId)?.state === "running") {
+      updateTask(taskId, {
+        state: "cancelled",
+        message: "Interrupted when the desktop app closed; retry from the recorded stage"
+      });
+    }
+  });
+  shutdownPersistenceStarted = true;
+  void taskStore.flush().finally(() => app.quit());
 });
 
 app.on("window-all-closed", () => {

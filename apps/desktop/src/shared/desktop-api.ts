@@ -34,6 +34,7 @@ export interface ConversionTask {
   packageRootId?: string;
   artifactRootId?: string;
   artifactLabel?: string;
+  recovered?: boolean;
 }
 
 export interface StartConversionRequest {
@@ -76,6 +77,8 @@ export interface Paper2MDDesktopApi {
   validateAndApplyLayout(taskId: string): Promise<ConversionTask>;
   listTasks(): Promise<ConversionTask[]>;
   cancelTask(taskId: string): Promise<boolean>;
+  removeTask(taskId: string): Promise<boolean>;
+  resumeTask(taskId: string): Promise<ConversionTask>;
   onTaskUpdate(callback: (task: ConversionTask) => void): () => void;
 }
 
@@ -96,5 +99,7 @@ export const DESKTOP_CHANNELS = {
   validateAndApplyLayout: "paper2md:validate-and-apply-layout",
   listTasks: "paper2md:list-tasks",
   cancelTask: "paper2md:cancel-task",
+  removeTask: "paper2md:remove-task",
+  resumeTask: "paper2md:resume-task",
   taskUpdate: "paper2md:task-update"
 } as const;

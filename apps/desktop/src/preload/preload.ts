@@ -24,6 +24,8 @@ const api: Paper2MDDesktopApi = {
   validateAndApplyLayout: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.validateAndApplyLayout, taskId),
   listTasks: () => ipcRenderer.invoke(DESKTOP_CHANNELS.listTasks),
   cancelTask: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.cancelTask, taskId),
+  removeTask: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.removeTask, taskId),
+  resumeTask: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.resumeTask, taskId),
   onTaskUpdate: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, task: ConversionTask) => callback(task);
     ipcRenderer.on(DESKTOP_CHANNELS.taskUpdate, listener);

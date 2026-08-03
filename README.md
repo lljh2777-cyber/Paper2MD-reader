@@ -83,6 +83,11 @@ renderer never supplies raw commands or paths; it advances only registered task 
 through fixed IPC methods. Visual models and human reviewers work on the exported
 review artifacts rather than receiving filesystem or Electron privileges.
 
+Desktop task history is persisted under Electron `userData`. After a restart the
+main process reconstructs temporary access tokens and resumes only from complete
+on-disk review gates. Interrupted or partial writes are surfaced for inspection and
+are never overwritten automatically.
+
 ## Expected package contract
 
 The Reader looks for `_paper2md/reader.json` beside the selected article. It consumes the released Paper2MD `paper2md-reader-v0.1` shape, not the earlier Reader design draft.

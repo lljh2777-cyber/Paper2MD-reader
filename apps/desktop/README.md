@@ -40,9 +40,26 @@ review package portable across Codex, other Agent hosts, local models, and manua
 review. It also prevents an unreviewed rule proposal from being silently promoted
 to a confirmed ROI.
 
-The task manager is currently in-memory. Workflow files remain on disk after the
-app closes, but reopening and resuming an interrupted task is a later persistence
-milestone.
+## Task persistence and recovery
+
+The main process stores a versioned task index in Electron's per-user `userData`
+directory. It contains task metadata, trusted source/output paths, and fixed enum
+options; renderer root tokens are intentionally excluded. Writes are serialized so
+an older task snapshot cannot overwrite a newer state.
+
+On startup the desktop app checks disk evidence before restoring a state:
+
+- a readable final `article.md` restores a successful result;
+- a complete page review package returns to the layout review gate;
+- a complete ROI proposal returns to the ROI review gate;
+- an interrupted process with no complete gate becomes failed and may be retried;
+- a partial output directory is never overwritten and must be inspected and removed
+  manually before retrying.
+
+`Retry` only runs a fixed command for the task's recorded stage and refuses missing
+source files or existing target directories. `Remove record` removes completed,
+failed, or cancelled metadata from the task index; it never deletes the PDF,
+workflow directory, review artifacts, or output package.
 
 The phase-one desktop build is a development application, not a signed installer.
 Packaging and code signing should use a dedicated Electron Forge release step.
