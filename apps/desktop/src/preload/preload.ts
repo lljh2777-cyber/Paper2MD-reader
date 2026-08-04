@@ -16,6 +16,7 @@ const api: Paper2MDDesktopApi = {
   readText: (rootId, path) => ipcRenderer.invoke(DESKTOP_CHANNELS.readText, rootId, path),
   readBinary: async (rootId, path) => new Uint8Array(await ipcRenderer.invoke(DESKTOP_CHANNELS.readBinary, rootId, path)),
   listFiles: (rootId, directory) => ipcRenderer.invoke(DESKTOP_CHANNELS.listFiles, rootId, directory),
+  readPackagePdf: async (rootId, path) => new Uint8Array(await ipcRenderer.invoke(DESKTOP_CHANNELS.readPackagePdf, rootId, path)),
   readPdf: async (pdfId) => new Uint8Array(await ipcRenderer.invoke(DESKTOP_CHANNELS.readPdf, pdfId)),
   startConversion: (request: StartConversionRequest) => ipcRenderer.invoke(DESKTOP_CHANNELS.startConversion, request),
   startReviewedLayout: (request: StartReviewedLayoutRequest) => ipcRenderer.invoke(DESKTOP_CHANNELS.startReviewedLayout, request),

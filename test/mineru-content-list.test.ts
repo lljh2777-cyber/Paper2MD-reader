@@ -86,6 +86,33 @@ describe("MinerU result package adapter", () => {
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-structured-source", level: "info" }));
   });
 
+  it("detects the real MinerU full.md plus UUID content-list naming convention", async () => {
+    const fileSystem = new MemoryReaderFileSystem({
+      "full.md": markdown,
+      "b252db0a-e453-4514-83de-226ea2fb9b02_content_list.json": JSON.stringify(contentList),
+      "b252db0a-e453-4514-83de-226ea2fb9b02_origin.pdf": new Uint8Array([1]),
+      "images/figure-a.jpg": new Uint8Array([2]),
+      "images/table-a.jpg": new Uint8Array([3])
+    });
+
+    expect(await detectPackageSource(fileSystem)).toEqual({
+      format: "mineru",
+      articlePath: "full.md",
+      contentListPath: "b252db0a-e453-4514-83de-226ea2fb9b02_content_list.json"
+    });
+    expect((await new PackageLoader(fileSystem).load("full.md")).state).toBe("mineru");
+  });
+
+  it("keeps multiple MinerU caption lines separated", () => {
+    const parsed = parseMinerUContentList([{
+      type: "image",
+      img_path: "images/figure-a.jpg",
+      image_caption: ["Figure 1. Main caption", "(A) Panel description"],
+      page_idx: 0
+    }]);
+    expect(parsed.visuals[0].captionText).toBe("Figure 1. Main caption\n(A) Panel description");
+  });
+
   it("uses the same structured adapter when Obsidian opens the MinerU Markdown directly", async () => {
     const fileSystem = new MemoryReaderFileSystem({
       "paper.md": markdown,

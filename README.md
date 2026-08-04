@@ -63,7 +63,8 @@ Official references: [MinerU output files](https://opendatalab.github.io/MinerU/
 The Reader accepts three directory shapes, in this priority order:
 
 1. A Paper2MD package containing `article.md` (and optionally `_paper2md/reader.json`).
-2. A full MinerU result containing a same-stem Markdown/content-list pair and `images/`.
+2. A full MinerU result containing a same-stem Markdown/content-list pair and `images/`, or
+   MinerU Desktop's `full.md` plus one UUID-named `*_content_list.json`.
 3. A directory containing exactly one non-README Markdown file, including Markdown saved by MinerU MCP.
 
 ```text
@@ -93,6 +94,11 @@ but Figure/caption/page/bbox linking requires the full result ZIP or CLI/API out
 Keep MinerU API tokens in the MCP/CLI/desktop process—never in the browser Reader.
 The Reader does not consume `model.json` or `middle.json`; its structured compatibility
 boundary is the public content-list format plus the corresponding Markdown and images.
+
+In the Electron desktop host, opening an existing result folder is independent from the
+conversion workflow panel. If the folder contains exactly one PDF, or one unambiguous
+`*_origin.pdf`, the Reader opens that source PDF in the preview pane automatically. No
+conversion or reviewed-layout workflow needs to be selected first.
 
 Build the static application with:
 

@@ -29,10 +29,7 @@ function matchingMarkdown(contentListPath: string, markdown: string[]): string |
   return markdown.length === 1 ? markdown[0] : undefined;
 }
 
-export async function detectPackageSource(fileSystem: ReaderFileSystem): Promise<DetectedPackageSource> {
-  if (await fileSystem.exists("article.md")) return { format: "paper2md", articlePath: "article.md" };
-
-  const rootFiles = await fileSystem.listFiles("");
+export function contentListForMarkdown(articlePath: string, rootFiles: string[]): string | undefined {
   const markdown = markdownCandidates(rootFiles);
   const stableLists = rootFiles
     .filter((path) => /(?:^|\/)(?:.+_)?content_list\.json$/i.test(path))
@@ -42,8 +39,27 @@ export async function detectPackageSource(fileSystem: ReaderFileSystem): Promise
     .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
 
   for (const contentListPath of [...stableLists, ...v2Lists]) {
-    const articlePath = matchingMarkdown(contentListPath, markdown);
-    if (articlePath) return { format: "mineru", articlePath, contentListPath };
+    if (matchingMarkdown(contentListPath, markdown)?.toLowerCase() === articlePath.toLowerCase()) {
+      return contentListPath;
+    }
+  }
+
+  const isOnlyMarkdown = markdown.length === 1 && markdown[0].toLowerCase() === articlePath.toLowerCase();
+  if (!isOnlyMarkdown) return undefined;
+  if (stableLists.length === 1) return stableLists[0];
+  if (stableLists.length === 0 && v2Lists.length === 1) return v2Lists[0];
+  return undefined;
+}
+
+export async function detectPackageSource(fileSystem: ReaderFileSystem): Promise<DetectedPackageSource> {
+  if (await fileSystem.exists("article.md")) return { format: "paper2md", articlePath: "article.md" };
+
+  const rootFiles = await fileSystem.listFiles("");
+  const markdown = markdownCandidates(rootFiles);
+
+  for (const articlePath of markdown) {
+    const contentListPath = contentListForMarkdown(articlePath, rootFiles);
+    if (contentListPath) return { format: "mineru", articlePath, contentListPath };
   }
   if (markdown.length === 1) return { format: "markdown", articlePath: markdown[0] };
   throw new PackageSourceNotFoundError();

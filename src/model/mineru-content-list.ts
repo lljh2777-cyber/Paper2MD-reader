@@ -29,6 +29,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function textFromSpans(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (!Array.isArray(value)) return "";
+  if (value.every((item) => typeof item === "string")) {
+    return (value as string[]).map((item) => item.trim()).filter(Boolean).join("\n");
+  }
   return value.map((item) => {
     if (typeof item === "string") return item;
     if (!isRecord(item)) return "";

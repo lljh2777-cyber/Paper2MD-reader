@@ -7,11 +7,13 @@ import {
   ConversionTask,
   DESKTOP_CHANNELS,
   DesktopPdfSelection,
+  DesktopPackagePdf,
   DesktopRootSelection,
   StartConversionRequest,
   StartReviewedLayoutRequest
 } from "../shared/desktop-api";
 import { normalizeDesktopRelativePath, resolvePackagePath } from "./path-security";
+import { selectSourcePdfName } from "./package-discovery";
 import {
   layoutApplyArgs,
   layoutPrepareArgs,
@@ -50,11 +52,27 @@ function assertTrusted(event: IpcMainInvokeEvent): void {
   if (!url.startsWith("file://")) throw new Error("Untrusted IPC sender");
 }
 
-async function registerRoot(path: string): Promise<DesktopRootSelection> {
+async function discoverSourcePdf(root: string): Promise<DesktopPackagePdf | undefined> {
+  const entries = await readdir(root, { withFileTypes: true });
+  const name = selectSourcePdfName(entries
+    .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
+    .map((entry) => entry.name));
+  if (!name) return undefined;
+  const info = await stat(join(root, name));
+  if (!info.isFile() || info.size > MAX_PDF_BYTES) return undefined;
+  return { relativePath: name, name, size: info.size };
+}
+
+async function registerRoot(path: string, includeSourcePdf = false): Promise<DesktopRootSelection> {
   const canonical = await realpath(path);
+  const sourcePdf = includeSourcePdf ? await discoverSourcePdf(canonical) : undefined;
   const id = randomUUID();
   roots.set(id, canonical);
-  return { id, label: basename(canonical) };
+  return {
+    id,
+    label: basename(canonical),
+    sourcePdf
+  };
 }
 
 const taskStore = new DesktopTaskStore(tasks, directJobs, reviewedJobs, registerRoot, MAX_PDF_BYTES);
@@ -98,10 +116,10 @@ function updateTask(id: string, values: Partial<ConversionTask>): ConversionTask
   return next;
 }
 
-async function pickDirectory(title: string): Promise<DesktopRootSelection | undefined> {
+async function pickDirectory(title: string, includeSourcePdf = false): Promise<DesktopRootSelection | undefined> {
   const result = await dialog.showOpenDialog({ title, properties: ["openDirectory"] });
   if (result.canceled || result.filePaths.length !== 1) return undefined;
-  return registerRoot(result.filePaths[0]);
+  return registerRoot(result.filePaths[0], includeSourcePdf);
 }
 
 async function assertPathAbsent(path: string): Promise<void> {
@@ -291,7 +309,7 @@ function validateReviewedOptions(request: StartReviewedLayoutRequest): ReviewedL
 function installIpcHandlers(): void {
   ipcMain.handle(DESKTOP_CHANNELS.choosePackage, async (event) => {
     assertTrusted(event);
-    return pickDirectory("Open Paper2MD package or MinerU result folder");
+    return pickDirectory("Open Paper2MD package or MinerU result folder", true);
   });
   ipcMain.handle(DESKTOP_CHANNELS.chooseOutputParent, async (event) => {
     assertTrusted(event);
@@ -363,6 +381,15 @@ function installIpcHandlers(): void {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.readPackagePdf, async (event, rootId: string, path: string) => {
+    assertTrusted(event);
+    const target = await resolvePackagePath(requireRoot(rootId), path);
+    const info = await stat(target);
+    if (!info.isFile() || extname(target).toLowerCase() !== ".pdf" || info.size > MAX_PDF_BYTES) {
+      throw new Error("Package PDF is unavailable or exceeds the 256 MiB desktop limit");
+    }
+    return new Uint8Array(await readFile(target));
   });
   ipcMain.handle(DESKTOP_CHANNELS.readPdf, async (event, pdfId: string) => {
     assertTrusted(event);

@@ -1,6 +1,13 @@
 export interface DesktopRootSelection {
   id: string;
   label: string;
+  sourcePdf?: DesktopPackagePdf;
+}
+
+export interface DesktopPackagePdf {
+  relativePath: string;
+  name: string;
+  size: number;
 }
 
 export interface DesktopPdfSelection {
@@ -69,6 +76,7 @@ export interface Paper2MDDesktopApi {
   readText(rootId: string, relativePath: string): Promise<string>;
   readBinary(rootId: string, relativePath: string): Promise<Uint8Array>;
   listFiles(rootId: string, relativeDirectory: string): Promise<string[]>;
+  readPackagePdf(rootId: string, relativePath: string): Promise<Uint8Array>;
   readPdf(pdfId: string): Promise<Uint8Array>;
   startConversion(request: StartConversionRequest): Promise<ConversionTask>;
   startReviewedLayout(request: StartReviewedLayoutRequest): Promise<ConversionTask>;
@@ -91,6 +99,7 @@ export const DESKTOP_CHANNELS = {
   readText: "paper2md:read-text",
   readBinary: "paper2md:read-binary",
   listFiles: "paper2md:list-files",
+  readPackagePdf: "paper2md:read-package-pdf",
   readPdf: "paper2md:read-pdf",
   startConversion: "paper2md:start-conversion",
   startReviewedLayout: "paper2md:start-reviewed-layout",

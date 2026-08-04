@@ -15,7 +15,7 @@ import {
   RawReaderContract
 } from "./reader-contract";
 import { injectMinerUVisualAnchors, parseMinerUContentList } from "./mineru-content-list";
-import { detectPackageSource } from "./package-source";
+import { contentListForMarkdown, detectPackageSource } from "./package-source";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
 
@@ -60,6 +60,8 @@ export class PackageLoader {
       const v2ContentList = `${stem}_content_list_v2.json`;
       if (await this.fileSystem.exists(stableContentList)) return this.loadMinerU(articleRelativePath, stableContentList);
       if (await this.fileSystem.exists(v2ContentList)) return this.loadMinerU(articleRelativePath, v2ContentList);
+      const detectedContentList = contentListForMarkdown(articleRelativePath, await this.fileSystem.listFiles(""));
+      if (detectedContentList) return this.loadMinerU(articleRelativePath, detectedContentList);
     }
     const article = await this.readTextWithinLimit(articleRelativePath, PACKAGE_LIMITS.articleBytes, "article.md");
     const articleText = article.text;

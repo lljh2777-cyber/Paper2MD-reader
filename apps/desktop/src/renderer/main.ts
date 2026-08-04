@@ -5,6 +5,7 @@ import { mountReaderWorkspace } from "../../../../packages/reader-ui/src/index";
 import {
   ConversionTask,
   DesktopPdfSelection,
+  DesktopRootSelection,
   EvidenceLevel,
   ExtractionProfile,
   LayoutReviewMode,
@@ -112,13 +113,13 @@ const pdfLabel = element("strong");
 pdfLabel.textContent = "PDF preview";
 pdfHeader.appendChild(pdfLabel);
 let pdfContent: HTMLElement = element("div", "p2md-desktop-pdf-empty");
-pdfContent.textContent = "Choose a workflow to preview the source document here.";
+pdfContent.textContent = "Open an existing result folder with a source PDF, or choose a PDF to start a conversion.";
 pdfPane.append(pdfHeader, pdfContent);
 shell.append(taskRail, readerHost, pdfPane);
 root.appendChild(shell);
 
 const workspace = mountReaderWorkspace(readerHost, {
-  picker: new DesktopPackagePicker(api),
+  picker: new DesktopPackagePicker(api, showPackagePdf),
   localizedCopy: {
     en: {
       title: readerText("en", "desktopReaderTitle"),
@@ -145,6 +146,7 @@ const tasks = new Map<string, ConversionTask>();
 const taskErrors = new Map<string, string>();
 let pdfUrl: string | undefined;
 let selectedPdfName: string | undefined;
+let pdfEmptyCopyKey: "previewEmpty" | "previewNoSource" | "previewLoadFailed" = "previewEmpty";
 let startButtonsBusy = false;
 
 function updateOptionControl(
@@ -180,7 +182,7 @@ function applyDesktopLocale(nextLocale: ReaderLocale): void {
   if (!selectedPdfName) {
     pdfLabel.textContent = desktopText(locale, "pdfPreview");
     if (pdfContent.classList.contains("p2md-desktop-pdf-empty")) {
-      pdfContent.textContent = desktopText(locale, "previewEmpty");
+      pdfContent.textContent = desktopText(locale, pdfEmptyCopyKey);
     }
   }
   renderTasks();
@@ -297,18 +299,47 @@ function renderTasks(): void {
   });
 }
 
-async function showPdf(pdf: DesktopPdfSelection): Promise<void> {
-  const bytes = await api.readPdf(pdf.id);
+function showPdfBytes(name: string, bytes: Uint8Array): void {
   if (pdfUrl) URL.revokeObjectURL(pdfUrl);
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   pdfUrl = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
-  pdfLabel.textContent = pdf.name;
-  selectedPdfName = pdf.name;
+  pdfLabel.textContent = name;
+  selectedPdfName = name;
+  pdfEmptyCopyKey = "previewEmpty";
   const frame = element("iframe", "p2md-desktop-pdf-frame");
-  frame.title = `${desktopText(locale, "pdfPreview")}: ${pdf.name}`;
+  frame.title = `${desktopText(locale, "pdfPreview")}: ${name}`;
   frame.src = pdfUrl;
   pdfContent.replaceWith(frame);
   pdfContent = frame;
+}
+
+function clearPdfPreview(copyKey: "previewEmpty" | "previewNoSource" | "previewLoadFailed"): void {
+  if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+  pdfUrl = undefined;
+  selectedPdfName = undefined;
+  pdfEmptyCopyKey = copyKey;
+  pdfLabel.textContent = desktopText(locale, "pdfPreview");
+  const empty = element("div", "p2md-desktop-pdf-empty");
+  empty.textContent = desktopText(locale, copyKey);
+  pdfContent.replaceWith(empty);
+  pdfContent = empty;
+}
+
+async function showPackagePdf(root: DesktopRootSelection): Promise<void> {
+  if (!root.sourcePdf) {
+    clearPdfPreview("previewNoSource");
+    return;
+  }
+  try {
+    const bytes = await api.readPackagePdf(root.id, root.sourcePdf.relativePath);
+    showPdfBytes(root.sourcePdf.name, bytes);
+  } catch {
+    clearPdfPreview("previewLoadFailed");
+  }
+}
+
+async function showPdf(pdf: DesktopPdfSelection): Promise<void> {
+  showPdfBytes(pdf.name, await api.readPdf(pdf.id));
 }
 
 function addRequestError(message: string): void {
