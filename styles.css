@@ -308,26 +308,28 @@
 }
 
 .p2md-follow-track {
-  background: var(--background-modifier-hover);
-  border: 1px solid var(--p2md-border-strong);
+  background: color-mix(in srgb, var(--text-muted) 24%, var(--background-primary));
+  border: 1px solid color-mix(in srgb, var(--text-muted) 72%, var(--background-primary));
   border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 28%, transparent);
   display: inline-block;
-  height: 14px;
+  height: 16px;
   position: relative;
   transition: background-color 120ms ease, border-color 120ms ease;
-  width: 26px;
+  width: 30px;
 }
 
 .p2md-follow-track::after {
-  background: var(--text-muted);
+  background: var(--text-normal);
   border-radius: 50%;
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 42%, transparent);
   content: "";
-  height: 8px;
+  height: 10px;
   left: 2px;
   position: absolute;
   top: 2px;
   transition: transform 120ms ease, background-color 120ms ease;
-  width: 8px;
+  width: 10px;
 }
 
 .p2md-follow-control input:checked + .p2md-follow-track {
@@ -337,7 +339,7 @@
 
 .p2md-follow-control input:checked + .p2md-follow-track::after {
   background: #fff;
-  transform: translateX(12px);
+  transform: translateX(14px);
 }
 
 .p2md-follow-control input:focus-visible + .p2md-follow-track {
@@ -573,8 +575,8 @@
 @container (max-width: 1040px) {
   .p2md-reader-workspace { grid-template-columns: minmax(0, 1fr); }
   .p2md-figures-host { display: none; }
-  .p2md-contract-mode .p2md-inline-asset,
-  .p2md-contract-mode .p2md-inline-caption { display: block; }
+  .p2md-contract-mode:not(.p2md-external-figures) .p2md-inline-asset,
+  .p2md-contract-mode:not(.p2md-external-figures) .p2md-inline-caption { display: block; }
   .p2md-article { max-width: 780px; }
   .p2md-figure-slot { margin-bottom: 10px; }
 }

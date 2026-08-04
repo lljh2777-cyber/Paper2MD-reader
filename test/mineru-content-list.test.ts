@@ -113,6 +113,36 @@ describe("MinerU result package adapter", () => {
     expect(parsed.visuals[0].captionText).toBe("Figure 1. Main caption\n(A) Panel description");
   });
 
+  it("combines MinerU caption and footnote lines", () => {
+    const parsed = parseMinerUContentList([{
+      type: "image",
+      img_path: "images/figure-a.jpg",
+      image_caption: ["Figure 1. Main caption", "(A) First panel"],
+      image_footnote: ["(B) Second panel"],
+      page_idx: 0
+    }]);
+    expect(parsed.visuals[0].captionText).toBe("Figure 1. Main caption\n(A) First panel\n(B) Second panel");
+  });
+
+  it("uses the complete Markdown caption when content-list is incomplete or empty", () => {
+    const parsed = parseMinerUContentList([{
+      type: "image",
+      img_path: "images/figure-a.jpg",
+      image_caption: ["Figure 1. Main caption"],
+      page_idx: 0
+    }, {
+      type: "image",
+      img_path: "images/figure-b.jpg",
+      image_caption: [],
+      page_idx: 1
+    }]);
+    const source = `![](images/figure-a.jpg)\nFigure 1. Main caption  \n(A) First panel  \n(B) Second panel.\n\n![](images/figure-b.jpg)\n\nBody between image and caption.\n\n## Section\n\nFigure 2. Displaced but complete caption.`;
+    injectMinerUVisualAnchors(source, parsed.visuals);
+    expect(parsed.visuals[0].captionText).toBe("Figure 1. Main caption\n(A) First panel\n(B) Second panel.");
+    expect(parsed.visuals[1].captionText).toBe("Figure 2. Displaced but complete caption.");
+    expect(parsed.visuals[1].label).toBe("Figure 2");
+  });
+
   it("uses the same structured adapter when Obsidian opens the MinerU Markdown directly", async () => {
     const fileSystem = new MemoryReaderFileSystem({
       "paper.md": markdown,

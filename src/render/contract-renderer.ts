@@ -65,6 +65,17 @@ function matchesAssetImage(element: HTMLElement, asset: LoadedAsset): boolean {
   });
 }
 
+function matchesAssetCaption(element: HTMLElement, asset: LoadedAsset): boolean {
+  const text = element.textContent?.replace(/\s+/g, " ").trim() ?? "";
+  if (!text) return false;
+  const expected = asset.captionText?.replace(/\s+/g, " ").trim();
+  if (expected && text === expected) return true;
+  const number = assetDisplayLabel(asset).match(/\b([A-Za-z0-9]+)\b\s*$/)?.[1];
+  if (!number) return false;
+  const escapedNumber = number.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^(?:fig(?:ure)?\\.?|table|chart)\\s*${escapedNumber}(?:\\b|[.:;-])`, "i").test(text);
+}
+
 export function bindContractAssets(rendered: RenderedArticle, assets: LoadedAsset[]): void {
   for (const asset of assets) {
     const slotId = asset.placement_block_id;
@@ -78,14 +89,28 @@ export function bindContractAssets(rendered: RenderedArticle, assets: LoadedAsse
         slot.textContent = label;
 
         let candidate = nextContentElement(slot);
+        let inlineAsset: HTMLElement | undefined;
         let inspected = 0;
         while (candidate && inspected < 4) {
           if (matchesAssetImage(candidate, asset)) {
             candidate.classList.add("p2md-inline-asset");
             candidate.dataset.p2mdAssetId = asset.id;
+            inlineAsset = candidate;
             break;
           }
           if (candidate.classList.contains("p2md-contract-anchor")) break;
+          candidate = candidate.nextElementSibling as HTMLElement | null ?? undefined;
+          inspected += 1;
+        }
+        candidate = inlineAsset?.nextElementSibling as HTMLElement | null ?? undefined;
+        inspected = 0;
+        while (candidate && inspected < 12) {
+          if (candidate.classList.contains("p2md-inline-asset") || candidate.classList.contains("p2md-slot-anchor")) break;
+          if (matchesAssetCaption(candidate, asset)) {
+            candidate.classList.add("p2md-inline-caption");
+            candidate.dataset.p2mdAssetId = asset.id;
+            break;
+          }
           candidate = candidate.nextElementSibling as HTMLElement | null ?? undefined;
           inspected += 1;
         }

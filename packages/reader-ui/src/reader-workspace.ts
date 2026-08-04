@@ -124,7 +124,7 @@ export class ReaderWorkspace {
   }
 
   private renderShell(): void {
-    this.root.className = "p2md-reader-view p2md-local-reader-view";
+    this.root.className = `p2md-reader-view p2md-local-reader-view${this.options.figureHost ? " p2md-external-figures" : ""}`;
     const reader = element("div", "p2md-reader");
     const toolbar = element("header", "p2md-toolbar");
     const leading = element("div", "p2md-toolbar-group");

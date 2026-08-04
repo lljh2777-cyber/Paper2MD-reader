@@ -42,7 +42,7 @@ function textFromSpans(value: unknown): string {
 
 function captionFor(record: Record<string, unknown>, type: string): string | undefined {
   const content = isRecord(record.content) ? record.content : undefined;
-  const candidates = [
+  const captionCandidates = [
     record[`${type}_caption`],
     record.image_caption,
     record.table_caption,
@@ -53,9 +53,28 @@ function captionFor(record: Record<string, unknown>, type: string): string | und
     content?.chart_caption,
     content?.caption
   ];
-  for (const candidate of candidates) {
-    const text = textFromSpans(candidate);
-    if (text) return text;
+  const footnoteCandidates = [
+    record[`${type}_footnote`],
+    record.image_footnote,
+    record.table_footnote,
+    record.chart_footnote,
+    content?.[`${type}_footnote`],
+    content?.image_footnote,
+    content?.table_footnote,
+    content?.chart_footnote,
+    content?.footnote
+  ];
+  const firstText = (candidates: unknown[]): string | undefined => {
+    for (const candidate of candidates) {
+      const text = textFromSpans(candidate);
+      if (text) return text;
+    }
+    return undefined;
+  };
+  const caption = firstText(captionCandidates);
+  const footnote = firstText(footnoteCandidates);
+  if (caption || footnote) {
+    return [...new Set([caption, footnote].filter((text): text is string => Boolean(text)))].join("\n");
   }
   const findNestedCaption = (value: unknown, depth: number): string | undefined => {
     if (depth > 4 || !isRecord(value)) return undefined;
@@ -72,6 +91,26 @@ function captionFor(record: Record<string, unknown>, type: string): string | und
     return undefined;
   };
   return findNestedCaption(content, 0);
+}
+
+function markdownCaptionAfterImage(lines: string[], imageLineIndex: number, visual: MinerUVisual, ordinal: number): string | undefined {
+  const labelNumber = visual.label.match(/\b([A-Za-z0-9]+)\b\s*$/)?.[1] ?? String(ordinal);
+  const escapedNumber = labelNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const captionStart = new RegExp(`^\\s*(?:fig(?:ure)?\\.?|table|chart)\\s*${escapedNumber}(?:\\b|[.:;-])`, "i");
+  const searchEnd = Math.min(lines.length, imageLineIndex + 18);
+  for (let index = imageLineIndex + 1; index < searchEnd; index += 1) {
+    const line = lines[index];
+    if (/!\[[^\]]*\]\(|<img\b/i.test(line)) break;
+    if (!captionStart.test(line)) continue;
+    const captionLines = [line.trim()];
+    for (let following = index + 1; following < searchEnd; following += 1) {
+      const next = lines[following].trim();
+      if (!next || /^#{1,6}\s/.test(next) || /!\[[^\]]*\]\(|<img\b/i.test(next)) break;
+      captionLines.push(next);
+    }
+    return captionLines.join("\n").replace(/ {2,}$/gm, "").trim();
+  }
+  return undefined;
 }
 
 function imagePathFor(record: Record<string, unknown>): string | undefined {
@@ -200,6 +239,11 @@ export function injectMinerUVisualAnchors(markdown: string, visuals: MinerUVisua
     );
     if (lineIndex < 0) return;
     claimedLines.add(lineIndex);
+    const markdownCaption = markdownCaptionAfterImage(lines, lineIndex, visual, index + 1);
+    if (markdownCaption) {
+      visual.captionText = markdownCaption;
+      visual.label = visualLabel(visual.kind === "table" ? "table" : "image", markdownCaption, index + 1);
+    }
     visual.placementBlockId = visualId("slot", index);
     const marker = `<!-- p2md:slot id="${visual.placementBlockId}" asset="${visual.id}" -->`;
     insertions.set(lineIndex, [...(insertions.get(lineIndex) ?? []), marker]);
