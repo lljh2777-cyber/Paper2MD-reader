@@ -100,6 +100,11 @@ conversion workflow panel. If the folder contains exactly one PDF, or one unambi
 `*_origin.pdf`, the Reader opens that source PDF in the preview pane automatically. No
 conversion or reviewed-layout workflow needs to be selected first.
 
+The desktop reference pane has two tabs. `Images & captions` is selected when an
+existing Paper2MD or MinerU result is opened and keeps the structured visual browser
+linked to the article scroll position. `Original PDF` shows the source PDF in the same
+pane. Switching tabs preserves the current article position and selected visual.
+
 Build the static application with:
 
 ```powershell

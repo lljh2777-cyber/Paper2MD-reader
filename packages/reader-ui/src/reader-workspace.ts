@@ -22,6 +22,8 @@ import type { ReaderPackagePicker } from "../../reader-core/src/index";
 
 export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
+  /** Mount the linked figure browser outside the reader shell, such as in a desktop tab pane. */
+  figureHost?: HTMLElement;
   title?: string;
   emptyTitle?: string;
   emptyCopy?: string;
@@ -86,6 +88,7 @@ export class ReaderWorkspace {
     this.fileSystem?.dispose();
     this.options.picker.dispose?.();
     this.stopLocaleSubscription();
+    this.options.figureHost?.replaceChildren();
     this.root.replaceChildren();
   }
 
@@ -161,12 +164,16 @@ export class ReaderWorkspace {
     trailing.append(languageSelect, this.statusButton, this.reloadButton);
     toolbar.append(leading, this.fileLabel, trailing);
 
-    const workspace = element("div", "p2md-reader-workspace");
+    const workspace = element(
+      "div",
+      `p2md-reader-workspace${this.options.figureHost ? " p2md-reader-workspace-external-figures" : ""}`
+    );
     this.articleScroll = element("main", "p2md-article-scroll");
     this.articleContent = element("article", "p2md-article markdown-rendered");
     this.articleScroll.appendChild(this.articleContent);
-    const figureHost = element("aside", "p2md-figures-host");
-    workspace.append(this.articleScroll, figureHost);
+    const figureHost = this.options.figureHost ?? element("aside", "p2md-figures-host");
+    workspace.appendChild(this.articleScroll);
+    if (!this.options.figureHost) workspace.appendChild(figureHost);
     reader.append(toolbar, workspace);
     this.root.replaceChildren(reader);
 

@@ -18,14 +18,14 @@ body { overflow: hidden; }
 }
 
 .p2md-desktop-task-rail,
-.p2md-desktop-pdf-pane {
+.p2md-desktop-right-pane {
   background: var(--p2md-desktop-rail);
   border-right: 1px solid var(--p2md-desktop-border);
   min-width: 0;
 }
 
 .p2md-desktop-task-rail { overflow: auto; padding: 18px 14px; }
-.p2md-desktop-pdf-pane { border-left: 1px solid var(--p2md-desktop-border); border-right: 0; display: flex; flex-direction: column; }
+.p2md-desktop-right-pane { border-left: 1px solid var(--p2md-desktop-border); border-right: 0; display: flex; flex-direction: column; }
 .p2md-desktop-reader { min-width: 0; overflow: hidden; }
 .p2md-desktop-reader > .p2md-reader-view { height: 100%; }
 
@@ -89,14 +89,40 @@ body { overflow: hidden; }
 .p2md-desktop-task-action:disabled { cursor: default; opacity: 0.55; }
 .p2md-desktop-task-action[data-tone="quiet"] { background: transparent; border-color: var(--p2md-desktop-border); color: var(--text-normal); }
 
-.p2md-desktop-pdf-header { align-items: center; border-bottom: 1px solid var(--p2md-desktop-border); display: flex; min-height: 49px; padding: 0 14px; }
+.p2md-desktop-right-tabs {
+  align-items: end;
+  background: var(--background-primary);
+  border-bottom: 1px solid var(--p2md-desktop-border);
+  display: flex;
+  flex: 0 0 49px;
+  gap: 4px;
+  padding: 0 10px;
+}
+.p2md-desktop-right-tab {
+  align-self: stretch;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 600 11.5px/1 system-ui, sans-serif;
+  padding: 0 10px;
+}
+.p2md-desktop-right-tab:hover { color: var(--text-normal); }
+.p2md-desktop-right-tab:focus-visible { outline: 2px solid var(--text-accent); outline-offset: -3px; }
+.p2md-desktop-right-tab[data-selected="true"] { border-bottom-color: var(--text-accent); color: var(--text-normal); }
+.p2md-desktop-right-view { flex: 1 1 auto; min-height: 0; }
+.p2md-desktop-pdf-view { display: flex; flex-direction: column; }
+.p2md-desktop-visuals-view.p2md-figures-host { border-left: 0; display: flex; height: 100%; }
+.p2md-desktop-right-view[hidden] { display: none; }
+.p2md-desktop-pdf-header { align-items: center; border-bottom: 1px solid var(--p2md-desktop-border); display: flex; flex: 0 0 39px; padding: 0 14px; }
 .p2md-desktop-pdf-header strong { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .p2md-desktop-pdf-empty { color: var(--text-muted); font-size: 12px; margin: auto; max-width: 220px; text-align: center; }
 .p2md-desktop-pdf-frame { border: 0; flex: 1; min-height: 0; width: 100%; }
 
 @media (max-width: 1180px) {
   .p2md-desktop-shell { grid-template-columns: 220px minmax(520px, 1fr); }
-  .p2md-desktop-pdf-pane { display: none; }
+  .p2md-desktop-right-pane { display: none; }
 }
 
 @media (prefers-color-scheme: dark) {

@@ -10,6 +10,15 @@ npm run desktop:start
 Electron 43 downloads its platform binary on demand. Run `npx install-electron
 --no` explicitly when the first start cannot reach the Electron download host.
 
+## Reading an existing result
+
+Open a Paper2MD package or MinerU result folder from the Reader toolbar. The article
+stays in the main reading column. Use the right-side `Images & captions` and
+`Original PDF` tabs to switch between the linked visual browser and the source PDF.
+Opening an existing result defaults to images and captions; selecting a PDF for a new
+conversion switches to the PDF tab. The visual selection and article scroll position
+are retained across tab changes.
+
 The app expects `paper2md` to be installed on `PATH`. Developers may set
 `PAPER2MD_EXECUTABLE` in the Electron main-process environment to a trusted
 Paper2MD executable path. This value is never accepted from renderer content.

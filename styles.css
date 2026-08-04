@@ -161,6 +161,10 @@
   min-width: 0;
 }
 
+.p2md-reader-workspace-external-figures {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .p2md-article-scroll {
   background: var(--p2md-paper);
   min-width: 0;

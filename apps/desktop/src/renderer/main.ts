@@ -107,19 +107,47 @@ taskHeader.append(taskTitle, taskCopy, optionsPanel, reviewedButton, processButt
 taskRail.append(taskHeader, taskList);
 
 const readerHost = element("section", "p2md-desktop-reader");
-const pdfPane = element("aside", "p2md-desktop-pdf-pane");
+const rightPane = element("aside", "p2md-desktop-right-pane");
+const rightTabs = element("div", "p2md-desktop-right-tabs");
+rightTabs.setAttribute("role", "tablist");
+const pdfTab = element("button", "p2md-desktop-right-tab");
+pdfTab.type = "button";
+pdfTab.setAttribute("role", "tab");
+pdfTab.id = "p2md-desktop-pdf-tab";
+pdfTab.setAttribute("aria-controls", "p2md-desktop-pdf-view");
+const visualsTab = element("button", "p2md-desktop-right-tab");
+visualsTab.type = "button";
+visualsTab.setAttribute("role", "tab");
+visualsTab.id = "p2md-desktop-visuals-tab";
+visualsTab.setAttribute("aria-controls", "p2md-desktop-visuals-view");
+rightTabs.append(pdfTab, visualsTab);
+
+const pdfView = element("section", "p2md-desktop-right-view p2md-desktop-pdf-view");
+pdfView.id = "p2md-desktop-pdf-view";
+pdfView.setAttribute("role", "tabpanel");
+pdfView.setAttribute("aria-labelledby", pdfTab.id);
 const pdfHeader = element("header", "p2md-desktop-pdf-header");
 const pdfLabel = element("strong");
 pdfLabel.textContent = "PDF preview";
 pdfHeader.appendChild(pdfLabel);
 let pdfContent: HTMLElement = element("div", "p2md-desktop-pdf-empty");
 pdfContent.textContent = "Open an existing result folder with a source PDF, or choose a PDF to start a conversion.";
-pdfPane.append(pdfHeader, pdfContent);
-shell.append(taskRail, readerHost, pdfPane);
+pdfView.append(pdfHeader, pdfContent);
+
+const figureHost = element("section", "p2md-desktop-right-view p2md-desktop-visuals-view p2md-figures-host");
+figureHost.id = "p2md-desktop-visuals-view";
+figureHost.setAttribute("role", "tabpanel");
+figureHost.setAttribute("aria-labelledby", visualsTab.id);
+rightPane.append(rightTabs, pdfView, figureHost);
+shell.append(taskRail, readerHost, rightPane);
 root.appendChild(shell);
 
 const workspace = mountReaderWorkspace(readerHost, {
-  picker: new DesktopPackagePicker(api, showPackagePdf),
+  picker: new DesktopPackagePicker(api, async (selectedRoot) => {
+    await showPackagePdf(selectedRoot);
+    setRightPaneMode("visuals");
+  }),
+  figureHost,
   localizedCopy: {
     en: {
       title: readerText("en", "desktopReaderTitle"),
@@ -148,6 +176,32 @@ let pdfUrl: string | undefined;
 let selectedPdfName: string | undefined;
 let pdfEmptyCopyKey: "previewEmpty" | "previewNoSource" | "previewLoadFailed" = "previewEmpty";
 let startButtonsBusy = false;
+type RightPaneMode = "pdf" | "visuals";
+let rightPaneMode: RightPaneMode = "visuals";
+
+function setRightPaneMode(mode: RightPaneMode): void {
+  rightPaneMode = mode;
+  const pdfSelected = mode === "pdf";
+  pdfTab.dataset.selected = String(pdfSelected);
+  pdfTab.setAttribute("aria-selected", String(pdfSelected));
+  pdfTab.tabIndex = pdfSelected ? 0 : -1;
+  visualsTab.dataset.selected = String(!pdfSelected);
+  visualsTab.setAttribute("aria-selected", String(!pdfSelected));
+  visualsTab.tabIndex = pdfSelected ? -1 : 0;
+  pdfView.hidden = !pdfSelected;
+  figureHost.hidden = pdfSelected;
+}
+
+pdfTab.addEventListener("click", () => setRightPaneMode("pdf"));
+visualsTab.addEventListener("click", () => setRightPaneMode("visuals"));
+rightTabs.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+  event.preventDefault();
+  const mode = event.key === "ArrowLeft" || event.key === "Home" ? "pdf" : "visuals";
+  setRightPaneMode(mode);
+  (mode === "pdf" ? pdfTab : visualsTab).focus();
+});
+setRightPaneMode(rightPaneMode);
 
 function updateOptionControl(
   control: { label: HTMLSpanElement; options: HTMLOptionElement[] },
@@ -178,6 +232,10 @@ function applyDesktopLocale(nextLocale: ReaderLocale): void {
     desktopText(locale, "standard"), desktopText(locale, "minimal"), desktopText(locale, "full")
   ]);
   sourcePdfText.textContent = desktopText(locale, "includeSourcePdf");
+  rightPane.ariaLabel = desktopText(locale, "rightPane");
+  rightTabs.ariaLabel = desktopText(locale, "rightPane");
+  pdfTab.textContent = desktopText(locale, "originalPdf");
+  visualsTab.textContent = desktopText(locale, "imagesAndCaptions");
   setStartButtonsDisabled(startButtonsBusy);
   if (!selectedPdfName) {
     pdfLabel.textContent = desktopText(locale, "pdfPreview");
@@ -311,6 +369,7 @@ function showPdfBytes(name: string, bytes: Uint8Array): void {
   frame.src = pdfUrl;
   pdfContent.replaceWith(frame);
   pdfContent = frame;
+  setRightPaneMode("pdf");
 }
 
 function clearPdfPreview(copyKey: "previewEmpty" | "previewNoSource" | "previewLoadFailed"): void {
