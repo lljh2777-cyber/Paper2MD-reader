@@ -3,8 +3,16 @@ import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "./figur
 import { PdfReferencePane, PdfReferenceRuntime } from "./pdf-reference-pane";
 import { readerText, ReaderLocale } from "../ui/locale";
 import { MinerUPdfLayout } from "../model/mineru-pdf-layout";
+import { PdfReferencePaneState } from "./pdf-reference-pane";
 
 type ReferenceMode = "pdf" | "visuals";
+
+export interface ReferenceSidebarState {
+  mode: ReferenceMode;
+  pdf: PdfReferencePaneState;
+  selectedVisualId: string;
+  visualFollowing: boolean;
+}
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -25,7 +33,8 @@ export class ReferenceSidebar {
     private readonly container: HTMLElement,
     figureOptions: FigureSidebarOptions,
     pdfRuntime: PdfReferenceRuntime | undefined,
-    locale: ReaderLocale
+    locale: ReaderLocale,
+    private readonly onStateChange?: () => void
   ) {
     this.container.classList.add("p2md-reference-host");
     const tabs = element("header", "p2md-reference-tabs");
@@ -51,12 +60,14 @@ export class ReferenceSidebar {
       onSelectionChange: (figure, followingReading) => {
         this.pdfPane?.setCurrentVisual(figure.id);
         figureOptions.onSelectionChange?.(figure, followingReading);
-      }
+      },
+      onStateChange: () => this.onStateChange?.()
     });
     this.pdfPane = pdfRuntime ? new PdfReferencePane(this.pdfHost, pdfRuntime, locale, (visualId) => {
       this.pdfPane?.setCurrentVisual(visualId);
       this.figures.select(visualId, true);
-    }) : undefined;
+      this.onStateChange?.();
+    }, () => this.onStateChange?.()) : undefined;
     this.pdfTab.addEventListener("click", () => this.setMode("pdf"));
     this.visualsTab.addEventListener("click", () => this.setMode("visuals"));
     tabs.addEventListener("keydown", (event) => {
@@ -66,7 +77,7 @@ export class ReferenceSidebar {
       this.setMode(mode);
       (mode === "pdf" ? this.pdfTab : this.visualsTab).focus();
     });
-    this.setMode("visuals");
+    this.setMode("visuals", false);
   }
 
   async setPdfSource(source: { path: string } | undefined, fileSystem: ReaderFileSystem, layout?: MinerUPdfLayout): Promise<void> {
@@ -104,11 +115,28 @@ export class ReferenceSidebar {
     this.pdfPane?.activateMarkdownFollowing();
   }
 
+  getState(): ReferenceSidebarState {
+    const figure = this.figures.getState();
+    return {
+      mode: this.mode,
+      pdf: this.pdfPane?.getState() ?? { page: 1, zoom: 1, following: true, showLayoutBoxes: true },
+      selectedVisualId: figure.selectedVisualId,
+      visualFollowing: figure.following
+    };
+  }
+
+  restoreState(state: ReferenceSidebarState): void {
+    this.figures.restoreState({ selectedVisualId: state.selectedVisualId, following: state.visualFollowing });
+    this.pdfPane?.setCurrentVisual(state.selectedVisualId);
+    this.pdfPane?.restoreState(state.pdf);
+    this.setMode(state.mode, false);
+  }
+
   destroy(): void {
     this.pdfPane?.destroy();
   }
 
-  private setMode(mode: ReferenceMode): void {
+  private setMode(mode: ReferenceMode, notify = true): void {
     if (mode === "pdf" && this.pdfTab.hidden) mode = "visuals";
     this.mode = mode;
     const pdf = mode === "pdf";
@@ -121,5 +149,6 @@ export class ReferenceSidebar {
     this.pdfHost.hidden = !pdf;
     this.visualsHost.hidden = pdf;
     this.pdfPane?.setVisible(pdf);
+    if (notify) this.onStateChange?.();
   }
 }

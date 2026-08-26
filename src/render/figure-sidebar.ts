@@ -19,7 +19,13 @@ export interface FigurePresentation {
 export interface FigureSidebarOptions {
   onOpenImage: (figure: FigurePresentation) => void;
   onSelectionChange?: (figure: FigurePresentation, followingReading: boolean) => void;
+  onStateChange?: () => void;
   locale?: ReaderLocale;
+}
+
+export interface FigureSidebarState {
+  selectedVisualId: string;
+  following: boolean;
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
@@ -53,7 +59,10 @@ export class FigureSidebar {
     label.textContent = readerText(this.locale, "followReading");
     followControl.append(this.followInput, track, label);
     this.followInput.addEventListener("change", () => {
-      if (this.followState.setFollowing(this.followInput.checked)) this.render();
+      if (this.followState.setFollowing(this.followInput.checked)) {
+        this.render();
+        this.options.onStateChange?.();
+      }
     });
     header.appendChild(heading);
     header.appendChild(followControl);
@@ -79,6 +88,17 @@ export class FigureSidebar {
 
   trackReadingTarget(id: string): void {
     if (this.followState.trackReadingTarget(id)) this.render();
+  }
+
+  getState(): FigureSidebarState {
+    return { selectedVisualId: this.followState.selected ?? "", following: this.followState.isFollowing };
+  }
+
+  restoreState(state: FigureSidebarState): void {
+    this.followState.setFollowing(state.following);
+    if (state.selectedVisualId) this.followState.select(state.selectedVisualId);
+    this.followInput.checked = this.followState.isFollowing;
+    this.render();
   }
 
   private render(): void {
@@ -194,6 +214,7 @@ export class FigureSidebar {
         this.followState.select(figure.id);
         this.render();
         this.options.onSelectionChange?.(figure, this.followState.isFollowing);
+        this.options.onStateChange?.();
       });
       rail.appendChild(button);
     }

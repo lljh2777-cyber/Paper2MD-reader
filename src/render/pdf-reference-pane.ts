@@ -13,6 +13,13 @@ export interface PdfPageRenderResult {
   height: number;
 }
 
+export interface PdfReferencePaneState {
+  page: number;
+  zoom: number;
+  following: boolean;
+  showLayoutBoxes: boolean;
+}
+
 export interface PdfReferenceRuntime {
   open(fileSystem: ReaderFileSystem, pdfPath: string): Promise<number>;
   renderPage(
@@ -70,7 +77,8 @@ export class PdfReferencePane {
     private readonly container: HTMLElement,
     private readonly runtime: PdfReferenceRuntime,
     private readonly locale: ReaderLocale,
-    private readonly onSelectVisual?: (visualId: string) => void
+    private readonly onSelectVisual?: (visualId: string) => void,
+    private readonly onStateChange?: () => void
   ) {
     this.container.classList.add("p2md-pdf-pane");
     this.toolbar = element("header", "p2md-pdf-toolbar");
@@ -124,23 +132,27 @@ export class PdfReferencePane {
       this.state.setPage(Number(this.pageInput.value));
       this.updateToolbar();
       this.scrollToPage(this.state.currentPage, "smooth");
+      this.onStateChange?.();
     });
     zoomOut.addEventListener("click", () => this.changeZoom(1 / 1.15));
     zoomIn.addEventListener("click", () => this.changeZoom(1.15));
     fit.addEventListener("click", () => {
       if (!this.state.setZoom(1)) return;
       this.rebuildPages();
+      this.onStateChange?.();
     });
     this.layoutButton.addEventListener("click", () => {
       this.showLayoutBoxes = !this.showLayoutBoxes;
       this.layoutButton.classList.toggle("is-active", this.showLayoutBoxes);
       this.layoutButton.setAttribute("aria-pressed", String(this.showLayoutBoxes));
       this.refreshLayoutOverlays();
+      this.onStateChange?.();
     });
     this.followInput.addEventListener("change", () => {
       const pageChanged = this.state.setFollowing(this.followInput.checked);
       this.updateToolbar();
       if (pageChanged) this.scrollToPage(this.state.currentPage, "smooth");
+      this.onStateChange?.();
     });
     this.scroll.addEventListener("scroll", () => this.scheduleVisiblePageUpdate(), { passive: true });
     this.updateToolbar();
@@ -202,6 +214,28 @@ export class PdfReferencePane {
     this.container.querySelectorAll<HTMLElement>(".p2md-pdf-layout-box").forEach((box) => {
       box.classList.toggle("is-current", Boolean(id) && box.dataset.visualId === id);
     });
+  }
+
+  getState(): PdfReferencePaneState {
+    return {
+      page: this.state.currentPage,
+      zoom: this.state.zoom,
+      following: this.state.isFollowing,
+      showLayoutBoxes: this.showLayoutBoxes
+    };
+  }
+
+  restoreState(state: PdfReferencePaneState): void {
+    const rebuild = this.state.setZoom(state.zoom);
+    this.state.setFollowing(state.following);
+    this.state.setPage(state.page);
+    this.showLayoutBoxes = state.showLayoutBoxes;
+    this.layoutButton.classList.toggle("is-active", this.showLayoutBoxes);
+    this.layoutButton.setAttribute("aria-pressed", String(this.showLayoutBoxes));
+    this.updateToolbar();
+    if (this.visible && rebuild) this.rebuildPages();
+    else if (this.visible) this.scrollToPage(this.state.currentPage, "auto");
+    this.refreshLayoutOverlays();
   }
 
   destroy(): void {
@@ -309,11 +343,13 @@ export class PdfReferencePane {
     if (!this.state.changePage(delta)) return;
     this.updateToolbar();
     this.scrollToPage(this.state.currentPage, "smooth");
+    this.onStateChange?.();
   }
 
   private changeZoom(factor: number): void {
     if (!this.state.changeZoom(factor)) return;
     this.rebuildPages();
+    this.onStateChange?.();
   }
 
   private scrollToPage(pageNumber: number, behavior: ScrollBehavior): void {
@@ -336,7 +372,10 @@ export class PdfReferencePane {
         if (top > probe) break;
         current = Number(wrapper.dataset.pageNumber || current);
       }
-      if (this.state.setPage(current)) this.updateToolbar();
+      if (this.state.setPage(current)) {
+        this.updateToolbar();
+        this.onStateChange?.();
+      }
     });
   }
 

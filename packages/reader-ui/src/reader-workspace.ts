@@ -15,6 +15,12 @@ import { renderLocalArticle } from "../../../src/render/local-article-renderer";
 import { UnsafeMarkdownResourceError } from "../../../src/render/markdown-resource-policy";
 import { ScrollController } from "../../../src/sync/scroll-controller";
 import {
+  DEFAULT_READER_VIEW_STATE,
+  parseReaderViewState,
+  ReaderPersistedViewState,
+  readerViewStateKey
+} from "../../../src/sync/reader-view-state";
+import {
   getReaderLocale,
   readerText,
   ReaderLocale,
@@ -96,6 +102,10 @@ export class ReaderWorkspace {
   private reloadButton!: HTMLButtonElement;
   private figureSidebar!: Pick<FigureSidebar, "setFigures" | "trackReadingTarget">;
   private referenceSidebar?: ReferenceSidebar;
+  private workspaceElement!: HTMLElement;
+  private splitRatio = DEFAULT_READER_VIEW_STATE.splitRatio;
+  private stateKey?: string;
+  private stateSaveTimer = 0;
   private welcomeStatus?: HTMLElement;
   private readonly scrollController = new ScrollController();
   private locale: ReaderLocale = getReaderLocale();
@@ -109,6 +119,8 @@ export class ReaderWorkspace {
   }
 
   destroy(): void {
+    this.saveViewState();
+    if (this.stateSaveTimer) window.clearTimeout(this.stateSaveTimer);
     this.scrollController.disconnect();
     this.referenceSidebar?.destroy();
     this.options.visualResolver?.dispose();
@@ -129,6 +141,7 @@ export class ReaderWorkspace {
 
   private applyLocale(locale: ReaderLocale): void {
     if (locale === this.locale) return;
+    this.saveViewState();
     this.locale = locale;
     this.scrollController.disconnect();
     this.referenceSidebar?.destroy();
@@ -144,6 +157,7 @@ export class ReaderWorkspace {
   }
 
   async attachFileSystem(fileSystem: ReaderFileSystem): Promise<void> {
+    this.saveViewState();
     this.scrollController.disconnect();
     this.options.visualResolver?.dispose();
     this.fileSystem?.dispose();
@@ -198,6 +212,8 @@ export class ReaderWorkspace {
       "div",
       `p2md-reader-workspace${this.options.figureHost ? " p2md-reader-workspace-external-figures" : ""}`
     );
+    this.workspaceElement = workspace;
+    this.applySplitRatio(this.splitRatio);
     this.articleScroll = element("main", "p2md-article-scroll");
     this.articleContent = element("article", "p2md-article markdown-rendered");
     this.articleScroll.appendChild(this.articleContent);
@@ -206,9 +222,12 @@ export class ReaderWorkspace {
     this.articleScroll.addEventListener("pointerdown", activateMarkdownFollowing);
     this.articleScroll.addEventListener("wheel", activateMarkdownFollowing, { passive: true });
     this.articleScroll.addEventListener("focusin", activateMarkdownFollowing);
+    this.articleScroll.addEventListener("scroll", () => this.scheduleViewStateSave(), { passive: true });
     const figureHost = this.options.figureHost ?? element("aside", "p2md-figures-host");
     workspace.appendChild(this.articleScroll);
-    if (!this.options.figureHost) workspace.appendChild(figureHost);
+    if (!this.options.figureHost) {
+      workspace.append(this.createSplitter(), figureHost);
+    }
     reader.append(toolbar, workspace);
     this.root.replaceChildren(reader);
 
@@ -223,7 +242,13 @@ export class ReaderWorkspace {
       this.referenceSidebar = undefined;
       this.figureSidebar = new FigureSidebar(figureHost, figureOptions);
     } else {
-      this.referenceSidebar = new ReferenceSidebar(figureHost, figureOptions, this.options.pdfRuntime, this.locale);
+      this.referenceSidebar = new ReferenceSidebar(
+        figureHost,
+        figureOptions,
+        this.options.pdfRuntime,
+        this.locale,
+        () => this.scheduleViewStateSave()
+      );
       this.figureSidebar = this.referenceSidebar;
     }
   }
@@ -240,6 +265,7 @@ export class ReaderWorkspace {
 
   private async loadPackage(): Promise<void> {
     if (!this.fileSystem) return;
+    if (this.loaded) this.saveViewState();
     this.scrollController.disconnect();
     this.articleContent.setAttribute("aria-busy", "true");
     this.statusButton.disabled = true;
@@ -248,6 +274,10 @@ export class ReaderWorkspace {
     try {
       const loaded = await new PackageLoader(this.fileSystem).loadDetected();
       this.loaded = loaded;
+      this.stateKey = loaded.articleHash ? readerViewStateKey(loaded.articleHash) : undefined;
+      const restoredState = this.loadViewState();
+      this.splitRatio = restoredState.splitRatio;
+      this.applySplitRatio(this.splitRatio);
       const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru" || loaded.state === "markdown";
       this.root.classList.toggle("p2md-contract-mode", contractUsable);
       let articleText = loaded.articleText;
@@ -273,9 +303,20 @@ export class ReaderWorkspace {
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
       this.figureSidebar.setFigures(await this.createFigurePresentations(loaded, rendered, contractUsable));
       if (this.referenceSidebar) await this.referenceSidebar.setPdfSource(loaded.sourcePdf, this.fileSystem, loaded.pdfLayout);
+      this.referenceSidebar?.restoreState({
+        mode: restoredState.referenceMode,
+        pdf: {
+          page: restoredState.pdfPage,
+          zoom: restoredState.pdfZoom,
+          following: restoredState.pdfFollowing,
+          showLayoutBoxes: restoredState.showLayoutBoxes
+        },
+        selectedVisualId: restoredState.selectedVisualId,
+        visualFollowing: restoredState.visualFollowing
+      });
       this.connectScrollSync(loaded, rendered, pageBlocks, contractUsable);
       this.root.dataset.state = contractUsable ? "ready" : "degraded";
-      this.articleScroll.scrollTop = 0;
+      this.articleScroll.scrollTop = restoredState.articleScrollTop;
     } catch (error) {
       console.error("Paper2MD Reader failed to load", error);
       this.loaded = undefined;
@@ -349,6 +390,86 @@ export class ReaderWorkspace {
     this.statusButton.dataset.tone = status.tone;
     this.statusButton.disabled = false;
     this.statusButton.title = loaded.diagnostics[0]?.message ?? status.label;
+  }
+
+  private createSplitter(): HTMLElement {
+    const splitter = element("div", "p2md-reader-splitter");
+    splitter.setAttribute("role", "separator");
+    splitter.setAttribute("aria-orientation", "vertical");
+    splitter.ariaLabel = readerText(this.locale, "resizeReaderColumns");
+    splitter.tabIndex = 0;
+    const grip = element("span", "p2md-reader-splitter-grip");
+    splitter.appendChild(grip);
+    const update = (clientX: number) => {
+      const rect = this.workspaceElement.getBoundingClientRect();
+      if (!rect.width) return;
+      this.splitRatio = Math.max(0.42, Math.min(0.78, (clientX - rect.left) / rect.width));
+      this.applySplitRatio(this.splitRatio);
+    };
+    splitter.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      splitter.classList.add("is-dragging");
+      const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
+      const stop = () => {
+        document.removeEventListener("pointermove", move);
+        splitter.classList.remove("is-dragging");
+        this.scheduleViewStateSave();
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", stop, { once: true });
+    });
+    splitter.addEventListener("keydown", (event) => {
+      if (!event.key.startsWith("Arrow") || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      this.splitRatio = Math.max(0.42, Math.min(0.78, this.splitRatio + (event.key === "ArrowLeft" ? -0.02 : 0.02)));
+      this.applySplitRatio(this.splitRatio);
+      this.scheduleViewStateSave();
+    });
+    return splitter;
+  }
+
+  private applySplitRatio(value: number): void {
+    this.workspaceElement?.style.setProperty("--p2md-article-width", `${value * 100}%`);
+  }
+
+  private loadViewState(): ReaderPersistedViewState {
+    if (!this.stateKey) return { ...DEFAULT_READER_VIEW_STATE };
+    try {
+      return parseReaderViewState(window.localStorage.getItem(this.stateKey));
+    } catch {
+      return { ...DEFAULT_READER_VIEW_STATE };
+    }
+  }
+
+  private scheduleViewStateSave(): void {
+    if (!this.stateKey) return;
+    if (this.stateSaveTimer) window.clearTimeout(this.stateSaveTimer);
+    this.stateSaveTimer = window.setTimeout(() => {
+      this.stateSaveTimer = 0;
+      this.saveViewState();
+    }, 180);
+  }
+
+  private saveViewState(): void {
+    if (!this.stateKey || !this.articleScroll) return;
+    const reference = this.referenceSidebar?.getState();
+    const state: ReaderPersistedViewState = {
+      version: 1,
+      splitRatio: this.splitRatio,
+      articleScrollTop: this.articleScroll.scrollTop,
+      referenceMode: reference?.mode ?? "visuals",
+      pdfPage: reference?.pdf.page ?? 1,
+      pdfZoom: reference?.pdf.zoom ?? 1,
+      pdfFollowing: reference?.pdf.following ?? true,
+      showLayoutBoxes: reference?.pdf.showLayoutBoxes ?? true,
+      selectedVisualId: reference?.selectedVisualId ?? "",
+      visualFollowing: reference?.visualFollowing ?? true
+    };
+    try {
+      window.localStorage.setItem(this.stateKey, JSON.stringify(state));
+    } catch {
+      // Storage can be unavailable in hardened or private browser contexts.
+    }
   }
 
   private renderWelcome(): void {

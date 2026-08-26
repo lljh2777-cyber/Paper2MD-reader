@@ -186,3 +186,17 @@ The 2026-08-26 regression again used the real `blampey_novae_2025` package.
 | Resume | Returning to Markdown restores automatic following | A left-pane wheel interaction resumed follow before the next page update | Matched |
 | Source fidelity | Page markers exist in the display projection only | Source SHA-256 remains `821b58f2ec8bdea45499d9a4534faecf45515958d7c49673616f413b042276ff` | Matched |
 | Console | No relevant warning/error expected | Empty warning/error log | Matched |
+
+## Host-side reading state iteration
+
+The 2026-08-26 browser regression reopened the immutable
+`blampey_novae_2025` package after a full page reload.
+
+| Check | Expected | Restored render | Result |
+|---|---|---|---|
+| Split ratio | Keyboard and pointer resizing remain bounded to 42–78% | Two left-arrow steps restored the article column at 64% | Matched |
+| Article position | Restore the per-paper body scroll without source markers | Scroll position 1230 restored | Matched |
+| PDF state | Restore mode, zoom, page and follow choice | Original-PDF mode, 115% zoom, page 2 and follow-off restored | Matched |
+| Layout preference | Restore the display-only overlay switch | Layout boxes restored off | Matched |
+| Isolation | Key state by immutable content identity | Sidecar key accepts only a 64-character SHA-256 | Matched |
+| Console | No relevant warning/error expected | Empty warning/error log | Matched |

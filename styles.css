@@ -156,10 +156,27 @@
 .p2md-reader-workspace {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, 2.1fr) minmax(340px, 1fr);
+  grid-template-columns: minmax(0, var(--p2md-article-width, 68%)) 7px minmax(300px, 1fr);
   min-height: 0;
   min-width: 0;
 }
+
+.p2md-reader-splitter {
+  align-items: center;
+  background: var(--p2md-chrome);
+  cursor: col-resize;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  position: relative;
+  touch-action: none;
+  z-index: 4;
+}
+.p2md-reader-splitter::before { background: var(--p2md-border); content: ""; inset: 0 3px; position: absolute; }
+.p2md-reader-splitter-grip { background: var(--text-faint); border-radius: 4px; height: 34px; opacity: 0; position: relative; width: 3px; }
+.p2md-reader-splitter:hover .p2md-reader-splitter-grip,
+.p2md-reader-splitter:focus-visible .p2md-reader-splitter-grip,
+.p2md-reader-splitter.is-dragging .p2md-reader-splitter-grip { opacity: 1; }
 
 .p2md-reader-workspace-external-figures {
   grid-template-columns: minmax(0, 1fr);
@@ -793,6 +810,7 @@ button.p2md-pdf-layout-box { cursor: pointer; pointer-events: auto; }
 
 @container (max-width: 1040px) {
   .p2md-reader-workspace { grid-template-columns: minmax(0, 1fr); }
+  .p2md-reader-splitter { display: none; }
   .p2md-figures-host { display: none; }
   .p2md-contract-mode:not(.p2md-external-figures) .p2md-inline-asset,
   .p2md-contract-mode:not(.p2md-external-figures) .p2md-inline-caption { display: block; }

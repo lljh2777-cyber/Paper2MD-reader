@@ -97,7 +97,8 @@ const ENGLISH = {
   followPdfPaused: "Follow body page · paused",
   pdfLayoutBoxes: "Layout boxes",
   pdfImageCompatibility: "PDF page {page} image compatibility layer",
-  locateVisual: "Locate figure"
+  locateVisual: "Locate figure",
+  resizeReaderColumns: "Resize article and reference columns"
 } as const;
 
 export type ReaderMessageKey = keyof typeof ENGLISH;
@@ -196,7 +197,8 @@ const CHINESE: Record<ReaderMessageKey, string> = {
   followPdfPaused: "跟随正文页 · 已暂停",
   pdfLayoutBoxes: "版面框",
   pdfImageCompatibility: "PDF 第 {page} 页图片兼容补绘",
-  locateVisual: "定位图片"
+  locateVisual: "定位图片",
+  resizeReaderColumns: "调整正文与参考栏宽度"
 };
 
 const COPY: Record<ReaderLocale, Record<ReaderMessageKey, string>> = {
