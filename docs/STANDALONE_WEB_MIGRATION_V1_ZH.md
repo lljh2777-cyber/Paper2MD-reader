@@ -23,7 +23,8 @@
 - 规则层从参考的 Research Agent Reader 配套流程中独立抽离，不依赖 Obsidian API；它生成哈希绑定的 `viewer-index.json`、`visual-repair.json` 与 `visual-candidates.json`；
 - 包内保留 `_extraction/source.pdf`，网页端使用 PDF.js 将高置信度碎图组重新裁切为完整大图；原始 Markdown、JSON 和图片不被修改；
 - Reader 根据哈希绑定的 Markdown 图片 occurrence 和 UTF-16 区间生成只读显示投影：左栏隐藏已由右栏接管的图片与可验证图注，绝不写回 `article.md`；
-- 对“唯一自动修复组 + 紧邻下一页首个正式图注”的情况，可从原始 `mineru-result.json` 恢复跨页图注；存在多个候选时保留原文，不自动绑定；
+- 对“唯一自动修复组 + 紧邻下一页首个正式图注”的情况，可从原始 `mineru-result.json` 恢复跨页图注；
+- 对 MinerU 把一整页多面板 Figure 拆成多个自动组、并漏掉边缘碎片的情况，只有当源页除页眉页脚外全部为视觉块、自动组均无审核歧义、至少存在三个独立面板标签、下一页首个语义块是唯一且完整的正式图注时，Reader 才在运行时把该页全部视觉块合成一个 PDF crop；任一条件不满足就保留各原始组；
 - 右栏分别标记图所在页与跨页图注所在页，partial 图注会明确提示仅显示已验证部分；
 - 生成 manifest/validation 后才将 stage 目录原子重命名为 `package/`；
 - Reader 通过远程只读文件系统适配器消费已发布包；失败任务没有可访问的文件接口；
@@ -33,7 +34,7 @@
 
 当前已经完成高置信度碎图识别、派生契约校验和网页端 PDF 裁切重建。无法通过哈希绑定、缺少原 PDF 或处于 `review/ambiguous` 状态的组合会安全回退到 MinerU 原图。
 
-尚待继续迁移的是连续 PDF 页阅读、更复杂的多组跨页图注投影、PDF 文本层补全以及人工/可选 AI 审核界面。这里所说的参考实现是独立的 Research Agent Reader Obsidian 插件及其配套转换规则；本仓库早期的 Paper2MD Reader 旧代码只是待替换实现，二者不是同一个项目。
+尚待继续迁移的是连续 PDF 页阅读、跨栏或缺失文本的 PDF 文本层补全，以及人工/可选 AI 审核界面。这里所说的参考实现是独立的 Research Agent Reader Obsidian 插件及其配套转换规则；本仓库早期的 Paper2MD Reader 旧代码只是待替换实现，二者不是同一个项目。
 
 ## 网页全文边界
 

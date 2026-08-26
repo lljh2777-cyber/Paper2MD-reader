@@ -100,6 +100,29 @@ function labelFromCaption(caption: string | undefined, fallback: string): string
   return match?.[1].trim().replace(/[.:;-]+$/, "") || fallback;
 }
 
+function normalizedBboxArray(value: unknown): [number, number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length !== 4 || !value.every((item) => typeof item === "number" && Number.isFinite(item))) {
+    return undefined;
+  }
+  const [x0, y0, x1, y1] = value as number[];
+  if (x0 < 0 || y0 < 0 || x1 <= x0 || y1 <= y0 || x1 > 1000 || y1 > 1000) return undefined;
+  return [x0, y0, x1, y1];
+}
+
+function terminalCaption(block: UnknownRecord): boolean {
+  const summary = record(block.text);
+  return summary?.ends_with_terminal_punctuation === true;
+}
+
+function hasFormalCaption(block: UnknownRecord): boolean {
+  const caption = record(block.caption);
+  const text = record(block.text);
+  return strings(caption?.formal_figure_caption_keys).length > 0
+    || strings(text?.formal_figure_caption_keys).length > 0
+    || Boolean(caption?.leading_formal_figure_caption_key)
+    || Boolean(text?.leading_formal_figure_caption_key);
+}
+
 export function applyMinerUVisualRepair(input: {
   visuals: MinerUVisual[];
   viewerIndex: unknown;
@@ -145,7 +168,7 @@ export function applyMinerUVisualRepair(input: {
   const orderByPath = new Map(input.visuals.map((visual, index) => [visual.path, index]));
   const consumed = new Set<string>();
   const repaired: Array<{ order: number; visual: RepairedMinerUVisual }> = [];
-  const groups = Array.isArray(repair.groups) ? repair.groups : [];
+  const rawGroups = Array.isArray(repair.groups) ? repair.groups : [];
   const captionLinks = Array.isArray(repair.caption_links) ? repair.caption_links : [];
   const rawRecords = Array.isArray(input.mineruPayload)
     ? input.mineruPayload.flatMap((value) => Array.isArray(value) ? value : [value]).map(record)
@@ -157,6 +180,112 @@ export function applyMinerUVisualRepair(input: {
     const text = typeof raw?.text === "string" ? raw.text.trim() : "";
     if (text) sourceTextByBlockId.set(id, text);
   });
+  let fullPageConsolidationCount = 0;
+  const consolidatedPages = new Set<number>();
+  const syntheticGroups: UnknownRecord[] = [];
+  const rawGroupRecords = rawGroups.map(record).filter((group): group is UnknownRecord => Boolean(group));
+  const pageRecords = pages.map(record).filter((page): page is UnknownRecord => Boolean(page));
+  for (const page of pageRecords) {
+    if (!Number.isInteger(page.page_idx) || !Array.isArray(page.blocks)) continue;
+    const pageIndex = Number(page.page_idx);
+    const pageGroups = rawGroupRecords.filter((group) => Number(group.page_idx) === pageIndex);
+    const autoGroups = pageGroups.filter((group) => group.decision === "auto");
+    if (
+      autoGroups.length < 2
+      || pageGroups.length !== autoGroups.length
+      || captionLinks.map(record).some((link) => Number(link?.source_page_idx) === pageIndex)
+      || !input.articleMarkdown
+      || !input.sourcePdfPath
+    ) continue;
+
+    const meaningfulBlocks = page.blocks.map(record).filter((block): block is UnknownRecord => Boolean(
+      block && !["discarded", "marginalia"].includes(String(block.role))
+    ));
+    if (
+      meaningfulBlocks.length < 4
+      || meaningfulBlocks.some((block) => !["visual", "table"].includes(String(block.role)))
+      || meaningfulBlocks.some(hasFormalCaption)
+      || meaningfulBlocks.some((block) => record(block.caption)?.next_page_marker === true)
+    ) continue;
+
+    const memberIds = meaningfulBlocks.map((block) => typeof block.id === "string" ? block.id : "");
+    const memberPaths = meaningfulBlocks.map((block) => typeof block.asset_path === "string" ? block.asset_path : "");
+    const markdownIds = meaningfulBlocks.flatMap((block) => strings(block.markdown_image_ids));
+    const memberBboxes = meaningfulBlocks.map((block) => normalizedBboxArray(block.bbox_norm));
+    if (
+      memberIds.some((id) => !id)
+      || new Set(memberIds).size !== memberIds.length
+      || memberPaths.some((path) => !isSafeRelativePath(path) || !visualByPath.has(path))
+      || new Set(memberPaths).size !== memberPaths.length
+      || markdownIds.length !== meaningfulBlocks.length
+      || new Set(markdownIds).size !== markdownIds.length
+      || memberBboxes.some((value) => !value)
+    ) continue;
+
+    const coveredIds = new Set(autoGroups.flatMap((group) => strings(group.member_block_ids)));
+    if (coveredIds.size < Math.max(4, Math.ceil(meaningfulBlocks.length / 2))) continue;
+    const labels = panelLabels(meaningfulBlocks)
+      .map((label) => label.toLocaleLowerCase())
+      .filter((label) => /^[a-z]$/.test(label));
+    if (new Set(labels).size < 3) continue;
+
+    const nextPage = pageRecords.find((candidate) => Number(candidate.page_idx) === pageIndex + 1);
+    const nextBlocks = Array.isArray(nextPage?.blocks)
+      ? nextPage.blocks.map(record).filter((block): block is UnknownRecord => Boolean(block))
+      : [];
+    const firstMeaningfulOrder = Math.min(...nextBlocks
+      .filter((block) => !["discarded", "marginalia"].includes(String(block.role)))
+      .map((block) => Number(block.page_order))
+      .filter(Number.isFinite));
+    const targetCaptions = nextBlocks.filter((block) => {
+      const summary = record(block.text);
+      return ["text", "title"].includes(String(block.role))
+        && Number(block.page_order) === firstMeaningfulOrder
+        && typeof summary?.leading_formal_figure_caption_key === "string"
+        && Boolean(summary.leading_formal_figure_caption_key)
+        && terminalCaption(block)
+        && Array.isArray(block.bbox_norm)
+        && Number(block.bbox_norm[1]) <= 320
+        && typeof block.id === "string"
+        && Boolean(sourceTextByBlockId.get(block.id));
+    });
+    if (targetCaptions.length !== 1) continue;
+    const targetText = sourceTextByBlockId.get(String(targetCaptions[0].id))!;
+    const targetStart = input.articleMarkdown.indexOf(targetText);
+    if (targetStart < 0 || input.articleMarkdown.indexOf(targetText, targetStart + targetText.length) >= 0) continue;
+
+    const boxes = memberBboxes.filter((value): value is [number, number, number, number] => Boolean(value));
+    const union: [number, number, number, number] = [
+      Math.min(...boxes.map((value) => value[0])),
+      Math.min(...boxes.map((value) => value[1])),
+      Math.max(...boxes.map((value) => value[2])),
+      Math.max(...boxes.map((value) => value[3]))
+    ];
+    const unionArea = ((union[2] - union[0]) * (union[3] - union[1])) / 1_000_000;
+    if (unionArea < 0.3 || unionArea > 0.9) continue;
+
+    const confidence = Math.min(...autoGroups.map((group) => Number(group.confidence)).filter(Number.isFinite));
+    const padding = Math.max(0, ...autoGroups.map((group) => Number(record(group.replacement)?.padding_norm ?? 0)).filter(Number.isFinite));
+    syntheticGroups.push({
+      id: `vr-runtime-full-page-${pageIndex.toString().padStart(4, "0")}`,
+      page_idx: pageIndex,
+      member_block_ids: memberIds,
+      member_asset_paths: memberPaths,
+      member_markdown_image_ids: markdownIds,
+      caption_anchor_block_ids: [],
+      decision: "auto",
+      confidence: Number.isFinite(confidence) ? confidence : 0.8,
+      replacement: { mode: "pdf_crop", bbox_norm: union, padding_norm: Math.min(50, padding) },
+      reason_codes: ["runtime_full_page_visual_component", "unique_next_page_formal_caption"],
+      fallback: "original_assets"
+    });
+    consolidatedPages.add(pageIndex);
+    fullPageConsolidationCount += 1;
+  }
+  const groups: unknown[] = [
+    ...rawGroupRecords.filter((group) => !consolidatedPages.has(Number(group.page_idx))),
+    ...syntheticGroups
+  ];
   const autoGroupCountByPage = new Map<number, number>();
   groups.map(record).filter((group): group is UnknownRecord => group?.decision === "auto").forEach((group) => {
     if (!Number.isInteger(group.page_idx)) return;
@@ -329,6 +458,13 @@ export function applyMinerUVisualRepair(input: {
     code: "mineru-visual-repair-applied",
     message: `已应用 ${repairedCount} 个高置信度视觉修复组，合并 ${consumed.size} 个 MinerU 碎图片段。`
   });
+  if (fullPageConsolidationCount) {
+    diagnostics.push({
+      level: "info",
+      code: "mineru-full-page-visual-consolidated",
+      message: `已将 ${fullPageConsolidationCount} 个跨页图注的整页多面板视觉区域合并为单一显示对象。`
+    });
+  }
   if (reviewCount) {
     diagnostics.push({
       level: "warning",

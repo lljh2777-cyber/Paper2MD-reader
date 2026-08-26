@@ -79,3 +79,22 @@ The latest desktop capture is `qa-latest-reader.png`.
 Above-the-fold additions are limited to the requested **处理 PDF** action and its
 privacy clarification. Browser console warning/error output was empty. No material
 visual mismatch remains.
+
+## Full-page multi-panel repair iteration
+
+The 2026-08-26 real-package regression used the accepted loaded-reader capture
+`qa-latest-reader-loaded.png` as the visual baseline and a 1280×720 in-app
+browser viewport for the repaired paper.
+
+| Check | Baseline evidence | Current render | Result |
+|---|---|---|---|
+| Product skeleton | Quiet toolbar, article/visual split and thumbnail rail | Same shell and proportions; no CSS changes | Matched |
+| Typography | Editorial article and compact sans-serif chrome | Unchanged article, caption and control families | Matched |
+| Palette | True white, cool gray and restrained blue selection | No tint, gradient or overlay added | Matched |
+| Figure treatment | One selected visual with caption below | Full-page Figure 5 is one PDF crop with its complete next-page caption | Matched; content repair only |
+| Interaction | Manual selection remains stable with follow disabled | Selecting Fig. 5 keeps it active and does not snap back | Matched |
+| Source fidelity | Visual rail is a display projection | Left article contains zero image nodes and no duplicate Fig. 5 caption; source bytes remain unchanged | Matched |
+
+The rail changed from 21 to 18 visual objects because four page-11 fragments
+were proven to be one Figure 5. No above-the-fold copy, control, spacing, icon,
+or responsive behavior changed.
