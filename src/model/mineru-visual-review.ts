@@ -19,7 +19,8 @@ const CAPTION_KEYS = new Set([
 ]);
 const SIDECAR_KEYS = new Set(["schema_version", "contract", "candidate_package_sha256", "decisions"]);
 const DECISION_KEYS = new Set(["candidate_id", "verdict", "correction"]);
-const CORRECTION_KEYS = new Set(["kind", "member_block_ids"]);
+const FRAGMENT_CORRECTION_KEYS = new Set(["kind", "member_block_ids"]);
+const CAPTION_CORRECTION_KEYS = new Set(["kind", "visual_block_id", "caption_block_ids"]);
 const MAX_CANDIDATES = 128;
 const MAX_DECISIONS = 128;
 const MAX_GROUP_MEMBERS = 32;
@@ -30,8 +31,11 @@ export interface MinerUVisualReviewBlock {
   id: string;
   pageIndex: number;
   pageOrder: number;
+  role: "visual" | "text" | "title";
   bbox: NormalizedBBox;
   assetPath?: string;
+  text?: string;
+  formalFigureKey?: string;
 }
 
 export interface MinerUVisualReviewCandidate {
@@ -41,6 +45,10 @@ export interface MinerUVisualReviewCandidate {
   memberBlockIds: string[];
   replacementMode?: "pdf_crop" | "existing_asset" | "none";
   repairGroupId?: string;
+  targetPageIndex?: number;
+  figureKey?: string;
+  visualBlockId?: string;
+  captionBlockIds?: string[];
   reviewState: string;
 }
 
@@ -50,6 +58,10 @@ export interface MinerUVisualReviewDecision {
   correction: null | {
     kind: "fragment_group";
     member_block_ids: string[];
+  } | {
+    kind: "cross_page_caption";
+    visual_block_id: string;
+    caption_block_ids: string[];
   };
 }
 
@@ -138,11 +150,36 @@ interface IndexedBlock {
   bbox: [number, number, number, number];
   assetPath?: string;
   markdownImageIds: string[];
+  sourceText?: string;
+  markdownTextRange?: { start: number; end: number };
   raw: UnknownRecord;
 }
 
-function indexBlocks(viewerIndex: unknown): Map<string, IndexedBlock> {
+function sourceRecords(mineruPayload: unknown): Array<UnknownRecord | undefined> {
+  return Array.isArray(mineruPayload)
+    ? mineruPayload.flatMap((value) => Array.isArray(value) ? value : [value]).map(record)
+    : [];
+}
+
+function exactMarkdownRange(block: UnknownRecord, sourceText: string, articleMarkdown: string | undefined): { start: number; end: number } | undefined {
+  if (!articleMarkdown || !sourceText) return undefined;
+  const range = record(block.markdown_text_range);
+  if (
+    range?.offset_unit === "utf16-code-unit"
+    && safeInteger(range.start)
+    && safeInteger(range.end)
+    && range.end > range.start
+    && range.end <= articleMarkdown.length
+    && articleMarkdown.slice(range.start, range.end).trim() === sourceText
+  ) return { start: range.start, end: range.end };
+  const start = articleMarkdown.indexOf(sourceText);
+  if (start < 0 || articleMarkdown.indexOf(sourceText, start + sourceText.length) >= 0) return undefined;
+  return { start, end: start + sourceText.length };
+}
+
+function indexBlocks(viewerIndex: unknown, mineruPayload?: unknown, articleMarkdown?: string): Map<string, IndexedBlock> {
   const viewer = record(viewerIndex);
+  const sources = sourceRecords(mineruPayload);
   const result = new Map<string, IndexedBlock>();
   if (!Array.isArray(viewer?.pages)) return result;
   for (const pageValue of viewer.pages) {
@@ -156,6 +193,9 @@ function indexBlocks(viewerIndex: unknown): Map<string, IndexedBlock> {
       if (!block || !safeId(id) || !box || !safeInteger(order) || result.has(id)) continue;
       const rawMarkdownIds = strings(block.markdown_image_ids);
       const assetPath = typeof block.asset_path === "string" && isSafeRelativePath(block.asset_path) ? block.asset_path : undefined;
+      const sourceIndex = Number(block.source_index);
+      const source = Number.isSafeInteger(sourceIndex) ? sources[sourceIndex] : undefined;
+      const sourceText = typeof source?.text === "string" ? source.text.trim() : "";
       result.set(id, {
         id,
         pageIndex: page.page_idx,
@@ -164,6 +204,8 @@ function indexBlocks(viewerIndex: unknown): Map<string, IndexedBlock> {
         bbox: box,
         assetPath,
         markdownImageIds: rawMarkdownIds ?? [],
+        sourceText: sourceText || undefined,
+        markdownTextRange: sourceText ? exactMarkdownRange(block, sourceText, articleMarkdown) : undefined,
         raw: block
       });
     }
@@ -211,6 +253,8 @@ async function parseCandidates(input: {
   visualRepair: unknown;
   articleHash: string;
   mineruHash: string;
+  mineruPayload?: unknown;
+  articleMarkdown?: string;
 }): Promise<{ packageHash: string; candidates: MinerUVisualReviewCandidate[]; blocks: Map<string, IndexedBlock> }> {
   const payload = record(input.payload);
   if (!payload || !exactKeys(payload, CANDIDATE_KEYS)) throw new Error("视觉候选包字段不完整或含额外字段");
@@ -234,7 +278,7 @@ async function parseCandidates(input: {
   // readVerifiedMinerUDerivedJson. Recomputing Python's canonical JSON digest
   // from JavaScript would incorrectly change integer-valued floats (1.0 → 1).
   if (!safeHash(payload.candidate_package_sha256)) throw new Error("视觉候选包规范哈希无效");
-  const blocks = indexBlocks(input.viewerIndex);
+  const blocks = indexBlocks(input.viewerIndex, input.mineruPayload, input.articleMarkdown);
   const seen = new Set<string>();
   const candidates: MinerUVisualReviewCandidate[] = [];
   for (const [index, rawValue] of payload.candidates.entries()) {
@@ -281,14 +325,16 @@ async function parseCandidates(input: {
       if (
         !safeId(candidate.visual_block_id)
         || !ids?.length
+        || !safeId(candidate.figure_key)
         || candidate.target_page_idx !== candidate.source_page_idx + 1
         || !source
         || source.pageIndex !== candidate.source_page_idx
+        || source.role !== "visual"
         || !geometryMatches(evidence?.source_geometry, source)
         || captionGeometry.length !== ids.length
         || ids.some((id, position) => {
           const block = blocks.get(id);
-          return !block || block.pageIndex !== candidate.target_page_idx || !geometryMatches(captionGeometry[position], block);
+          return !block || block.pageIndex !== candidate.target_page_idx || !["text", "title"].includes(block.role) || !geometryMatches(captionGeometry[position], block);
         })
       ) throw new Error(`跨页图注候选 ${index + 1} 的几何证据无效`);
       candidates.push({
@@ -296,6 +342,10 @@ async function parseCandidates(input: {
         kind: "cross_page_caption",
         pageIndex: candidate.source_page_idx,
         memberBlockIds: [candidate.visual_block_id, ...ids],
+        targetPageIndex: candidate.target_page_idx,
+        figureKey: typeof candidate.figure_key === "string" ? candidate.figure_key : undefined,
+        visualBlockId: candidate.visual_block_id,
+        captionBlockIds: ids,
         reviewState: typeof candidate.review_state === "string" ? candidate.review_state : "review"
       });
     } else {
@@ -421,6 +471,148 @@ function validateCorrection(
   };
 }
 
+function summary(block: IndexedBlock, area: "text" | "caption"): UnknownRecord | undefined {
+  return record(block.raw[area]);
+}
+
+function summaryIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? [...new Set(value.filter((item): item is string => typeof item === "string" && safeId(item)).map((item) => item.toLowerCase()))]
+    : [];
+}
+
+function leadingFormalFigureKey(block: IndexedBlock): string | undefined {
+  const value = summary(block, "text")?.leading_formal_figure_caption_key;
+  return typeof value === "string" && safeId(value) ? value.toLowerCase() : undefined;
+}
+
+function sourceNextPageFigureKey(block: IndexedBlock): string | undefined {
+  const caption = summary(block, "caption");
+  if (caption?.next_page_marker !== true) return undefined;
+  const figureKeys = summaryIds(caption.figure_keys);
+  const markerKeys = summaryIds(caption.next_page_figure_keys);
+  const shared = figureKeys.filter((key) => markerKeys.includes(key));
+  if (shared.length !== 1 || figureKeys.length !== 1 || markerKeys.length !== 1) return undefined;
+  if (Array.isArray(caption.next_page_placeholders)) {
+    const matching = caption.next_page_placeholders.map(record)
+      .filter((item) => typeof item?.figure_key === "string" && item.figure_key.toLowerCase() === shared[0]);
+    if (matching.length !== 1) return undefined;
+  }
+  return shared[0];
+}
+
+function sameTopCaptionBand(left: IndexedBlock, right: IndexedBlock): boolean {
+  const [ax0, ay0, ax1, ay1] = left.bbox;
+  const [bx0, by0, bx1, by1] = right.bbox;
+  if (Math.abs(ay0 - by0) > 45 || axisOverlap(ax0, ax1, bx0, bx1) > 0) return false;
+  const xGap = Math.max(0, Math.max(ax0, bx0) - Math.min(ax1, bx1));
+  const aHeight = ay1 - ay0;
+  const bHeight = by1 - by0;
+  if (xGap > 80 || axisOverlap(ay0, ay1, by0, by1) < 0.55 * Math.min(aHeight, bHeight)) return false;
+  const ratio = bHeight / aHeight;
+  return ratio >= 0.45 && ratio <= 2.2;
+}
+
+function captionAlignedWithVisual(visual: IndexedBlock, caption: IndexedBlock): boolean {
+  const overlap = axisOverlap(visual.bbox[0], visual.bbox[2], caption.bbox[0], caption.bbox[2]);
+  const minimumWidth = Math.min(visual.bbox[2] - visual.bbox[0], caption.bbox[2] - caption.bbox[0]);
+  const visualCenter = (visual.bbox[0] + visual.bbox[2]) / 2;
+  const captionCenter = (caption.bbox[0] + caption.bbox[2]) / 2;
+  return overlap >= 0.2 * minimumWidth || Math.abs(visualCenter - captionCenter) <= 180;
+}
+
+function captionLinkMatchesCandidate(link: UnknownRecord, candidate: MinerUVisualReviewCandidate): boolean {
+  return candidate.kind === "cross_page_caption"
+    && link.visual_block_id === candidate.visualBlockId
+    && link.source_page_idx === candidate.pageIndex
+    && link.target_page_idx === candidate.targetPageIndex
+    && String(link.figure_key).toLowerCase() === candidate.figureKey?.toLowerCase()
+    && canonicalJson(strings(link.caption_block_ids) ?? []) === canonicalJson(candidate.captionBlockIds ?? []);
+}
+
+function validateCaptionCorrection(
+  visualBlockId: string,
+  captionBlockIds: string[],
+  candidate: MinerUVisualReviewCandidate,
+  blocks: Map<string, IndexedBlock>,
+  captionLinks: unknown[],
+  allowOriginal = false
+): UnknownRecord {
+  if (candidate.kind !== "cross_page_caption") throw new Error("当前候选不是跨页图注关系");
+  if (!safeId(visualBlockId) || captionBlockIds.length < 1 || captionBlockIds.length > 2 || new Set(captionBlockIds).size !== captionBlockIds.length) {
+    throw new Error("跨页图注必须选择 1–2 个不重复文本块");
+  }
+  if (
+    !allowOriginal
+    && visualBlockId === candidate.visualBlockId
+    && canonicalJson([...captionBlockIds].sort()) === canonicalJson([...(candidate.captionBlockIds ?? [])].sort())
+  ) {
+    throw new Error("新关系与原候选完全相同；请直接接受原候选");
+  }
+  const visual = blocks.get(visualBlockId);
+  if (!visual || visual.pageIndex !== candidate.pageIndex || visual.role !== "visual" || !visual.assetPath) {
+    throw new Error("来源必须是候选原页中的有效视觉块");
+  }
+  const figureKey = sourceNextPageFigureKey(visual);
+  if (!figureKey) throw new Error("来源视觉块没有唯一、可验证的下一页 Figure 标记");
+  const targetPageIndex = candidate.pageIndex + 1;
+  const selected = captionBlockIds.map((id) => blocks.get(id));
+  if (selected.some((block) => !block)) throw new Error("图注关系引用了不存在的文本块");
+  const captions = (selected as IndexedBlock[]).sort((left, right) => left.pageOrder - right.pageOrder);
+  if (captions.some((block) => block.pageIndex !== targetPageIndex || !["text", "title"].includes(block.role) || !block.sourceText)) {
+    throw new Error("图注文本块必须来自紧邻下一页，并且必须含有原始文本");
+  }
+  if (captions.some((block) => !block.markdownTextRange)) {
+    throw new Error("图注文本在 Markdown 中不是唯一精确区间，不能安全隐藏");
+  }
+  const anchor = captions[0];
+  if (anchor.bbox[1] > 320 || leadingFormalFigureKey(anchor) !== figureKey) {
+    throw new Error("首个文本块不是页面顶部且 Figure 编号匹配的正式图注");
+  }
+  if (!captionAlignedWithVisual(visual, anchor)) throw new Error("来源图片与目标图注的横向版面位置不一致");
+  const targetBlocks = [...blocks.values()]
+    .filter((block) => block.pageIndex === targetPageIndex)
+    .sort((left, right) => left.pageOrder - right.pageOrder);
+  const anchorPosition = targetBlocks.findIndex((block) => block.id === anchor.id);
+  if (anchorPosition < 0) throw new Error("目标图注不在下一页阅读顺序中");
+  for (const preceding of targetBlocks.slice(0, anchorPosition)) {
+    if (["discarded", "marginalia"].includes(preceding.role) || !preceding.sourceText) continue;
+    if (leadingFormalFigureKey(preceding) === figureKey && sameTopCaptionBand(preceding, anchor)) continue;
+    throw new Error("目标图注之前存在正文、图片或其他 Figure 边界");
+  }
+  const anchorSummary = summary(anchor, "text");
+  let status: "complete" | "partial" = anchorSummary?.ends_with_terminal_punctuation === true ? "complete" : "partial";
+  if (captions.length === 2) {
+    if (status === "complete") throw new Error("首个图注块已经完整，不能继续吸收后续正文");
+    const continuation = captions[1];
+    const afterAnchor = targetBlocks.slice(anchorPosition + 1).find((block) => (
+      !["discarded", "marginalia"].includes(block.role) && (Boolean(block.sourceText) || ["visual", "table", "equation"].includes(block.role))
+    ));
+    if (!afterAnchor || afterAnchor.id !== continuation.id) throw new Error("所选续接块不是图注后的第一个有效阅读块");
+    const continuationSummary = summary(continuation, "text");
+    if (
+      continuation.role !== "text"
+      || !sameTopCaptionBand(anchor, continuation)
+      || Boolean(continuationSummary?.leading_figure_key)
+      || (!Boolean(continuationSummary?.starts_with_lowercase) && !Boolean(continuationSummary?.starts_with_panel_label))
+    ) throw new Error("续接块不满足同一顶部图注栏、连续小写或面板标签规则");
+    status = continuationSummary?.ends_with_terminal_punctuation === true ? "complete" : "partial";
+  }
+  const existing = captionLinks.map(record).filter((link): link is UnknownRecord => Boolean(link));
+  if (existing.some((link) => link.visual_block_id === visual.id)) throw new Error("来源视觉块已绑定另一条跨页图注关系");
+  const usedCaptions = new Set(existing.flatMap((link) => strings(link.caption_block_ids) ?? []));
+  if (captions.some((block) => usedCaptions.has(block.id))) throw new Error("所选文本块已被另一条跨页图注关系占用");
+  return {
+    visual_block_id: visual.id,
+    caption_block_ids: captions.map((block) => block.id),
+    source_page_idx: visual.pageIndex,
+    target_page_idx: targetPageIndex,
+    figure_key: figureKey,
+    relation: "next_page_figure_caption",
+    status
+  };
+}
+
 function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVisualReviewCandidate[]): MinerUVisualReviewSidecar {
   if (value === undefined || value === null) return {
     schema_version: 1,
@@ -448,14 +640,31 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
     let correction: MinerUVisualReviewDecision["correction"] = null;
     if (decision.correction !== null) {
       const value = record(decision.correction);
-      const memberIds = strings(value?.member_block_ids);
-      if (!value || !exactKeys(value, CORRECTION_KEYS) || value.kind !== "fragment_group" || !memberIds) {
-        throw new Error(`用户视觉修复决定 ${index + 1} 含坐标、路径、正文或其他未允许字段`);
+      if (value?.kind === "fragment_group") {
+        const memberIds = strings(value.member_block_ids);
+        if (!exactKeys(value, FRAGMENT_CORRECTION_KEYS) || !memberIds) {
+          throw new Error(`用户视觉修复决定 ${index + 1} 含坐标、路径、正文或其他未允许字段`);
+        }
+        if (decision.verdict !== "reject" || candidate.kind !== "fragment_group") {
+          throw new Error("只有拒绝碎图候选时才能提交替代组合");
+        }
+        correction = { kind: "fragment_group", member_block_ids: memberIds };
+      } else if (value?.kind === "cross_page_caption") {
+        const captionIds = strings(value.caption_block_ids);
+        if (!exactKeys(value, CAPTION_CORRECTION_KEYS) || !safeId(value.visual_block_id) || !captionIds) {
+          throw new Error(`用户视觉修复决定 ${index + 1} 含坐标、路径、正文或其他未允许字段`);
+        }
+        if (decision.verdict !== "reject" || candidate.kind !== "cross_page_caption") {
+          throw new Error("只有拒绝跨页图注候选时才能提交替代关系");
+        }
+        correction = {
+          kind: "cross_page_caption",
+          visual_block_id: value.visual_block_id,
+          caption_block_ids: captionIds
+        };
+      } else {
+        throw new Error(`用户视觉修复决定 ${index + 1} 的替代修复类型无效`);
       }
-      if (decision.verdict !== "reject" || candidate.kind !== "fragment_group") {
-        throw new Error("只有拒绝碎图候选时才能提交替代组合");
-      }
-      correction = { kind: "fragment_group", member_block_ids: memberIds };
     }
     seen.add(decision.candidate_id);
     decisions.push({
@@ -486,6 +695,8 @@ export async function prepareMinerUVisualReview(input: {
   visualRepair: unknown;
   articleHash: string;
   mineruHash: string;
+  mineruPayload?: unknown;
+  articleMarkdown?: string;
   sourcePdfPath?: string;
   sidecar?: unknown;
 }): Promise<PreparedMinerUVisualReview> {
@@ -496,7 +707,9 @@ export async function prepareMinerUVisualReview(input: {
       viewerIndex: input.viewerIndex,
       visualRepair: input.visualRepair,
       articleHash: input.articleHash,
-      mineruHash: input.mineruHash
+      mineruHash: input.mineruHash,
+      mineruPayload: input.mineruPayload,
+      articleMarkdown: input.articleMarkdown
     });
     let sidecar: MinerUVisualReviewSidecar;
     try {
@@ -513,6 +726,18 @@ export async function prepareMinerUVisualReview(input: {
     if (!repair) throw new Error("visual-repair.json 必须是对象");
     const cloned = structuredClone(repair);
     const groups = Array.isArray(cloned.groups) ? cloned.groups : [];
+    let captionLinks = Array.isArray(cloned.caption_links) ? cloned.caption_links : [];
+    const rejectedCaptionCandidates = new Set(sidecar.decisions
+      .filter((decision) => decision.verdict === "reject")
+      .map((decision) => decision.candidate_id));
+    const originalCaptionLinkCount = captionLinks.length;
+    captionLinks = captionLinks.filter((link) => {
+      const raw = record(link);
+      if (!raw) return true;
+      return !parsed.candidates.some((candidate) => (
+        rejectedCaptionCandidates.has(candidate.id) && captionLinkMatchesCandidate(raw, candidate)
+      ));
+    });
     const claimed = new Set<string>();
     groups.map(record).filter((group): group is UnknownRecord => group?.decision === "auto").forEach((group) => {
       (strings(group.member_block_ids) ?? []).forEach((id) => claimed.add(id));
@@ -521,11 +746,13 @@ export async function prepareMinerUVisualReview(input: {
     const visibleDecisions: MinerUVisualReviewDecision[] = [];
     for (const decision of sidecar.decisions) {
       const candidate = parsed.candidates.find((item) => item.id === decision.candidate_id)!;
+      let visibleDecision = decision;
       if (decision.verdict === "accept" && candidate.kind === "fragment_group") {
         const group = groups.map(record).find((item) => item?.id === candidate.repairGroupId);
         const memberIds = strings(group?.member_block_ids) ?? [];
         if (!group || group.decision !== "review" || candidate.replacementMode === "none" || memberIds.some((id) => claimed.has(id))) {
           diagnostics.push({ level: "warning", code: "mineru-user-review-accept-abstained", message: `候选 ${candidate.id} 缺少可验证替换方式，未应用接受操作。` });
+          visibleDecision = { ...decision, verdict: "abstain" };
         } else {
           group.decision = "auto";
           group.reason_codes = [...new Set([...(Array.isArray(group.reason_codes) ? group.reason_codes : []), "explicit_user_accept"])] ;
@@ -533,10 +760,41 @@ export async function prepareMinerUVisualReview(input: {
           applied += 1;
         }
       }
-      let visibleDecision = decision;
+      if (decision.verdict === "accept" && candidate.kind === "cross_page_caption") {
+        const currentWithoutCandidate = captionLinks.filter((link) => !captionLinkMatchesCandidate(record(link) ?? {}, candidate));
+        try {
+          const verified = validateCaptionCorrection(
+            candidate.visualBlockId ?? "",
+            candidate.captionBlockIds ?? [],
+            candidate,
+            parsed.blocks,
+            currentWithoutCandidate,
+            true
+          );
+          captionLinks = [...currentWithoutCandidate, verified];
+          applied += 1;
+        } catch (error) {
+          visibleDecision = { ...decision, verdict: "abstain" };
+          diagnostics.push({
+            level: "warning",
+            code: "mineru-user-review-accept-abstained",
+            message: `候选 ${candidate.id} 的跨页图注关系未通过重新检测：${error instanceof Error ? error.message : String(error)}`
+          });
+        }
+      }
       if (decision.correction) {
         try {
-          groups.push(validateCorrection(decision.correction.member_block_ids, candidate, parsed.blocks, input.visualRepair, claimed, input.sourcePdfPath));
+          if (decision.correction.kind === "fragment_group") {
+            groups.push(validateCorrection(decision.correction.member_block_ids, candidate, parsed.blocks, input.visualRepair, claimed, input.sourcePdfPath));
+          } else {
+            captionLinks.push(validateCaptionCorrection(
+              decision.correction.visual_block_id,
+              decision.correction.caption_block_ids,
+              candidate,
+              parsed.blocks,
+              captionLinks
+            ));
+          }
           applied += 1;
         } catch (error) {
           visibleDecision = { ...decision, correction: null };
@@ -550,14 +808,27 @@ export async function prepareMinerUVisualReview(input: {
       visibleDecisions.push(visibleDecision);
     }
     cloned.groups = groups;
+    cloned.caption_links = captionLinks;
+    if (captionLinks.length < originalCaptionLinkCount) applied += originalCaptionLinkCount - captionLinks.length;
+    const relevantPages = new Set<number>();
+    parsed.candidates.forEach((candidate) => {
+      relevantPages.add(candidate.pageIndex);
+      if (candidate.targetPageIndex !== undefined) relevantPages.add(candidate.targetPageIndex);
+    });
     const blocks = [...parsed.blocks.values()]
-      .filter((block) => block.role === "visual" && block.assetPath)
+      .filter((block) => relevantPages.has(block.pageIndex) && (
+        (block.role === "visual" && block.assetPath)
+        || (["text", "title"].includes(block.role) && block.sourceText)
+      ))
       .map((block) => ({
         id: block.id,
         pageIndex: block.pageIndex,
         pageOrder: block.pageOrder,
+        role: block.role as "visual" | "text" | "title",
         bbox: normalizedBbox(block.bbox)!,
-        assetPath: block.assetPath
+        assetPath: block.assetPath,
+        text: block.sourceText,
+        formalFigureKey: leadingFormalFigureKey(block)
       }))
       .sort((left, right) => left.pageIndex - right.pageIndex || left.pageOrder - right.pageOrder);
     diagnostics.push({

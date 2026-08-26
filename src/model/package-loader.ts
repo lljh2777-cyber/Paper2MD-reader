@@ -359,6 +359,8 @@ export class PackageLoader {
               visualRepair: visualRepairContract,
               articleHash,
               mineruHash,
+              mineruPayload,
+              articleMarkdown: article.text,
               sourcePdfPath: hasSourcePdf ? sourcePdfPath : undefined,
               sidecar: visualReviewSidecar
             });

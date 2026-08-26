@@ -855,6 +855,23 @@ button.p2md-pdf-layout-box { cursor: pointer; pointer-events: auto; }
 .p2md-review-block:has(input:checked) { border-color: var(--p2md-accent); }
 .p2md-review-block-preview { align-items: center; background: #fff; display: flex; height: 38px; justify-content: center; overflow: hidden; }
 .p2md-review-block-preview img { height: 100%; object-fit: contain; width: 100%; }
+.p2md-review-field-title { display: block; font-size: 11px; margin-top: 12px; }
+.p2md-review-caption-blocks { display: grid; gap: 7px; margin: 10px 0; }
+.p2md-review-caption-block {
+  background: var(--background-primary);
+  border: 1px solid var(--p2md-border);
+  border-radius: 6px;
+  cursor: pointer;
+  display: grid;
+  font-size: 11px;
+  gap: 4px 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  line-height: 1.45;
+  padding: 8px;
+}
+.p2md-review-caption-block:has(input:checked) { border-color: var(--p2md-accent); }
+.p2md-review-caption-block input { grid-row: 1 / span 2; margin-top: 2px; }
+.p2md-review-caption-block small { color: var(--text-muted); font-size: 10px; }
 .p2md-review-error { color: var(--text-error); font-size: 11px; margin: 10px 0 0; }
 
 .p2md-lightbox-modal {

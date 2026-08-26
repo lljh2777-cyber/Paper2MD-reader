@@ -356,7 +356,11 @@ function panelLabels(blocks: UnknownRecord[]): string[] {
     .filter(Boolean))];
 }
 
-function markdownRange(block: UnknownRecord | undefined): { start: number; end: number; text: string } | undefined {
+function markdownRange(
+  block: UnknownRecord | undefined,
+  sourceText?: string,
+  articleMarkdown?: string
+): { start: number; end: number; text: string } | undefined {
   if (!block) return undefined;
   const range = record(block.markdown_text_range);
   const text = record(block.text);
@@ -366,10 +370,16 @@ function markdownRange(block: UnknownRecord | undefined): { start: number; end: 
     || !Number.isInteger(range.end)
     || Number(range.start) < 0
     || Number(range.end) <= Number(range.start)
-    || typeof text?.text !== "string"
-    || !text.text.trim()
-  ) return undefined;
-  return { start: Number(range.start), end: Number(range.end), text: text.text };
+  ) {
+    if (!sourceText || !articleMarkdown) return undefined;
+    const start = articleMarkdown.indexOf(sourceText);
+    if (start < 0 || articleMarkdown.indexOf(sourceText, start + sourceText.length) >= 0) return undefined;
+    return { start, end: start + sourceText.length, text: sourceText };
+  }
+  const rangeText = typeof text?.text === "string" && text.text.trim() ? text.text : sourceText;
+  if (!rangeText) return undefined;
+  if (articleMarkdown && articleMarkdown.slice(Number(range.start), Number(range.end)).trim() !== rangeText.trim()) return undefined;
+  return { start: Number(range.start), end: Number(range.end), text: rangeText };
 }
 
 function labelFromCaption(caption: string | undefined, fallback: string): string {
@@ -631,7 +641,7 @@ export function applyMinerUVisualRepair(input: {
       || !["complete", "partial"].includes(String(link.status))
       || captionIds.some((id) => pageByBlockId.get(id) !== Number(link.target_page_idx))
     ) return { panelLabels: panelLabels(blocks) };
-    const ranges = captionBlocks.map(markdownRange);
+    const ranges = captionBlocks.map((block, index) => markdownRange(block, sourceTextByBlockId.get(captionIds[index]), input.articleMarkdown));
     if (ranges.some((range) => !range)) return { panelLabels: panelLabels(blocks) };
     const caption = captionIds.map((id) => sourceTextByBlockId.get(id) || blockCaptionText(blockById.get(id)))
       .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();

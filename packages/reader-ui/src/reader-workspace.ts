@@ -668,7 +668,9 @@ export class ReaderWorkspace {
         void this.storeVisualReviewDecision(review, { candidate_id: candidate.id, verdict, correction: null }, event.currentTarget as HTMLElement);
       };
       const accept = button(readerText(this.locale, "acceptCandidate"), "p2md-review-button p2md-review-primary");
-      const canAccept = candidate.kind === "fragment_group" && candidate.replacementMode !== "none";
+      const canAccept = candidate.kind === "cross_page_caption"
+        ? Boolean(candidate.visualBlockId && candidate.captionBlockIds?.length)
+        : candidate.replacementMode !== "none";
       accept.disabled = !canAccept;
       if (!canAccept) accept.title = readerText(this.locale, "reviewUnsupportedAccept");
       accept.addEventListener("click", saveVerdict("accept"));
@@ -686,8 +688,10 @@ export class ReaderWorkspace {
         const help = element("p");
         help.textContent = readerText(this.locale, "correctionHelp");
         const choices = element("div", "p2md-review-blocks");
-        const selectedIds = new Set(existing?.correction?.member_block_ids ?? candidate.memberBlockIds);
-        review.blocks.filter((block) => block.pageIndex === candidate.pageIndex).forEach((block) => {
+        const selectedIds = new Set(existing?.correction?.kind === "fragment_group"
+          ? existing.correction.member_block_ids
+          : candidate.memberBlockIds);
+        review.blocks.filter((block) => block.pageIndex === candidate.pageIndex && block.role === "visual").forEach((block) => {
           const label = element("label", "p2md-review-block");
           const checkbox = element("input");
           checkbox.type = "checkbox";
@@ -715,6 +719,68 @@ export class ReaderWorkspace {
           }, event.currentTarget as HTMLElement);
         });
         details.append(summary, help, choices, submit);
+        card.appendChild(details);
+      } else {
+        const details = element("details", "p2md-review-correction");
+        const summary = element("summary");
+        summary.textContent = readerText(this.locale, "specifyCorrectCaptionLink");
+        const help = element("p");
+        help.textContent = readerText(this.locale, "captionCorrectionHelp");
+        const correction = existing?.correction?.kind === "cross_page_caption" ? existing.correction : undefined;
+
+        const sourceHeading = element("strong", "p2md-review-field-title");
+        sourceHeading.textContent = readerText(this.locale, "captionSourceVisual");
+        const sourceChoices = element("div", "p2md-review-blocks");
+        const sourceName = `caption-source-${candidate.id}`;
+        review.blocks.filter((block) => block.pageIndex === candidate.pageIndex && block.role === "visual").forEach((block) => {
+          const label = element("label", "p2md-review-block");
+          const radio = element("input");
+          radio.type = "radio";
+          radio.name = sourceName;
+          radio.value = block.id;
+          radio.checked = (correction?.visual_block_id ?? candidate.visualBlockId) === block.id;
+          const preview = element("span", "p2md-review-block-preview");
+          if (block.assetPath && this.fileSystem) {
+            const image = element("img");
+            image.alt = "";
+            void this.fileSystem.resolveAssetUrl(block.assetPath).then((url) => { image.src = url; }).catch(() => undefined);
+            preview.appendChild(image);
+          }
+          const copy = element("span");
+          copy.textContent = `${readerText(this.locale, "visualBlockLabel", { order: block.pageOrder + 1 })} · ${(block.bbox.x * 100).toFixed(0)}%, ${(block.bbox.y * 100).toFixed(0)}%`;
+          label.append(radio, preview, copy);
+          sourceChoices.appendChild(label);
+        });
+
+        const captionHeading = element("strong", "p2md-review-field-title");
+        captionHeading.textContent = readerText(this.locale, "captionTargetBlocks", { page: (candidate.targetPageIndex ?? candidate.pageIndex + 1) + 1 });
+        const captionChoices = element("div", "p2md-review-caption-blocks");
+        const selectedCaptionIds = new Set(correction?.caption_block_ids ?? candidate.captionBlockIds ?? []);
+        review.blocks.filter((block) => block.pageIndex === candidate.targetPageIndex && (block.role === "text" || block.role === "title")).forEach((block) => {
+          const label = element("label", "p2md-review-caption-block");
+          const checkbox = element("input");
+          checkbox.type = "checkbox";
+          checkbox.value = block.id;
+          checkbox.checked = selectedCaptionIds.has(block.id);
+          const copy = element("span");
+          const figure = block.formalFigureKey ? `${block.formalFigureKey} · ` : "";
+          copy.textContent = `${figure}${(block.text ?? "").replace(/\s+/g, " ").slice(0, 220)}`;
+          const position = element("small");
+          position.textContent = `${readerText(this.locale, "textBlockLabel", { order: block.pageOrder + 1 })} · ${(block.bbox.x * 100).toFixed(0)}%, ${(block.bbox.y * 100).toFixed(0)}%`;
+          label.append(checkbox, copy, position);
+          captionChoices.appendChild(label);
+        });
+        const submit = button(readerText(this.locale, "submitCorrectCaptionLink"), "p2md-review-button p2md-review-primary");
+        submit.addEventListener("click", (event) => {
+          const sourceId = sourceChoices.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value ?? "";
+          const captionIds = [...captionChoices.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked')].map((input) => input.value);
+          void this.storeVisualReviewDecision(review, {
+            candidate_id: candidate.id,
+            verdict: "reject",
+            correction: { kind: "cross_page_caption", visual_block_id: sourceId, caption_block_ids: captionIds }
+          }, event.currentTarget as HTMLElement);
+        });
+        details.append(summary, help, sourceHeading, sourceChoices, captionHeading, captionChoices, submit);
         card.appendChild(details);
       }
       section.appendChild(card);
