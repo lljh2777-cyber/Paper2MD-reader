@@ -113,3 +113,17 @@ the same 1280×720 reader viewport.
 | Console | No relevant warning/error expected | Empty warning/error log after real-package import | Matched |
 
 No reader chrome, split proportions, Figure controls, or palette changed.
+
+## Same-page split-caption repair iteration
+
+The 2026-08-26 regression used the real `blampey_novae_2025` MinerU package and
+the Fig. 6 two-column caption shown in the reported failure.
+
+| Check | Before | Current render | Result |
+|---|---|---|---|
+| Caption assembly | The rail stopped after the first non-terminal caption atom | The unique terminal continuation is appended in source order | Fixed |
+| Article projection | Both caption fragments remained visible in the left article | Both exact, image-adjacent source ranges are hidden together | Fixed |
+| Failure behavior | A partial suppression could leave an orphan continuation | Missing terminal punctuation, duplicate candidates, edited text or ambiguous adjacency preserves the whole caption | Matched |
+| Source fidelity | `article.md` is immutable | Only derived visual metadata and the in-memory Markdown projection change | Matched |
+
+No reader chrome, layout, typography, palette, or controls changed.

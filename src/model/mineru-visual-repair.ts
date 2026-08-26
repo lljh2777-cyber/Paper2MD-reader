@@ -55,6 +55,283 @@ function captionItems(block: UnknownRecord): Array<{ text: string; kind: string 
   });
 }
 
+interface CaptionPartEntry {
+  block: UnknownRecord;
+  text: string;
+  kind: string;
+  order: number;
+}
+
+interface MarkdownImageOccurrence {
+  id: string;
+  assetPath: string;
+  start: number;
+  end: number;
+}
+
+interface MarkdownLineRange {
+  start: number;
+  contentEnd: number;
+  end: number;
+  text: string;
+}
+
+function captionPartEntries(blocks: UnknownRecord[]): CaptionPartEntry[] {
+  let order = 0;
+  return [...blocks]
+    .sort((left, right) => Number(left.page_order) - Number(right.page_order) || Number(left.source_index) - Number(right.source_index))
+    .flatMap((block) => captionItems(block).map((item) => ({ block, ...item, order: order++ })));
+}
+
+function endsWithTerminalPunctuation(value: string): boolean {
+  let normalized = value.trim();
+  while (/<\/[^>]+>\s*$/.test(normalized)) {
+    normalized = normalized.replace(/<\/[^>]+>\s*$/, "").trimEnd();
+  }
+  return /[.!?。！？]["'”’\)\]}]*$/.test(normalized);
+}
+
+function startsWithPanelLabel(value: string): boolean {
+  return /^\s*[a-z](?:\s*[-–—]\s*[a-z])?[\s,.;:)]/i.test(value);
+}
+
+function formalFigureKeyFromText(value: string): string | undefined {
+  const match = /^\s*(?:Fig(?:ure)?\.?|Extended\s+Data\s+Fig(?:ure)?\.?|Supplementary\s+Fig(?:ure)?\.?|Supporting\s+Fig(?:ure)?\.?)\s*([A-Za-z0-9]+(?:\.[A-Za-z0-9]+)?)/i.exec(value);
+  return match?.[1]?.toLocaleLowerCase();
+}
+
+function captionPanelMarkers(value: string): Array<{ start: string; end: string }> {
+  const markers: Array<{ start: string; end: string }> = [];
+  const pattern = /(?:^|[.!?。！？;]\s+)(?:\(([a-z])\)|([a-z])(?:\s*[-–—]\s*([a-z]))?\s*[,;:])/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value)) !== null) {
+    const start = String(match[1] || match[2] || "").toLocaleLowerCase();
+    const end = String(match[3] || start).toLocaleLowerCase();
+    if (start) markers.push({ start, end });
+  }
+  return markers;
+}
+
+function hasSequentialCaptionPanels(anchorText: string, continuationText: string): boolean {
+  const anchorMarkers = captionPanelMarkers(anchorText);
+  const continuationMarkers = captionPanelMarkers(continuationText);
+  if (!anchorMarkers.length || continuationMarkers.length < 2) return false;
+  const lastAnchor = anchorMarkers[anchorMarkers.length - 1].end.charCodeAt(0);
+  if (continuationMarkers[0].start.charCodeAt(0) !== lastAnchor + 1) return false;
+  let previous = continuationMarkers[0];
+  for (const marker of continuationMarkers.slice(1)) {
+    const current = marker.start.charCodeAt(0);
+    const previousStart = previous.start.charCodeAt(0);
+    const previousEnd = previous.end.charCodeAt(0);
+    if (!(previousEnd > previousStart && current === previousStart) && current !== previousEnd + 1) return false;
+    previous = marker;
+  }
+  return true;
+}
+
+function decodedMarkdownPath(value: string): string | undefined {
+  let decoded = value.trim().replace(/^<|>$/g, "");
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    return undefined;
+  }
+  const path = decoded.replace(/\\/g, "/").split(/[?#]/, 1)[0].replace(/^\.\//, "");
+  return isSafeRelativePath(path) ? path : undefined;
+}
+
+function markdownImagePath(token: string): string | undefined {
+  const markdown = /^!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\)$/s.exec(token);
+  const html = /^<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>$/is.exec(token);
+  return decodedMarkdownPath(markdown?.[1] || markdown?.[2] || html?.[1] || "");
+}
+
+function markdownImageOccurrences(viewer: UnknownRecord, markdown: string): Map<string, MarkdownImageOccurrence> {
+  const result = new Map<string, MarkdownImageOccurrence>();
+  if (!Array.isArray(viewer.markdown_images)) return result;
+  for (const value of viewer.markdown_images) {
+    const image = record(value);
+    if (
+      typeof image?.id !== "string"
+      || typeof image.asset_path !== "string"
+      || !Number.isInteger(image.char_start)
+      || !Number.isInteger(image.char_end)
+      || result.has(image.id)
+    ) continue;
+    const start = Number(image.char_start);
+    const end = Number(image.char_end);
+    const assetPath = decodedMarkdownPath(image.asset_path);
+    if (start < 0 || end <= start || end > markdown.length || !assetPath) continue;
+    if (markdownImagePath(markdown.slice(start, end)) !== assetPath) continue;
+    result.set(image.id, { id: image.id, assetPath, start, end });
+  }
+  return result;
+}
+
+function previousMarkdownLine(markdown: string, lineStart: number): MarkdownLineRange | undefined {
+  if (lineStart <= 0) return undefined;
+  const contentEnd = lineStart - 1;
+  const previousNewline = markdown.lastIndexOf("\n", Math.max(0, contentEnd - 1));
+  const start = previousNewline + 1;
+  return { start, contentEnd, end: lineStart, text: markdown.slice(start, contentEnd).replace(/\r$/, "") };
+}
+
+function nextMarkdownLine(markdown: string, lineStart: number): MarkdownLineRange | undefined {
+  if (lineStart >= markdown.length) return undefined;
+  const newline = markdown.indexOf("\n", lineStart);
+  const contentEnd = newline < 0 ? markdown.length : newline;
+  return {
+    start: lineStart,
+    contentEnd,
+    end: newline < 0 ? markdown.length : newline + 1,
+    text: markdown.slice(lineStart, contentEnd).replace(/\r$/, "")
+  };
+}
+
+function nearbyNonBlankLines(markdown: string, lineStart: number, limit: number, direction: "before" | "after"): MarkdownLineRange[] {
+  const lines: MarkdownLineRange[] = [];
+  let cursor = lineStart;
+  let blankCount = 0;
+  while (lines.length < limit) {
+    const line = direction === "before" ? previousMarkdownLine(markdown, cursor) : nextMarkdownLine(markdown, cursor);
+    if (!line) break;
+    cursor = direction === "before" ? line.start : line.end;
+    if (!line.text.trim()) {
+      blankCount += 1;
+      if (blankCount > 2) break;
+      continue;
+    }
+    blankCount = 0;
+    lines.push(line);
+  }
+  return lines;
+}
+
+function adjacentCaptionRanges(
+  markdown: string,
+  occurrence: MarkdownImageOccurrence,
+  parts: readonly string[]
+): Array<{ start: number; end: number; text: string }> | undefined {
+  const normalized = parts.map((part) => part.trim()).filter(Boolean);
+  if (!normalized.length || normalized.some((part) => /[\r\n]/.test(part))) return undefined;
+  const imageLineStart = markdown.lastIndexOf("\n", Math.max(0, occurrence.start - 1)) + 1;
+  const imageNewline = markdown.indexOf("\n", occurrence.end);
+  const imageLineEnd = imageNewline < 0 ? markdown.length : imageNewline;
+  if (markdown.slice(imageLineStart, occurrence.start).trim() || markdown.slice(occurrence.end, imageLineEnd).trim()) {
+    return undefined;
+  }
+  const previous = nearbyNonBlankLines(markdown, imageLineStart, normalized.length, "before");
+  const next = nearbyNonBlankLines(markdown, imageNewline < 0 ? markdown.length : imageNewline + 1, normalized.length, "after");
+  const matches: Array<{ beforeCount: number; afterCount: number }> = [];
+  for (let beforeCount = 0; beforeCount <= normalized.length; beforeCount += 1) {
+    const afterCount = normalized.length - beforeCount;
+    const beforeMatches = previous.length >= beforeCount
+      && previous.slice(0, beforeCount).reverse().every((line, index) => line.text.trim() === normalized[index]);
+    const afterMatches = next.length >= afterCount
+      && next.slice(0, afterCount).every((line, index) => line.text.trim() === normalized[beforeCount + index]);
+    if (beforeMatches && afterMatches) matches.push({ beforeCount, afterCount });
+  }
+  if (matches.length !== 1) return undefined;
+  const match = matches[0];
+  const lines = [
+    ...previous.slice(0, match.beforeCount).reverse(),
+    ...next.slice(0, match.afterCount)
+  ];
+  const ranges: Array<{ start: number; end: number; text: string }> = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const text = normalized[index];
+    const localIndex = lines[index].text.indexOf(text);
+    if (localIndex < 0 || lines[index].text.indexOf(text, localIndex + text.length) >= 0) return undefined;
+    ranges.push({ start: lines[index].start + localIndex, end: lines[index].start + localIndex + text.length, text });
+  }
+  return ranges;
+}
+
+function samePageCaptionDetails(
+  blocks: UnknownRecord[],
+  viewer: UnknownRecord,
+  markdown: string
+): {
+  caption: string;
+  captionSourceRanges: Array<{ start: number; end: number; text: string }>;
+  captionStatus: "complete";
+} | undefined {
+  const entries = captionPartEntries(blocks);
+  const formalEntries = entries.filter((entry) => entry.kind === "formal-caption");
+  if (formalEntries.length !== 1) return undefined;
+  const formal = formalEntries[0];
+  const safeContinuation = (entry: CaptionPartEntry): boolean => entry.order > formal.order
+    && (entry.kind === "caption-continuation" || (
+      entry.kind === "other"
+      && !endsWithTerminalPunctuation(formal.text)
+      && hasSequentialCaptionPanels(formal.text, entry.text)
+    ))
+    && entry.text.length >= 24
+    && !formalFigureKeyFromText(entry.text)
+    && endsWithTerminalPunctuation(entry.text);
+  const sameBlockLater = entries.filter((entry) => entry.block === formal.block && entry.order > formal.order);
+  const sameBlockChain: CaptionPartEntry[] = [];
+  for (const entry of sameBlockLater) {
+    if (!safeContinuation(entry)) break;
+    sameBlockChain.push(entry);
+  }
+  const crossBlock = !endsWithTerminalPunctuation(formal.text)
+    ? entries.filter((entry) => entry.block !== formal.block && safeContinuation(entry))
+    : [];
+  const continuations = !endsWithTerminalPunctuation(formal.text) && sameBlockChain.length
+    ? sameBlockChain
+    : endsWithTerminalPunctuation(formal.text) && sameBlockChain.length && startsWithPanelLabel(sameBlockChain[0].text)
+      ? sameBlockChain
+      : crossBlock.length === 1
+        ? crossBlock
+        : [];
+  if (!endsWithTerminalPunctuation(formal.text) && continuations.length === 0) return undefined;
+  const selected = [formal, ...continuations];
+  const occurrences = markdownImageOccurrences(viewer, markdown);
+  const byBlock = new Map<UnknownRecord, CaptionPartEntry[]>();
+  selected.forEach((entry) => byBlock.set(entry.block, [...(byBlock.get(entry.block) ?? []), entry]));
+  const projected: Array<{ entry: CaptionPartEntry; range: { start: number; end: number; text: string } }> = [];
+  for (const [block, blockEntries] of byBlock) {
+    const ids = strings(block.markdown_image_ids);
+    const assetPath = typeof block.asset_path === "string" ? decodedMarkdownPath(block.asset_path) : undefined;
+    if (ids.length !== 1 || !assetPath) return undefined;
+    const occurrence = occurrences.get(ids[0]);
+    if (!occurrence || occurrence.assetPath !== assetPath) return undefined;
+    const ranges = adjacentCaptionRanges(markdown, occurrence, blockEntries.map((entry) => entry.text));
+    if (!ranges || ranges.length !== blockEntries.length) return undefined;
+    blockEntries.forEach((entry, index) => projected.push({ entry, range: ranges[index] }));
+  }
+  projected.sort((left, right) => left.entry.order - right.entry.order);
+  if (projected.some((entry, index) => index > 0 && entry.range.start <= projected[index - 1].range.end)) return undefined;
+  return {
+    caption: selected.map((entry) => entry.text).join(" ").replace(/\s+/g, " ").trim(),
+    captionSourceRanges: projected.map((entry) => entry.range),
+    captionStatus: "complete"
+  };
+}
+
+function samePagePanelLabelRanges(
+  blocks: UnknownRecord[],
+  viewer: UnknownRecord,
+  markdown: string
+): Array<{ start: number; end: number; text: string }> {
+  const entries = captionPartEntries(blocks).filter((entry) => entry.kind === "panel-label");
+  const occurrences = markdownImageOccurrences(viewer, markdown);
+  const byBlock = new Map<UnknownRecord, CaptionPartEntry[]>();
+  entries.forEach((entry) => byBlock.set(entry.block, [...(byBlock.get(entry.block) ?? []), entry]));
+  const result: Array<{ start: number; end: number; text: string }> = [];
+  for (const [block, blockEntries] of byBlock) {
+    const ids = strings(block.markdown_image_ids);
+    const assetPath = typeof block.asset_path === "string" ? decodedMarkdownPath(block.asset_path) : undefined;
+    if (ids.length !== 1 || !assetPath) continue;
+    const occurrence = occurrences.get(ids[0]);
+    if (!occurrence || occurrence.assetPath !== assetPath) continue;
+    const ranges = adjacentCaptionRanges(markdown, occurrence, blockEntries.map((entry) => entry.text));
+    if (ranges?.length === blockEntries.length) result.push(...ranges);
+  }
+  return result.sort((left, right) => left.start - right.start);
+}
+
 function bestCaption(blocks: UnknownRecord[], visuals: MinerUVisual[]): string | undefined {
   const items = blocks.flatMap(captionItems);
   const formal = items.filter((item) => item.kind === "formal-caption").map((item) => item.text);
@@ -331,6 +608,16 @@ export function applyMinerUVisualRepair(input: {
         }
       }
     }
+    if (links.length === 0 && input.articleMarkdown) {
+      const samePage = samePageCaptionDetails(blocks, viewer, input.articleMarkdown);
+      if (samePage) {
+        return {
+          ...samePage,
+          captionPageIndex: pageIndex,
+          panelLabels: panelLabels(blocks)
+        };
+      }
+    }
     if (links.length !== 1) return { panelLabels: panelLabels(blocks) };
     const link = links[0];
     const captionIds = strings(link.caption_block_ids);
@@ -396,6 +683,13 @@ export function applyMinerUVisualRepair(input: {
     const captionAnchorIds = strings(group.caption_anchor_block_ids);
     const captionBlocks = [...blocks, ...captionAnchorIds.map((id) => blockById.get(id)).filter((value): value is UnknownRecord => Boolean(value))];
     const linkedCaption = captionDetails(memberIds, blocks, Number.isInteger(group.page_idx) ? Number(group.page_idx) : anchor.pageIndex, true);
+    const localPanelRanges = input.articleMarkdown
+      ? samePagePanelLabelRanges(blocks, viewer, input.articleMarkdown)
+      : [];
+    const captionSourceRanges = [
+      ...(linkedCaption.captionSourceRanges ?? []),
+      ...localPanelRanges
+    ].sort((left, right) => left.start - right.start);
     const captionText = linkedCaption.caption || bestCaption(captionBlocks, memberVisuals);
     const pageIndex = Number.isInteger(group.page_idx) ? Number(group.page_idx) : anchor.pageIndex;
     memberPaths.forEach((path) => consumed.add(path));
@@ -414,7 +708,7 @@ export function applyMinerUVisualRepair(input: {
         memberMarkdownImageIds: strings(group.member_markdown_image_ids).length
           ? strings(group.member_markdown_image_ids)
           : [...new Set(blocks.flatMap((block) => strings(block.markdown_image_ids)))],
-        captionSourceRanges: linkedCaption.captionSourceRanges,
+        captionSourceRanges: captionSourceRanges.length ? captionSourceRanges : undefined,
         captionPageIndex: linkedCaption.captionPageIndex,
         captionStatus: linkedCaption.captionStatus,
         panelLabels: linkedCaption.panelLabels,
@@ -433,6 +727,13 @@ export function applyMinerUVisualRepair(input: {
     const block = matchingBlocks[0];
     const blockId = typeof block.id === "string" ? block.id : "";
     const linkedCaption = captionDetails(blockId ? [blockId] : [], [block], visual.pageIndex, false);
+    const localPanelRanges = input.articleMarkdown
+      ? samePagePanelLabelRanges([block], viewer, input.articleMarkdown)
+      : [];
+    const captionSourceRanges = [
+      ...(linkedCaption.captionSourceRanges ?? []),
+      ...localPanelRanges
+    ].sort((left, right) => left.start - right.start);
     const captionText = linkedCaption.caption || bestCaption([block], [visual]) || visual.captionText;
     repaired.push({
       order: index,
@@ -443,7 +744,7 @@ export function applyMinerUVisualRepair(input: {
         memberAssetPaths: [visual.path],
         memberBlockIds: blockId ? [blockId] : undefined,
         memberMarkdownImageIds: strings(block.markdown_image_ids),
-        captionSourceRanges: linkedCaption.captionSourceRanges,
+        captionSourceRanges: captionSourceRanges.length ? captionSourceRanges : undefined,
         captionPageIndex: linkedCaption.captionPageIndex,
         captionStatus: linkedCaption.captionStatus,
         panelLabels: linkedCaption.panelLabels,

@@ -172,7 +172,6 @@ export function projectMinerUReaderMarkdown(input: {
       value: index === 0 ? marker : ""
     }));
     let visualCaptionCount = 0;
-    replacements.push(...adjacentPanelLabelRanges(input.markdown, exactImages, visual.panelLabels ?? []));
     const sourceCaptionRanges = exactCaptionSourceRanges(input.markdown, visual);
     if (sourceCaptionRanges === undefined) {
       skipped += 1;
@@ -181,11 +180,14 @@ export function projectMinerUReaderMarkdown(input: {
     if (sourceCaptionRanges.length) {
       replacements.push(...sourceCaptionRanges);
       visualCaptionCount = sourceCaptionRanges.length;
-    } else if (visual.captionText) {
-      const samePageCaption = uniqueCaptionRange(input.markdown, visual.captionText, exactImages, allImages);
-      if (samePageCaption) {
-        replacements.push(samePageCaption);
-        visualCaptionCount = 1;
+    } else {
+      replacements.push(...adjacentPanelLabelRanges(input.markdown, exactImages, visual.panelLabels ?? []));
+      if (visual.captionText) {
+        const samePageCaption = uniqueCaptionRange(input.markdown, visual.captionText, exactImages, allImages);
+        if (samePageCaption) {
+          replacements.push(samePageCaption);
+          visualCaptionCount = 1;
+        }
       }
     }
     if (replacements.some((replacement) => claimed.some((existing) => overlaps(replacement, existing)))) {

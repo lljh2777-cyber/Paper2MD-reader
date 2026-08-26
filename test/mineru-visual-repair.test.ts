@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyMinerUVisualRepair } from "../src/model/mineru-visual-repair";
 import { MinerUVisual } from "../src/model/mineru-content-list";
+import { projectMinerUReaderMarkdown } from "../src/model/mineru-reader-projection";
 
 const articleHash = "article-hash";
 const mineruHash = "mineru-hash";
@@ -163,5 +164,153 @@ describe("applyMinerUVisualRepair full-page cross-page caption inference", () =>
     expect(result.visuals).toHaveLength(2);
     expect(result.visuals.every((visual) => visual.captionPageIndex === undefined)).toBe(true);
     expect(result.diagnostics.some((entry) => entry.code === "mineru-full-page-visual-consolidated")).toBe(false);
+  });
+});
+
+function samePageSplitCaptionFixture(terminalContinuation = true) {
+  const paths = ["images/a.png", "images/b.png", "images/c.png", "images/d.png"];
+  const formal = "Fig. 6 | Downstream tasks. a, First panel. b, Second panel. d, Organization of nondiseased";
+  const continuation = terminalContinuation
+    ? "(left) and reactive (right) lymph nodes. e, Mouse brain domains. f, Aging heatmap. g, Gene expression patterns."
+    : "(left) and reactive (right) lymph nodes without a verified ending";
+  const articleMarkdown = [
+    "# Paper",
+    "",
+    "d  ",
+    "e  ",
+    `![](${paths[0]})`,
+    "",
+    `![](${paths[1]})  `,
+    formal,
+    "",
+    `![](${paths[2]})`,
+    "",
+    `![](${paths[3]})  `,
+    continuation,
+    "",
+    "Body remains."
+  ].join("\n");
+  const visuals: MinerUVisual[] = paths.map((path, index) => ({
+    id: `ast_${index}`,
+    kind: "figure",
+    path,
+    label: `Figure ${index + 1}`,
+    pageIndex: 0,
+    placementBlockId: `slot_${index}`
+  }));
+  const blocks = paths.map((path, index) => ({
+    id: `p0000-s00000${index}`,
+    source_index: index,
+    page_order: index,
+    role: "visual",
+    asset_path: path,
+    bbox_norm: [100 + index * 180, 50, 260 + index * 180, 700],
+    markdown_image_ids: [`md-img-000${index}`],
+    text: { formal_figure_caption_keys: [] },
+    caption: {
+      items: index === 0
+        ? [{ text: "d", kind: "panel-label" }, { text: "e", kind: "panel-label" }]
+        : index === 1
+          ? [{ text: formal, kind: "formal-caption" }]
+        : index === 3
+          ? [{ text: continuation, kind: "caption-continuation" }]
+          : [],
+      formal_figure_caption_keys: index === 1 ? ["figure:6"] : []
+    }
+  }));
+  const markdownImages = paths.map((path, index) => {
+    const token = `![](${path})`;
+    const start = articleMarkdown.indexOf(token);
+    return { id: `md-img-000${index}`, asset_path: path, char_start: start, char_end: start + token.length };
+  });
+  return {
+    formal,
+    continuation,
+    articleMarkdown,
+    visuals,
+    viewerIndex: {
+      schema_version: 1,
+      inputs: contractInputs(),
+      markdown_images: markdownImages,
+      pages: [{ page_idx: 0, blocks }]
+    },
+    visualRepair: {
+      schema_version: 1,
+      inputs: contractInputs(),
+      groups: [{
+        id: "group-six",
+        page_idx: 0,
+        member_block_ids: blocks.map((block) => block.id),
+        member_asset_paths: paths,
+        member_markdown_image_ids: markdownImages.map((image) => image.id),
+        caption_anchor_block_ids: [blocks[1].id, blocks[3].id],
+        decision: "auto",
+        confidence: 0.95,
+        replacement: { mode: "pdf_crop", bbox_norm: [100, 50, 800, 700], padding_norm: 6 }
+      }],
+      caption_links: []
+    }
+  };
+}
+
+describe("applyMinerUVisualRepair same-page split caption projection", () => {
+  it("joins and suppresses a uniquely image-bound formal caption and terminal continuation", () => {
+    const input = samePageSplitCaptionFixture();
+    const repaired = applyMinerUVisualRepair({
+      visuals: input.visuals,
+      viewerIndex: input.viewerIndex,
+      visualRepair: input.visualRepair,
+      articleMarkdown: input.articleMarkdown,
+      articleHash,
+      mineruHash,
+      sourcePdfPath: "_extraction/source.pdf"
+    });
+    expect(repaired.visuals).toHaveLength(1);
+    expect(repaired.visuals[0]).toMatchObject({
+      captionText: `${input.formal} ${input.continuation}`,
+      captionStatus: "complete",
+      captionPageIndex: 0
+    });
+    expect(repaired.visuals[0].captionSourceRanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: input.formal }),
+      expect.objectContaining({ text: input.continuation })
+    ]));
+
+    const projected = projectMinerUReaderMarkdown({
+      markdown: input.articleMarkdown,
+      visuals: repaired.visuals,
+      viewerIndex: input.viewerIndex,
+      articleHash,
+      mineruHash
+    });
+    expect(projected.markdown).not.toContain(input.formal);
+    expect(projected.markdown).not.toContain(input.continuation);
+    expect(projected.markdown).not.toMatch(/^d\s*$/m);
+    expect(projected.markdown).not.toMatch(/^e\s*$/m);
+    expect(projected.markdown).toContain("Body remains.");
+    expect(input.articleMarkdown).toContain(input.formal);
+    expect(input.articleMarkdown).toContain(input.continuation);
+  });
+
+  it("preserves both caption fragments when the continuation is incomplete", () => {
+    const input = samePageSplitCaptionFixture(false);
+    const repaired = applyMinerUVisualRepair({
+      visuals: input.visuals,
+      viewerIndex: input.viewerIndex,
+      visualRepair: input.visualRepair,
+      articleMarkdown: input.articleMarkdown,
+      articleHash,
+      mineruHash,
+      sourcePdfPath: "_extraction/source.pdf"
+    });
+    const projected = projectMinerUReaderMarkdown({
+      markdown: input.articleMarkdown,
+      visuals: repaired.visuals,
+      viewerIndex: input.viewerIndex,
+      articleHash,
+      mineruHash
+    });
+    expect(projected.markdown).toContain(input.formal);
+    expect(projected.markdown).toContain(input.continuation);
   });
 });
