@@ -22,6 +22,7 @@ import {
 } from "./mineru-caption-recovery";
 import { collectMinerUTextRecoveryCandidates } from "./mineru-text-recovery";
 import { buildMinerUPageMap } from "./mineru-page-map";
+import { buildMinerUPdfLayout } from "./mineru-pdf-layout";
 import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
 import { contentListForMarkdown, detectPackageSource } from "./package-source";
@@ -297,6 +298,7 @@ export class PackageLoader {
     let visuals: RepairedMinerUVisual[] = parsed.visuals;
     let captionContinuations: PdfCaptionContinuationRequest[] = [];
     let pageMap: LoadedPaperPackage["pageMap"];
+    let pdfLayout: LoadedPaperPackage["pdfLayout"];
     let contractVersion = `mineru-content-list-${parsed.version}`;
     const viewerIndexPath = "_extraction/viewer-index.json";
     const visualRepairPath = "_extraction/visual-repair.json";
@@ -337,6 +339,7 @@ export class PackageLoader {
           article: articleHash,
           mineru: mineruHash
         });
+        pdfLayout = buildMinerUPdfLayout(viewerContract, applied.visuals, articleHash, mineruHash);
         if (pageMap) {
           const mapped = pageMap.boundaries.filter((boundary) => boundary.candidates.length).length;
           diagnostics.push({
@@ -388,21 +391,26 @@ export class PackageLoader {
       });
     }
 
-    const assetInfos = await mapWithConcurrency(
-      visuals,
+    const requiredAssetPaths = [...new Set([
+      ...visuals.map((visual) => visual.path),
+      ...(pdfLayout?.blocks.flatMap((block) => block.assetPath ? [block.assetPath] : []) ?? [])
+    ])];
+    const requiredAssetInfos = await mapWithConcurrency(
+      requiredAssetPaths,
       PACKAGE_LIMITS.assetHashConcurrency,
-      (visual) => this.fileSystem.fileInfo(visual.path)
+      (path) => this.fileSystem.fileInfo(path)
     );
+    const assetInfoByPath = new Map(requiredAssetPaths.map((path, index) => [path, requiredAssetInfos[index]]));
     let totalBytes = 0;
-    assetInfos.forEach((info, index) => {
-      const visual = visuals[index];
+    requiredAssetInfos.forEach((info, index) => {
+      const path = requiredAssetPaths[index];
       if (!info) {
-        diagnostics.push({ level: "error", code: "mineru-asset-missing", message: `MinerU 资源不存在：${visual.path}` });
+        diagnostics.push({ level: "error", code: "mineru-asset-missing", message: `MinerU 资源不存在：${path}` });
         return;
       }
       if (info.size > PACKAGE_LIMITS.assetBytes) {
         throw new PackageLimitError(
-          `MinerU asset ${visual.path} is ${info.size} bytes; the safe limit is ${PACKAGE_LIMITS.assetBytes}.`,
+          `MinerU asset ${path} is ${info.size} bytes; the safe limit is ${PACKAGE_LIMITS.assetBytes}.`,
           info.size,
           PACKAGE_LIMITS.assetBytes
         );
@@ -416,6 +424,15 @@ export class PackageLoader {
         );
       }
     });
+    const assetInfos = visuals.map((visual) => assetInfoByPath.get(visual.path));
+    if (pdfLayout) {
+      pdfLayout = {
+        ...pdfLayout,
+        blocks: pdfLayout.blocks.map((block) => block.assetPath && !assetInfoByPath.get(block.assetPath)
+          ? { ...block, assetPath: undefined }
+          : block)
+      };
+    }
 
     const unplaced = visuals.filter((visual) => !visual.placementBlockId).length;
     if (unplaced) {
@@ -458,6 +475,7 @@ export class PackageLoader {
       diagnostics,
       sourcePdf: hasSourcePdf ? { path: sourcePdfPath } : undefined,
       pageMap,
+      pdfLayout,
       textRecovery: hasSourcePdf ? {
         pdfPath: sourcePdfPath,
         candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text),

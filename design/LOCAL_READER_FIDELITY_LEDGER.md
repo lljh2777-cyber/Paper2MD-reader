@@ -160,6 +160,20 @@ The 2026-08-26 browser regression used the real 20-page
 This iteration adds only the reference-mode header and PDF controls required by
 the migrated behavior; the accepted article and figure presentation remain unchanged.
 
+## PDF layout and image compatibility iteration
+
+The 2026-08-26 regression used the same immutable 20-page
+`blampey_novae_2025` package.
+
+| Check | Expected | Current render | Result |
+|---|---|---|---|
+| Verified geometry | Only hash-bound ViewerIndex boxes reach the PDF layer | 87 boxes were visible after lazy rendering; stale-hash unit fixture produced no layout | Matched |
+| Figure ownership | Only uniquely owned visual blocks are interactive | 20 interactive visual boxes on the initial pages; selecting `vr-p0004-g0000` highlighted its boxes and moved the article to scroll position 5850 | Matched |
+| Layout toggle | Hide and restore overlays without rerendering source content | Box count changed 87 → 0 → 87 and `aria-pressed` tracked the state | Matched |
+| PDF image fallback | Repaint only validated large MinerU image blocks | Pages 2, 3 and 6 received one compatibility image each | Matched |
+| Source fidelity | No repair writes to the package | Source SHA-256 remains `821b58f2ec8bdea45499d9a4534faecf45515958d7c49673616f413b042276ff` | Matched |
+| Console | No relevant warning/error expected | Empty warning/error log | Matched |
+
 ## Single-authority page following iteration
 
 The 2026-08-26 regression again used the real `blampey_novae_2025` package.

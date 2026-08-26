@@ -2,6 +2,7 @@ import { ReaderFileSystem } from "../filesystem/reader-file-system";
 import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "./figure-sidebar";
 import { PdfReferencePane, PdfReferenceRuntime } from "./pdf-reference-pane";
 import { readerText, ReaderLocale } from "../ui/locale";
+import { MinerUPdfLayout } from "../model/mineru-pdf-layout";
 
 type ReferenceMode = "pdf" | "visuals";
 
@@ -45,8 +46,17 @@ export class ReferenceSidebar {
     this.visualsHost = element("section", "p2md-reference-view p2md-reference-visuals");
     this.visualsHost.setAttribute("role", "tabpanel");
     this.container.replaceChildren(tabs, this.pdfHost, this.visualsHost);
-    this.figures = new FigureSidebar(this.visualsHost, figureOptions);
-    this.pdfPane = pdfRuntime ? new PdfReferencePane(this.pdfHost, pdfRuntime, locale) : undefined;
+    this.figures = new FigureSidebar(this.visualsHost, {
+      ...figureOptions,
+      onSelectionChange: (figure, followingReading) => {
+        this.pdfPane?.setCurrentVisual(figure.id);
+        figureOptions.onSelectionChange?.(figure, followingReading);
+      }
+    });
+    this.pdfPane = pdfRuntime ? new PdfReferencePane(this.pdfHost, pdfRuntime, locale, (visualId) => {
+      this.pdfPane?.setCurrentVisual(visualId);
+      this.figures.select(visualId, true);
+    }) : undefined;
     this.pdfTab.addEventListener("click", () => this.setMode("pdf"));
     this.visualsTab.addEventListener("click", () => this.setMode("visuals"));
     tabs.addEventListener("keydown", (event) => {
@@ -59,7 +69,7 @@ export class ReferenceSidebar {
     this.setMode("visuals");
   }
 
-  async setPdfSource(source: { path: string } | undefined, fileSystem: ReaderFileSystem): Promise<void> {
+  async setPdfSource(source: { path: string } | undefined, fileSystem: ReaderFileSystem, layout?: MinerUPdfLayout): Promise<void> {
     const available = Boolean(source && this.pdfPane);
     this.pdfTab.hidden = !available;
     if (!available) {
@@ -67,7 +77,7 @@ export class ReferenceSidebar {
       this.setMode("visuals");
       return;
     }
-    await this.pdfPane!.setSource(fileSystem, source!.path);
+    await this.pdfPane!.setSource(fileSystem, source!.path, layout);
   }
 
   clearPdfSource(): void {
@@ -78,10 +88,12 @@ export class ReferenceSidebar {
 
   setFigures(figures: FigurePresentation[]): void {
     this.figures.setFigures(figures);
+    this.pdfPane?.setCurrentVisual(figures[0]?.id ?? "");
   }
 
   trackReadingTarget(id: string): void {
     this.figures.trackReadingTarget(id);
+    this.pdfPane?.setCurrentVisual(id);
   }
 
   trackMarkdownPage(pageNumber: number): void {

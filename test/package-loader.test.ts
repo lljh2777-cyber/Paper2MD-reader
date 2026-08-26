@@ -98,8 +98,8 @@ describe("PackageLoader host abstraction", () => {
       pages: [{
         page_idx: 2,
         blocks: [
-          { id: "p0002-s000000", asset_path: "images/a.png", caption: { items: [{ text: "A", kind: "panel-label" }] } },
-          { id: "p0002-s000001", asset_path: "images/b.png", caption: { items: [{ text: "Figure 1. Complete caption", kind: "formal-caption" }] } }
+          { id: "p0002-s000000", role: "visual", source_type: "image", bbox_norm: [60, 300, 490, 700], asset_path: "images/a.png", caption: { items: [{ text: "A", kind: "panel-label" }] } },
+          { id: "p0002-s000001", role: "visual", source_type: "image", bbox_norm: [510, 300, 940, 700], asset_path: "images/b.png", caption: { items: [{ text: "Figure 1. Complete caption", kind: "formal-caption" }] } }
         ]
       }]
     };
@@ -136,6 +136,8 @@ describe("PackageLoader host abstraction", () => {
       display: expect.objectContaining({ mode: "pdf-crop", pdfPath: "_extraction/source.pdf" })
     }));
     expect(loaded.sourcePdf).toEqual({ path: "_extraction/source.pdf" });
+    expect(loaded.pdfLayout?.blocks).toHaveLength(2);
+    expect(loaded.pdfLayout?.blocks.every((block) => block.visualId === "vr-p0002-g0000")).toBe(true);
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-applied" }));
   });
 
@@ -159,6 +161,7 @@ describe("PackageLoader host abstraction", () => {
 
     expect(loaded.assets).toHaveLength(1);
     expect(loaded.assets[0].display).toBeUndefined();
+    expect(loaded.pdfLayout).toBeUndefined();
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-binding-invalid" }));
   });
 

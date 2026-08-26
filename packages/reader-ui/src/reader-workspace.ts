@@ -272,7 +272,7 @@ export class ReaderWorkspace {
       const pageBlocks = loaded.pageMap ? materializeReaderPageOwnership(this.articleContent) : [];
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
       this.figureSidebar.setFigures(await this.createFigurePresentations(loaded, rendered, contractUsable));
-      if (this.referenceSidebar) await this.referenceSidebar.setPdfSource(loaded.sourcePdf, this.fileSystem);
+      if (this.referenceSidebar) await this.referenceSidebar.setPdfSource(loaded.sourcePdf, this.fileSystem, loaded.pdfLayout);
       this.connectScrollSync(loaded, rendered, pageBlocks, contractUsable);
       this.root.dataset.state = contractUsable ? "ready" : "degraded";
       this.articleScroll.scrollTop = 0;

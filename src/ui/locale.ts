@@ -94,7 +94,10 @@ const ENGLISH = {
   pdfPageContent: "PDF page {page} content",
   pdfPageLoadFailed: "Page {page} could not be rendered",
   followPdfPage: "Follow body page",
-  followPdfPaused: "Follow body page · paused"
+  followPdfPaused: "Follow body page · paused",
+  pdfLayoutBoxes: "Layout boxes",
+  pdfImageCompatibility: "PDF page {page} image compatibility layer",
+  locateVisual: "Locate figure"
 } as const;
 
 export type ReaderMessageKey = keyof typeof ENGLISH;
@@ -190,7 +193,10 @@ const CHINESE: Record<ReaderMessageKey, string> = {
   pdfPageContent: "PDF 第 {page} 页内容",
   pdfPageLoadFailed: "第 {page} 页加载失败",
   followPdfPage: "跟随正文页",
-  followPdfPaused: "跟随正文页 · 已暂停"
+  followPdfPaused: "跟随正文页 · 已暂停",
+  pdfLayoutBoxes: "版面框",
+  pdfImageCompatibility: "PDF 第 {page} 页图片兼容补绘",
+  locateVisual: "定位图片"
 };
 
 const COPY: Record<ReaderLocale, Record<ReaderMessageKey, string>> = {

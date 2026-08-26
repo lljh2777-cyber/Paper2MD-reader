@@ -172,6 +172,7 @@ export interface LoadedPaperPackage {
     path: string;
   };
   pageMap?: import("./mineru-page-map").MinerUPageMap;
+  pdfLayout?: import("./mineru-pdf-layout").MinerUPdfLayout;
   textRecovery?: {
     pdfPath: string;
     candidates: import("./mineru-text-recovery").MinerUTextRecoveryCandidate[];

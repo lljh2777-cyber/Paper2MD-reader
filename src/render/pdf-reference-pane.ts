@@ -2,6 +2,11 @@ import { ReaderFileSystem } from "../filesystem/reader-file-system";
 import { setReaderIcon } from "./icons";
 import { readerText, ReaderLocale } from "../ui/locale";
 import { PdfReaderState } from "../sync/pdf-reader-state";
+import {
+  largeCompatibilityImageBlocks,
+  MinerUPdfLayout,
+  sampledRegionLooksBlank
+} from "../model/mineru-pdf-layout";
 
 export interface PdfPageRenderResult {
   width: number;
@@ -49,8 +54,12 @@ export class PdfReferencePane {
   private readonly zoomValue: HTMLElement;
   private readonly followInput: HTMLInputElement;
   private readonly followLabel: HTMLElement;
+  private readonly layoutButton: HTMLButtonElement;
   private wrappers: HTMLElement[] = [];
   private source?: { fileSystem: ReaderFileSystem; path: string };
+  private layout?: MinerUPdfLayout;
+  private showLayoutBoxes = true;
+  private currentVisualId = "";
   private observer?: IntersectionObserver;
   private renderQueue = Promise.resolve();
   private generation = 0;
@@ -60,7 +69,8 @@ export class PdfReferencePane {
   constructor(
     private readonly container: HTMLElement,
     private readonly runtime: PdfReferenceRuntime,
-    private readonly locale: ReaderLocale
+    private readonly locale: ReaderLocale,
+    private readonly onSelectVisual?: (visualId: string) => void
   ) {
     this.container.classList.add("p2md-pdf-pane");
     this.toolbar = element("header", "p2md-pdf-toolbar");
@@ -79,6 +89,10 @@ export class PdfReferencePane {
     const fit = element("button", "p2md-pdf-fit-button");
     fit.type = "button";
     fit.textContent = readerText(locale, "fitPdfWidth");
+    this.layoutButton = element("button", "p2md-pdf-fit-button is-active");
+    this.layoutButton.type = "button";
+    this.layoutButton.textContent = readerText(locale, "pdfLayoutBoxes");
+    this.layoutButton.setAttribute("aria-pressed", "true");
     const follow = element("label", "p2md-pdf-follow-control");
     this.followInput = element("input");
     this.followInput.type = "checkbox";
@@ -88,7 +102,7 @@ export class PdfReferencePane {
     const followTrack = element("span", "p2md-follow-track");
     this.followLabel = element("span", "p2md-pdf-follow-label");
     follow.append(this.followInput, followTrack, this.followLabel);
-    this.toolbar.append(this.previous, this.pageInput, this.pageCount, this.next, divider, zoomOut, this.zoomValue, zoomIn, fit, follow);
+    this.toolbar.append(this.previous, this.pageInput, this.pageCount, this.next, divider, zoomOut, this.zoomValue, zoomIn, fit, this.layoutButton, follow);
     this.scroll = element("div", "p2md-pdf-scroll");
     this.scroll.tabIndex = 0;
     this.scroll.ariaLabel = readerText(locale, "continuousPdf");
@@ -117,6 +131,12 @@ export class PdfReferencePane {
       if (!this.state.setZoom(1)) return;
       this.rebuildPages();
     });
+    this.layoutButton.addEventListener("click", () => {
+      this.showLayoutBoxes = !this.showLayoutBoxes;
+      this.layoutButton.classList.toggle("is-active", this.showLayoutBoxes);
+      this.layoutButton.setAttribute("aria-pressed", String(this.showLayoutBoxes));
+      this.refreshLayoutOverlays();
+    });
     this.followInput.addEventListener("change", () => {
       const pageChanged = this.state.setFollowing(this.followInput.checked);
       this.updateToolbar();
@@ -126,9 +146,10 @@ export class PdfReferencePane {
     this.updateToolbar();
   }
 
-  async setSource(fileSystem: ReaderFileSystem, path: string): Promise<void> {
+  async setSource(fileSystem: ReaderFileSystem, path: string, layout?: MinerUPdfLayout): Promise<void> {
     this.clearPages();
     this.source = { fileSystem, path };
+    this.layout = layout;
     const generation = ++this.generation;
     this.renderMessage(readerText(this.locale, "loadingPdf"));
     try {
@@ -151,6 +172,7 @@ export class PdfReferencePane {
   clearSource(): void {
     this.generation += 1;
     this.source = undefined;
+    this.layout = undefined;
     this.state.setPageCount(0);
     this.clearPages();
     this.renderMessage(readerText(this.locale, "noSourcePdf"));
@@ -173,6 +195,13 @@ export class PdfReferencePane {
     if (!this.state.markMarkdownInteraction()) return;
     this.updateToolbar();
     if (this.visible) this.scrollToPage(this.state.currentPage, "auto");
+  }
+
+  setCurrentVisual(id: string): void {
+    this.currentVisualId = id;
+    this.container.querySelectorAll<HTMLElement>(".p2md-pdf-layout-box").forEach((box) => {
+      box.classList.toggle("is-current", Boolean(id) && box.dataset.visualId === id);
+    });
   }
 
   destroy(): void {
@@ -230,15 +259,23 @@ export class PdfReferencePane {
       const pageNumber = Number(wrapper.dataset.pageNumber || 1);
       wrapper.dataset.renderState = "rendering";
       try {
-        const size = await this.runtime.renderPage(pageNumber, canvas, availableWidth, this.state.zoom);
+        let size = await this.runtime.renderPage(pageNumber, canvas, availableWidth, this.state.zoom);
+        if (this.pageHasSuspiciousBlankVisual(pageNumber, canvas)) {
+          wrapper.dataset.renderRetried = "true";
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          size = await this.runtime.renderPage(pageNumber, canvas, availableWidth, this.state.zoom);
+        }
         if (generation !== this.generation || !wrapper.isConnected) return;
         wrapper.style.width = `${Math.floor(size.width)}px`;
         wrapper.style.height = `${Math.floor(size.height)}px`;
+        const compatibilityImages = await this.paintPdfImageCompatibilityLayer(wrapper, pageNumber, generation);
+        if (compatibilityImages) wrapper.dataset.imageFallback = String(compatibilityImages);
         wrapper.querySelector(".p2md-pdf-page-placeholder")?.remove();
         canvas.hidden = false;
         wrapper.classList.remove("is-loading", "is-error");
         wrapper.classList.add("is-rendered");
         wrapper.dataset.renderState = "rendered";
+        if (this.showLayoutBoxes) this.renderPdfOverlays(wrapper, pageNumber);
       } catch (error) {
         if (generation !== this.generation || !wrapper.isConnected || isAbortError(error)) return;
         wrapper.dataset.renderState = "error";
@@ -318,5 +355,88 @@ export class PdfReferencePane {
     this.followLabel.title = this.state.followPaused
       ? readerText(this.locale, "followPdfPaused")
       : readerText(this.locale, "followPdfPage");
+  }
+
+  private pageHasSuspiciousBlankVisual(pageNumber: number, canvas: HTMLCanvasElement): boolean {
+    const bounds = this.layout?.blocks.filter((block) => block.pageIndex === pageNumber - 1 && block.role === "visual") ?? [];
+    if (!bounds.length || canvas.width < 1 || canvas.height < 1) return false;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) return false;
+    try {
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      return bounds.some((block) => sampledRegionLooksBlank(pixels, canvas.width, canvas.height, block.bbox));
+    } catch {
+      return false;
+    }
+  }
+
+  private async paintPdfImageCompatibilityLayer(wrapper: HTMLElement, pageNumber: number, generation: number): Promise<number> {
+    const source = this.source;
+    const blocks = largeCompatibilityImageBlocks(this.layout, pageNumber);
+    if (!source || !blocks.length) return 0;
+    const layer = element("div", "p2md-pdf-image-layer");
+    layer.setAttribute("aria-label", readerText(this.locale, "pdfImageCompatibility", { page: pageNumber }));
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 400));
+    if (generation !== this.generation || !wrapper.isConnected) return 0;
+    let count = 0;
+    for (const block of blocks) {
+      if (!block.assetPath || !await source.fileSystem.exists(block.assetPath)) continue;
+      let image: HTMLImageElement | undefined;
+      try {
+        image = element("img");
+        image.alt = "";
+        image.setAttribute("aria-hidden", "true");
+        image.src = await source.fileSystem.resolveAssetUrl(block.assetPath);
+        image.style.left = `${block.bbox.x * 100}%`;
+        image.style.top = `${block.bbox.y * 100}%`;
+        image.style.width = `${block.bbox.width * 100}%`;
+        image.style.height = `${block.bbox.height * 100}%`;
+        layer.appendChild(image);
+        await image.decode();
+        count += 1;
+      } catch {
+        image?.remove();
+      }
+    }
+    if (!count) return 0;
+    wrapper.querySelector(".p2md-pdf-image-layer")?.remove();
+    wrapper.appendChild(layer);
+    return count;
+  }
+
+  private refreshLayoutOverlays(): void {
+    this.wrappers.forEach((wrapper) => {
+      wrapper.querySelector(".p2md-pdf-overlay")?.remove();
+      if (this.showLayoutBoxes && wrapper.dataset.renderState === "rendered") {
+        this.renderPdfOverlays(wrapper, Number(wrapper.dataset.pageNumber || 1));
+      }
+    });
+  }
+
+  private renderPdfOverlays(wrapper: HTMLElement, pageNumber: number): void {
+    const blocks = this.layout?.blocks.filter((block) => block.pageIndex === pageNumber - 1) ?? [];
+    if (!blocks.length) return;
+    wrapper.querySelector(".p2md-pdf-overlay")?.remove();
+    const overlay = element("div", "p2md-pdf-overlay");
+    for (const block of blocks) {
+      const box = block.visualId
+        ? element("button", `p2md-pdf-layout-box is-${block.role}`)
+        : element("div", `p2md-pdf-layout-box is-${block.role}`);
+      box.style.left = `${block.bbox.x * 100}%`;
+      box.style.top = `${block.bbox.y * 100}%`;
+      box.style.width = `${block.bbox.width * 100}%`;
+      box.style.height = `${block.bbox.height * 100}%`;
+      box.title = block.visualId ? readerText(this.locale, "locateVisual") : block.sourceType;
+      if (block.visualId) {
+        const button = box as HTMLButtonElement;
+        button.type = "button";
+        button.dataset.visualId = block.visualId;
+        button.ariaLabel = readerText(this.locale, "locateVisual");
+        button.classList.toggle("is-current", block.visualId === this.currentVisualId);
+        button.addEventListener("click", () => this.onSelectVisual?.(block.visualId!));
+      }
+      overlay.appendChild(box);
+    }
+    wrapper.appendChild(overlay);
   }
 }
