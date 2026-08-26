@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "dompurify": "^3.2.6",
+    "katex": "^0.18.4",
     "markdown-it": "^14.1.0",
     "pdfjs-dist": "^6.2.108"
   },

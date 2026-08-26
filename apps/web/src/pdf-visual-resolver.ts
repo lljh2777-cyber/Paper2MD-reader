@@ -1,7 +1,12 @@
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
-import { LoadedAsset, NormalizedBBox } from "../../../src/model/reader-contract";
+import { Diagnostic, LoadedAsset, NormalizedBBox } from "../../../src/model/reader-contract";
+import {
+  applyRecoveredText,
+  MinerUTextRecoveryCandidate,
+  recoverReplacementCharacters
+} from "../../../src/model/mineru-text-recovery";
 
 function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -59,6 +64,77 @@ export class PdfVisualResolver {
       console.warn("PDF crop reconstruction failed; using the packaged MinerU asset", error);
       return fileSystem.resolveAssetUrl(asset.path);
     }
+  }
+
+  async recoverText(
+    articleText: string,
+    recovery: { pdfPath: string; candidates: MinerUTextRecoveryCandidate[] },
+    fileSystem: ReaderFileSystem
+  ): Promise<{ articleText: string; diagnostics: Diagnostic[] }> {
+    const diagnostics: Diagnostic[] = [];
+    let projected = articleText;
+    let recoveredCount = 0;
+    try {
+      const document = await this.loadDocument(fileSystem, recovery.pdfPath);
+      const pageCache = new Map<number, Promise<{
+        viewport: ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["getViewport"]>;
+        items: Array<{ text: string; x: number; centerY: number; width: number }>;
+      }>>();
+      for (const candidate of recovery.candidates) {
+        const pageNumber = Math.max(1, Math.min(document.numPages, candidate.pageIndex + 1));
+        if (!pageCache.has(pageNumber)) {
+          pageCache.set(pageNumber, document.getPage(pageNumber).then(async (page) => {
+            const viewport = page.getViewport({ scale: 1 });
+            const content = await page.getTextContent();
+            const items = content.items.flatMap((item) => {
+              if (!("str" in item) || !("transform" in item) || !("width" in item) || !("height" in item)) return [];
+              const textItem = item as { str: string; transform: number[]; width: number; height: number };
+              const [x, baseline] = viewport.convertToViewportPoint(textItem.transform[4], textItem.transform[5]);
+              return [{ text: textItem.str, x, centerY: baseline - Math.abs(textItem.height) / 2, width: textItem.width }];
+            });
+            return { viewport, items };
+          }));
+        }
+        const { viewport, items } = await pageCache.get(pageNumber)!;
+        const padding = 0.015;
+        const left = Math.max(0, candidate.bbox.x - padding) * viewport.width;
+        const right = Math.min(1, candidate.bbox.x + candidate.bbox.width + padding) * viewport.width;
+        const top = Math.max(0, candidate.bbox.y - padding) * viewport.height;
+        const bottom = Math.min(1, candidate.bbox.y + candidate.bbox.height + padding) * viewport.height;
+        const blockText = items
+          .filter((item) => item.x + item.width / 2 >= left && item.x + item.width / 2 <= right && item.centerY >= top && item.centerY <= bottom)
+          .map((item) => item.text)
+          .join(" ");
+        const pageText = items.map((item) => item.text).join(" ");
+        const recovered = recoverReplacementCharacters(candidate.sourceText, blockText)
+          ?? recoverReplacementCharacters(candidate.sourceText, pageText);
+        const next = recovered ? applyRecoveredText(projected, candidate.sourceText, recovered.text) : undefined;
+        if (!recovered || !next) {
+          diagnostics.push({
+            level: "warning",
+            code: "mineru-pdf-text-recovery-abstained",
+            message: `第 ${candidate.pageIndex + 1} 页存在无法唯一恢复的缺失字符；已保留 MinerU 原文。`
+          });
+          continue;
+        }
+        projected = next;
+        recoveredCount += recovered.recoveredCount;
+      }
+    } catch (error) {
+      diagnostics.push({
+        level: "warning",
+        code: "mineru-pdf-text-recovery-unavailable",
+        message: `PDF 文本层不可用，缺失字符保持原样：${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+    if (recoveredCount) {
+      diagnostics.push({
+        level: "info",
+        code: "mineru-pdf-text-recovered",
+        message: `已从原 PDF 文本层恢复 ${recoveredCount} 个缺失字符；仅用于当前显示。`
+      });
+    }
+    return { articleText: projected, diagnostics };
   }
 
   dispose(): void {

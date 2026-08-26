@@ -1,5 +1,6 @@
 import { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
-import { assetDisplayLabel, LoadedAsset, LoadedPaperPackage } from "../../../src/model/reader-contract";
+import { assetDisplayLabel, Diagnostic, LoadedAsset, LoadedPaperPackage } from "../../../src/model/reader-contract";
+import { MinerUTextRecoveryCandidate } from "../../../src/model/mineru-text-recovery";
 import { PackageLoader } from "../../../src/model/package-loader";
 import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
@@ -25,6 +26,10 @@ export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
   visualResolver?: {
     resolve(asset: LoadedAsset, fileSystem: ReaderFileSystem): Promise<string>;
+    recoverText?(articleText: string, recovery: {
+      pdfPath: string;
+      candidates: MinerUTextRecoveryCandidate[];
+    }, fileSystem: ReaderFileSystem): Promise<{ articleText: string; diagnostics: Diagnostic[] }>;
     dispose(): void;
   };
   /** Mount the linked figure browser outside the reader shell, such as in a desktop tab pane. */
@@ -214,10 +219,16 @@ export class ReaderWorkspace {
     try {
       const loaded = await new PackageLoader(this.fileSystem).loadDetected();
       this.loaded = loaded;
-      this.updateStatus(loaded);
       const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru" || loaded.state === "markdown";
       this.root.classList.toggle("p2md-contract-mode", contractUsable);
-      const rendered = await renderLocalArticle(loaded.articleText, this.articleContent, this.fileSystem, contractUsable);
+      let articleText = loaded.articleText;
+      if (loaded.textRecovery?.candidates.length && this.options.visualResolver?.recoverText) {
+        const recovered = await this.options.visualResolver.recoverText(articleText, loaded.textRecovery, this.fileSystem);
+        articleText = recovered.articleText;
+        loaded.diagnostics.push(...recovered.diagnostics);
+      }
+      this.updateStatus(loaded);
+      const rendered = await renderLocalArticle(articleText, this.articleContent, this.fileSystem, contractUsable);
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
       this.figureSidebar.setFigures(await this.createFigurePresentations(loaded, rendered, contractUsable));
       this.connectScrollSync(loaded, rendered, contractUsable);

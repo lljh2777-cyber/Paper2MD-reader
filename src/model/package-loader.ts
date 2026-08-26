@@ -16,6 +16,7 @@ import {
 } from "./reader-contract";
 import { adaptClippingMarkdown, ClippingVisual } from "./clipping-markdown";
 import { injectMinerUVisualAnchors, parseMinerUContentList } from "./mineru-content-list";
+import { collectMinerUTextRecoveryCandidates } from "./mineru-text-recovery";
 import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
 import { contentListForMarkdown, detectPackageSource } from "./package-source";
@@ -420,7 +421,11 @@ export class PackageLoader {
       contractVersion,
       anchors: parseAnchorInventory(articleText),
       assets,
-      diagnostics
+      diagnostics,
+      textRecovery: hasSourcePdf ? {
+        pdfPath: sourcePdfPath,
+        candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text)
+      } : undefined
     };
   }
 

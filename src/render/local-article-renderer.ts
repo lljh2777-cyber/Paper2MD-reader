@@ -2,9 +2,11 @@ import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import { ReaderFileSystem } from "../filesystem/reader-file-system";
 import { collectAnchors, materializeContractAnchors, RenderedArticle } from "./contract-renderer";
+import { installMarkdownMath, renderMathPlaceholders } from "./markdown-math";
 import { assertMarkdownResourcesSafe, safeLocalResourcePath } from "./markdown-resource-policy";
 
 const markdown = new MarkdownIt({ html: true, linkify: true, typographer: false });
+installMarkdownMath(markdown);
 
 function localImagePath(src: string): string | undefined {
   if (!src || src.startsWith("#")) return undefined;
@@ -48,6 +50,7 @@ export async function renderLocalArticle(
     image.removeAttribute("src");
   });
   container.replaceChildren(template.content);
+  renderMathPlaceholders(container);
   container.querySelectorAll<HTMLAnchorElement>("a").forEach((link) => {
     link.rel = "noreferrer noopener";
     if (/^https?:/i.test(link.href)) link.target = "_blank";

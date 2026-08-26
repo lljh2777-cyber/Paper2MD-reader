@@ -98,3 +98,18 @@ browser viewport for the repaired paper.
 The rail changed from 21 to 18 visual objects because four page-11 fragments
 were proven to be one Figure 5. No above-the-fold copy, control, spacing, icon,
 or responsive behavior changed.
+
+## Math and missing-glyph repair iteration
+
+The 2026-08-26 regression used the real `blampey_novae_2025` MinerU package at
+the same 1280×720 reader viewport.
+
+| Check | Before | Current render | Result |
+|---|---|---|---|
+| LaTeX | Literal `$...$` and `$$...$$` source was visible | KaTeX renders 110 inline/display expressions | Fixed |
+| Missing glyphs | Eight U+FFFD replacement glyphs existed in source Markdown | Eight symbols were uniquely recovered from the packaged PDF text layer; zero U+FFFD remain in the rendered article | Fixed |
+| Source fidelity | `article.md` is immutable | Recovery is an in-memory projection and source files are unchanged | Matched |
+| Safety | Missing text must fail closed | Duplicate/missing context and non-unique source blocks abstain | Matched |
+| Console | No relevant warning/error expected | Empty warning/error log after real-package import | Matched |
+
+No reader chrome, split proportions, Figure controls, or palette changed.

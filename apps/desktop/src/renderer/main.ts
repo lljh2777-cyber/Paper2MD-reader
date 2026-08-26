@@ -1,5 +1,6 @@
 import "../../../../styles.css";
 import "../../../../local-reader/local-reader.css";
+import "katex/dist/katex.min.css";
 import "./desktop.css";
 import { mountReaderWorkspace } from "../../../../packages/reader-ui/src/index";
 import {
