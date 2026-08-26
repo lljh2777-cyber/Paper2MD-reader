@@ -1,6 +1,7 @@
 import { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
 import { assetDisplayLabel, Diagnostic, LoadedAsset, LoadedPaperPackage } from "../../../src/model/reader-contract";
 import { PackageLoader } from "../../../src/model/package-loader";
+import { injectMinerUPageAnchors } from "../../../src/model/mineru-page-map";
 import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
@@ -8,6 +9,7 @@ import type { RenderedArticle } from "../../../src/render/contract-renderer";
 import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "../../../src/render/figure-sidebar";
 import type { PdfReferenceRuntime } from "../../../src/render/pdf-reference-pane";
 import { ReferenceSidebar } from "../../../src/render/reference-sidebar";
+import { materializeReaderPageOwnership } from "../../../src/render/page-ownership";
 import { setReaderIcon } from "../../../src/render/icons";
 import { renderLocalArticle } from "../../../src/render/local-article-renderer";
 import { UnsafeMarkdownResourceError } from "../../../src/render/markdown-resource-policy";
@@ -199,6 +201,11 @@ export class ReaderWorkspace {
     this.articleScroll = element("main", "p2md-article-scroll");
     this.articleContent = element("article", "p2md-article markdown-rendered");
     this.articleScroll.appendChild(this.articleContent);
+    const activateMarkdownFollowing = () => this.referenceSidebar?.activateMarkdownFollowing();
+    this.articleScroll.addEventListener("pointerenter", activateMarkdownFollowing);
+    this.articleScroll.addEventListener("pointerdown", activateMarkdownFollowing);
+    this.articleScroll.addEventListener("wheel", activateMarkdownFollowing, { passive: true });
+    this.articleScroll.addEventListener("focusin", activateMarkdownFollowing);
     const figureHost = this.options.figureHost ?? element("aside", "p2md-figures-host");
     workspace.appendChild(this.articleScroll);
     if (!this.options.figureHost) workspace.appendChild(figureHost);
@@ -259,12 +266,14 @@ export class ReaderWorkspace {
           asset.captionStatus = update.captionStatus;
         });
       }
+      articleText = injectMinerUPageAnchors(articleText, loaded.pageMap);
       this.updateStatus(loaded);
       const rendered = await renderLocalArticle(articleText, this.articleContent, this.fileSystem, contractUsable);
+      const pageBlocks = loaded.pageMap ? materializeReaderPageOwnership(this.articleContent) : [];
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
       this.figureSidebar.setFigures(await this.createFigurePresentations(loaded, rendered, contractUsable));
       if (this.referenceSidebar) await this.referenceSidebar.setPdfSource(loaded.sourcePdf, this.fileSystem);
-      this.connectScrollSync(loaded, rendered, contractUsable);
+      this.connectScrollSync(loaded, rendered, pageBlocks, contractUsable);
       this.root.dataset.state = contractUsable ? "ready" : "degraded";
       this.articleScroll.scrollTop = 0;
     } catch (error) {
@@ -312,7 +321,12 @@ export class ReaderWorkspace {
     }));
   }
 
-  private connectScrollSync(loaded: LoadedPaperPackage, rendered: RenderedArticle, contractUsable: boolean): void {
+  private connectScrollSync(
+    loaded: LoadedPaperPackage,
+    rendered: RenderedArticle,
+    pageBlocks: HTMLElement[],
+    contractUsable: boolean
+  ): void {
     if (!contractUsable) return;
     const slotToAsset = new Map<string, string>();
     loaded.assets.forEach((asset) => {
@@ -323,6 +337,9 @@ export class ReaderWorkspace {
       .forEach((relation) => slotToAsset.set(relation.source_id, relation.target_id));
     this.scrollController.connect(this.articleScroll, rendered.slotElements, slotToAsset, (assetId) => {
       this.figureSidebar.trackReadingTarget(assetId);
+    });
+    this.scrollController.connectPages(this.articleScroll, pageBlocks, (pageNumber) => {
+      this.referenceSidebar?.trackMarkdownPage(pageNumber);
     });
   }
 

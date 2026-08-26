@@ -92,7 +92,9 @@ const ENGLISH = {
   pdfPageNumber: "PDF page {page}",
   loadingPdfPage: "Loading page {page}…",
   pdfPageContent: "PDF page {page} content",
-  pdfPageLoadFailed: "Page {page} could not be rendered"
+  pdfPageLoadFailed: "Page {page} could not be rendered",
+  followPdfPage: "Follow body page",
+  followPdfPaused: "Follow body page · paused"
 } as const;
 
 export type ReaderMessageKey = keyof typeof ENGLISH;
@@ -186,7 +188,9 @@ const CHINESE: Record<ReaderMessageKey, string> = {
   pdfPageNumber: "PDF 第 {page} 页",
   loadingPdfPage: "正在载入第 {page} 页…",
   pdfPageContent: "PDF 第 {page} 页内容",
-  pdfPageLoadFailed: "第 {page} 页加载失败"
+  pdfPageLoadFailed: "第 {page} 页加载失败",
+  followPdfPage: "跟随正文页",
+  followPdfPaused: "跟随正文页 · 已暂停"
 };
 
 const COPY: Record<ReaderLocale, Record<ReaderMessageKey, string>> = {

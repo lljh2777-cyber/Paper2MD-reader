@@ -47,6 +47,8 @@ export class PdfReferencePane {
   private readonly pageInput: HTMLInputElement;
   private readonly pageCount: HTMLElement;
   private readonly zoomValue: HTMLElement;
+  private readonly followInput: HTMLInputElement;
+  private readonly followLabel: HTMLElement;
   private wrappers: HTMLElement[] = [];
   private source?: { fileSystem: ReaderFileSystem; path: string };
   private observer?: IntersectionObserver;
@@ -77,12 +79,31 @@ export class PdfReferencePane {
     const fit = element("button", "p2md-pdf-fit-button");
     fit.type = "button";
     fit.textContent = readerText(locale, "fitPdfWidth");
-    this.toolbar.append(this.previous, this.pageInput, this.pageCount, this.next, divider, zoomOut, this.zoomValue, zoomIn, fit);
+    const follow = element("label", "p2md-pdf-follow-control");
+    this.followInput = element("input");
+    this.followInput.type = "checkbox";
+    this.followInput.checked = true;
+    this.followInput.setAttribute("role", "switch");
+    this.followInput.ariaLabel = readerText(locale, "followPdfPage");
+    const followTrack = element("span", "p2md-follow-track");
+    this.followLabel = element("span", "p2md-pdf-follow-label");
+    follow.append(this.followInput, followTrack, this.followLabel);
+    this.toolbar.append(this.previous, this.pageInput, this.pageCount, this.next, divider, zoomOut, this.zoomValue, zoomIn, fit, follow);
     this.scroll = element("div", "p2md-pdf-scroll");
     this.scroll.tabIndex = 0;
     this.scroll.ariaLabel = readerText(locale, "continuousPdf");
     this.container.replaceChildren(this.toolbar, this.scroll);
 
+    const markPdfInteraction = () => {
+      if (this.state.markPdfInteraction()) this.updateToolbar();
+    };
+    [this.toolbar, this.scroll].forEach((target) => {
+      target.addEventListener("pointerdown", markPdfInteraction);
+      target.addEventListener("focusin", markPdfInteraction);
+    });
+    this.scroll.addEventListener("pointerenter", markPdfInteraction);
+    this.scroll.addEventListener("wheel", markPdfInteraction, { passive: true });
+    this.scroll.addEventListener("touchstart", markPdfInteraction, { passive: true });
     this.previous.addEventListener("click", () => this.changePage(-1));
     this.next.addEventListener("click", () => this.changePage(1));
     this.pageInput.addEventListener("change", () => {
@@ -95,6 +116,11 @@ export class PdfReferencePane {
     fit.addEventListener("click", () => {
       if (!this.state.setZoom(1)) return;
       this.rebuildPages();
+    });
+    this.followInput.addEventListener("change", () => {
+      const pageChanged = this.state.setFollowing(this.followInput.checked);
+      this.updateToolbar();
+      if (pageChanged) this.scrollToPage(this.state.currentPage, "smooth");
     });
     this.scroll.addEventListener("scroll", () => this.scheduleVisiblePageUpdate(), { passive: true });
     this.updateToolbar();
@@ -135,6 +161,18 @@ export class PdfReferencePane {
     this.visible = value;
     this.container.hidden = !value;
     if (value && this.source && this.state.pageCount && !this.wrappers.length) this.rebuildPages();
+  }
+
+  trackMarkdownPage(pageNumber: number): void {
+    if (!this.state.trackMarkdownPage(pageNumber)) return;
+    this.updateToolbar();
+    if (this.visible) this.scrollToPage(this.state.currentPage, "auto");
+  }
+
+  activateMarkdownFollowing(): void {
+    if (!this.state.markMarkdownInteraction()) return;
+    this.updateToolbar();
+    if (this.visible) this.scrollToPage(this.state.currentPage, "auto");
   }
 
   destroy(): void {
@@ -274,5 +312,11 @@ export class PdfReferencePane {
     this.previous.disabled = !count || this.state.currentPage <= 1;
     this.next.disabled = !count || this.state.currentPage >= count;
     this.zoomValue.textContent = `${Math.round(this.state.zoom * 100)}%`;
+    this.followInput.checked = this.state.isFollowing;
+    this.followInput.ariaLabel = readerText(this.locale, this.state.followPaused ? "followPdfPaused" : "followPdfPage");
+    this.followLabel.textContent = readerText(this.locale, this.state.followPaused ? "followPdfPaused" : "followPdfPage");
+    this.followLabel.title = this.state.followPaused
+      ? readerText(this.locale, "followPdfPaused")
+      : readerText(this.locale, "followPdfPage");
   }
 }

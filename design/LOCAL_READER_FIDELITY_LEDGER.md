@@ -159,3 +159,16 @@ The 2026-08-26 browser regression used the real 20-page
 
 This iteration adds only the reference-mode header and PDF controls required by
 the migrated behavior; the accepted article and figure presentation remain unchanged.
+
+## Single-authority page following iteration
+
+The 2026-08-26 regression again used the real `blampey_novae_2025` package.
+
+| Check | Expected | Current render | Result |
+|---|---|---|---|
+| Page ownership | Map only uniquely located visible Markdown pages | 19/20 pages mapped; ambiguous page 5 abstained | Matched |
+| Automatic authority | Markdown viewport top alone drives PDF page | Body page 8 opened PDF page 8; later body page 10 moved PDF to page 10 | Matched |
+| Manual PDF interaction | Do not let background Markdown tracking steal the page | Manual page 9 displayed the paused follow state | Matched |
+| Resume | Returning to Markdown restores automatic following | A left-pane wheel interaction resumed follow before the next page update | Matched |
+| Source fidelity | Page markers exist in the display projection only | Source SHA-256 remains `821b58f2ec8bdea45499d9a4534faecf45515958d7c49673616f413b042276ff` | Matched |
+| Console | No relevant warning/error expected | Empty warning/error log | Matched |

@@ -245,6 +245,8 @@
   pointer-events: none;
 }
 
+.p2md-page-anchor { display: none; }
+
 .p2md-block-anchor {
   height: 0;
 }
@@ -281,6 +283,7 @@
 }
 
 .p2md-reference-host {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -395,6 +398,24 @@
 
 .p2md-pdf-zoom-value { min-width: 34px; text-align: center; }
 .p2md-pdf-toolbar-divider { border-left: 1px solid var(--p2md-border); height: 20px; margin: 0 2px; }
+
+.p2md-pdf-follow-control {
+  align-items: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--p2md-sans);
+  font-size: 10px;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.p2md-pdf-follow-control input { height: 1px; opacity: 0; position: absolute; width: 1px; }
+.p2md-pdf-follow-label { max-width: 104px; overflow: hidden; text-overflow: ellipsis; }
+
+@container (max-width: 520px) {
+  .p2md-pdf-follow-label { display: none; }
+}
 
 .p2md-pdf-scroll {
   align-items: center;

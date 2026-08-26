@@ -8,7 +8,10 @@ function finite(value: number, fallback: number): number {
 export class PdfReaderState {
   private total = 0;
   private page = 1;
+  private markdownPage = 1;
   private scale = 1;
+  private following = true;
+  private interactionSource: "markdown" | "pdf" = "markdown";
 
   setPageCount(value: number): boolean {
     const next = Math.max(0, Math.floor(finite(value, 0)));
@@ -27,6 +30,35 @@ export class PdfReaderState {
 
   changePage(delta: number): boolean {
     return this.setPage(this.page + Math.trunc(finite(delta, 0)));
+  }
+
+  trackMarkdownPage(value: number): boolean {
+    this.markdownPage = this.clampPage(value);
+    return this.following && this.interactionSource === "markdown"
+      ? this.setPage(this.markdownPage)
+      : false;
+  }
+
+  markPdfInteraction(): boolean {
+    if (this.interactionSource === "pdf") return false;
+    this.interactionSource = "pdf";
+    return true;
+  }
+
+  markMarkdownInteraction(): boolean {
+    const sourceChanged = this.interactionSource !== "markdown";
+    this.interactionSource = "markdown";
+    return this.following ? this.setPage(this.markdownPage) || sourceChanged : sourceChanged;
+  }
+
+  setFollowing(value: boolean): boolean {
+    const changed = this.following !== value;
+    this.following = value;
+    if (value) {
+      this.interactionSource = "markdown";
+      return this.setPage(this.markdownPage) || changed;
+    }
+    return changed;
   }
 
   setZoom(value: number): boolean {
@@ -50,6 +82,14 @@ export class PdfReaderState {
 
   get zoom(): number {
     return this.scale;
+  }
+
+  get isFollowing(): boolean {
+    return this.following;
+  }
+
+  get followPaused(): boolean {
+    return this.following && this.interactionSource === "pdf";
   }
 
   private clampPage(value: number): number {

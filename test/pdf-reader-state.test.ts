@@ -29,4 +29,31 @@ describe("PdfReaderState", () => {
     state.changeZoom(1.15);
     expect(state.zoom).toBeCloseTo(1.15);
   });
+
+  it("uses Markdown as the only automatic page authority and pauses during PDF interaction", () => {
+    const state = new PdfReaderState();
+    state.setPageCount(12);
+    state.trackMarkdownPage(4);
+    expect(state.currentPage).toBe(4);
+    state.markPdfInteraction();
+    state.setPage(8);
+    state.trackMarkdownPage(5);
+    expect(state.currentPage).toBe(8);
+    expect(state.followPaused).toBe(true);
+    state.markMarkdownInteraction();
+    expect(state.currentPage).toBe(5);
+    expect(state.followPaused).toBe(false);
+  });
+
+  it("keeps a manual PDF page when follow mode is disabled", () => {
+    const state = new PdfReaderState();
+    state.setPageCount(10);
+    state.setFollowing(false);
+    state.setPage(7);
+    state.trackMarkdownPage(3);
+    state.markMarkdownInteraction();
+    expect(state.currentPage).toBe(7);
+    state.setFollowing(true);
+    expect(state.currentPage).toBe(3);
+  });
 });

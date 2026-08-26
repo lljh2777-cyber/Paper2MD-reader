@@ -21,6 +21,7 @@ import {
   PdfCaptionContinuationRequest
 } from "./mineru-caption-recovery";
 import { collectMinerUTextRecoveryCandidates } from "./mineru-text-recovery";
+import { buildMinerUPageMap } from "./mineru-page-map";
 import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
 import { contentListForMarkdown, detectPackageSource } from "./package-source";
@@ -295,6 +296,7 @@ export class PackageLoader {
 
     let visuals: RepairedMinerUVisual[] = parsed.visuals;
     let captionContinuations: PdfCaptionContinuationRequest[] = [];
+    let pageMap: LoadedPaperPackage["pageMap"];
     let contractVersion = `mineru-content-list-${parsed.version}`;
     const viewerIndexPath = "_extraction/viewer-index.json";
     const visualRepairPath = "_extraction/visual-repair.json";
@@ -331,6 +333,18 @@ export class PackageLoader {
           mineruHash,
           sourcePdfPath: hasSourcePdf ? sourcePdfPath : undefined
         });
+        pageMap = buildMinerUPageMap(article.text, mineruPayload, viewerContract, {
+          article: articleHash,
+          mineru: mineruHash
+        });
+        if (pageMap) {
+          const mapped = pageMap.boundaries.filter((boundary) => boundary.candidates.length).length;
+          diagnostics.push({
+            level: "info",
+            code: "mineru-reader-page-map",
+            message: `已为 ${mapped}/${pageMap.pageCount} 个 MinerU 正文页建立确定性阅读边界。`
+          });
+        }
         visuals = applied.visuals;
         diagnostics.push(...applied.diagnostics);
         if (hasSourcePdf) {
@@ -443,6 +457,7 @@ export class PackageLoader {
       assets,
       diagnostics,
       sourcePdf: hasSourcePdf ? { path: sourcePdfPath } : undefined,
+      pageMap,
       textRecovery: hasSourcePdf ? {
         pdfPath: sourcePdfPath,
         candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text),

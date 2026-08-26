@@ -84,6 +84,14 @@ export class ReferenceSidebar {
     this.figures.trackReadingTarget(id);
   }
 
+  trackMarkdownPage(pageNumber: number): void {
+    this.pdfPane?.trackMarkdownPage(pageNumber);
+  }
+
+  activateMarkdownFollowing(): void {
+    this.pdfPane?.activateMarkdownFollowing();
+  }
+
   destroy(): void {
     this.pdfPane?.destroy();
   }

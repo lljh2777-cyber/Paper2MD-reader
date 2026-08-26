@@ -171,6 +171,7 @@ export interface LoadedPaperPackage {
   sourcePdf?: {
     path: string;
   };
+  pageMap?: import("./mineru-page-map").MinerUPageMap;
   textRecovery?: {
     pdfPath: string;
     candidates: import("./mineru-text-recovery").MinerUTextRecoveryCandidate[];
