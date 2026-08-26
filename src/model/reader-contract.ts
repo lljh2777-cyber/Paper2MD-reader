@@ -168,6 +168,7 @@ export interface LoadedPaperPackage {
   assets: LoadedAsset[];
   diagnostics: Diagnostic[];
   sourceFormat?: "paper2md" | "mineru" | "markdown";
+  packageIntegrity?: "verified" | "unverified";
   sourcePdf?: {
     path: string;
   };

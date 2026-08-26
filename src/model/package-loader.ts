@@ -23,6 +23,10 @@ import {
 import { collectMinerUTextRecoveryCandidates } from "./mineru-text-recovery";
 import { buildMinerUPageMap } from "./mineru-page-map";
 import { buildMinerUPdfLayout } from "./mineru-pdf-layout";
+import {
+  inspectMinerUPackageIntegrity,
+  readVerifiedMinerUDerivedJson
+} from "./mineru-package-integrity";
 import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
 import { contentListForMarkdown, detectPackageSource } from "./package-source";
@@ -308,6 +312,15 @@ export class PackageLoader {
       this.fileSystem.exists(visualRepairPath),
       this.fileSystem.exists(sourcePdfPath)
     ]);
+    const integrity = await inspectMinerUPackageIntegrity({
+      fileSystem: this.fileSystem,
+      articlePath: articleRelativePath,
+      articleBytes: article.bytes,
+      mineruPath: contentListRelativePath,
+      mineruBytes: contentList.bytes,
+      sourcePdfPath
+    });
+    diagnostics.push(...integrity.diagnostics);
     if (hasSourcePdf) {
       const sourceInfo = await this.fileSystem.fileInfo(sourcePdfPath);
       if (sourceInfo && sourceInfo.size > PACKAGE_LIMITS.sourcePdfBytes) {
@@ -320,15 +333,19 @@ export class PackageLoader {
     }
     if (hasViewerIndex && hasVisualRepair) {
       try {
-        const [viewerIndex, visualRepair] = await Promise.all([
-          this.readTextWithinLimit(viewerIndexPath, PACKAGE_LIMITS.viewerContractBytes, "viewer-index.json"),
-          this.readTextWithinLimit(visualRepairPath, PACKAGE_LIMITS.viewerContractBytes, "visual-repair.json")
-        ]);
-        const viewerContract = JSON.parse(viewerIndex.text) as unknown;
+        const [viewerContract, visualRepairContract] = integrity.status === "verified"
+          ? await Promise.all([
+            readVerifiedMinerUDerivedJson(this.fileSystem, viewerIndexPath, integrity.derived.get(viewerIndexPath)),
+            readVerifiedMinerUDerivedJson(this.fileSystem, visualRepairPath, integrity.derived.get(visualRepairPath))
+          ])
+          : await Promise.all([
+            this.readTextWithinLimit(viewerIndexPath, PACKAGE_LIMITS.viewerContractBytes, "viewer-index.json").then((value) => JSON.parse(value.text) as unknown),
+            this.readTextWithinLimit(visualRepairPath, PACKAGE_LIMITS.viewerContractBytes, "visual-repair.json").then((value) => JSON.parse(value.text) as unknown)
+          ]);
         const applied = applyMinerUVisualRepair({
           visuals: parsed.visuals,
           viewerIndex: viewerContract,
-          visualRepair: JSON.parse(visualRepair.text) as unknown,
+          visualRepair: visualRepairContract,
           mineruPayload,
           articleMarkdown: article.text,
           articleHash,
@@ -465,6 +482,7 @@ export class PackageLoader {
     return {
       state: "mineru",
       sourceFormat: "mineru",
+      packageIntegrity: integrity.status,
       articlePath: this.fileSystem.resolvePath(articleRelativePath),
       articleText,
       articleHash,

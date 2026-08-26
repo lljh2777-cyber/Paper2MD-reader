@@ -4,6 +4,7 @@ import { PackageLoader } from "../../../src/model/package-loader";
 import { injectMinerUPageAnchors } from "../../../src/model/mineru-page-map";
 import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
+import { MinerUPackageIntegrityError } from "../../../src/model/mineru-package-integrity";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
 import type { RenderedArticle } from "../../../src/render/contract-renderer";
 import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "../../../src/render/figure-sidebar";
@@ -322,7 +323,7 @@ export class ReaderWorkspace {
       this.loaded = undefined;
       const message = error instanceof PackageSourceNotFoundError
         ? readerText(this.locale, "noReadablePackage")
-        : error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
+        : error instanceof PackageLimitError || error instanceof MinerUPackageIntegrityError || error instanceof UnsafeMarkdownResourceError
         ? error.message
         : readerText(this.locale, "packageLoadFailed");
       this.renderFailure(message);
@@ -385,7 +386,12 @@ export class ReaderWorkspace {
   }
 
   private updateStatus(loaded: LoadedPaperPackage): void {
-    const status = statusCopy(loaded.state, this.locale);
+    const status = loaded.state === "mineru" && loaded.packageIntegrity
+      ? {
+        label: readerText(this.locale, loaded.packageIntegrity === "verified" ? "statusMineruVerified" : "statusMineruUnverified"),
+        tone: loaded.packageIntegrity === "verified" ? "ok" : "warning"
+      }
+      : statusCopy(loaded.state, this.locale);
     this.statusLabel.textContent = status.label;
     this.statusButton.dataset.tone = status.tone;
     this.statusButton.disabled = false;

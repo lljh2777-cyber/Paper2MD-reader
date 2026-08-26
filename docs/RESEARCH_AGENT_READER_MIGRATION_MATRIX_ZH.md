@@ -16,7 +16,7 @@
 | 参考能力 | 独立网页端状态 | 迁移说明 |
 |---|---|---|
 | MinerU precision `extract` + `md,json` | 已迁移 | processing-service 固定命令参数，隔离暂存后发布 |
-| manifest/validation/路径/大小/哈希校验 | 已迁移 | 导入前校验并限制资源数量与体积 |
+| manifest/validation/路径/大小/哈希校验 | 已迁移 | 正式 MinerU 包先核验 validation=passed、全部 outputs、source.pdf 与派生契约的路径/大小/SHA-256；核心异常拒绝，派生异常降级 |
 | ViewerIndex/VisualRepair 哈希绑定 | 已迁移 | 契约失效时回退原始图片与正文 |
 | 同页图注原子拼接与隐藏 | 已迁移 | 仅隐藏唯一验证区间 |
 | 跨页图注匹配 | 已迁移 | 仅接受紧邻下一页的唯一正式图注 |
