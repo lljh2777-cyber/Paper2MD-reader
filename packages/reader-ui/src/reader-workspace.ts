@@ -295,7 +295,11 @@ export class ReaderWorkspace {
       let articleText = loaded.articleText;
       if (
         loaded.textRecovery
-        && (loaded.textRecovery.candidates.length || loaded.textRecovery.captionContinuations?.length)
+        && (
+          loaded.textRecovery.candidates.length
+          || loaded.textRecovery.captionContinuations?.length
+          || loaded.textRecovery.paragraphRecoveries?.length
+        )
         && this.options.visualResolver?.recoverText
       ) {
         const recovered = await this.options.visualResolver.recoverText(articleText, loaded.textRecovery, this.fileSystem);

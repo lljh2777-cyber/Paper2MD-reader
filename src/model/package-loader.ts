@@ -20,7 +20,11 @@ import {
   collectPdfCaptionContinuationRequests,
   PdfCaptionContinuationRequest
 } from "./mineru-caption-recovery";
-import { collectMinerUTextRecoveryCandidates } from "./mineru-text-recovery";
+import {
+  collectMinerUParagraphRecoveryRequests,
+  collectMinerUTextRecoveryCandidates,
+  MinerUParagraphRecoveryRequest
+} from "./mineru-text-recovery";
 import { buildMinerUPageMap } from "./mineru-page-map";
 import { buildMinerUPdfLayout } from "./mineru-pdf-layout";
 import {
@@ -302,6 +306,7 @@ export class PackageLoader {
 
     let visuals: RepairedMinerUVisual[] = parsed.visuals;
     let captionContinuations: PdfCaptionContinuationRequest[] = [];
+    let paragraphRecoveries: MinerUParagraphRecoveryRequest[] = [];
     let pageMap: LoadedPaperPackage["pageMap"];
     let pdfLayout: LoadedPaperPackage["pdfLayout"];
     let visualReview: LoadedPaperPackage["visualReview"];
@@ -422,6 +427,19 @@ export class PackageLoader {
               message: `检测到 ${captionContinuations.length} 处可由原 PDF 文本层严格恢复的跨栏续图注。`
             });
           }
+          paragraphRecoveries = collectMinerUParagraphRecoveryRequests({
+            viewerIndex: viewerContract,
+            mineruPayload,
+            markdown: article.text,
+            excludeBlockIds: captionContinuations.map((request) => request.sourceBlockId)
+          });
+          if (paragraphRecoveries.length) {
+            diagnostics.push({
+              level: "info",
+              code: "mineru-pdf-paragraph-recovery-candidates",
+              message: `检测到 ${paragraphRecoveries.length} 个可受限核验的 MinerU 空白正文块。`
+            });
+          }
         }
         const projected = projectMinerUReaderMarkdown({
           markdown: article.text,
@@ -539,8 +557,9 @@ export class PackageLoader {
       textRecovery: hasSourcePdf ? {
         pdfPath: sourcePdfPath,
         candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text),
-        sourceArticleText: captionContinuations.length ? article.text : undefined,
-        captionContinuations: captionContinuations.length ? captionContinuations : undefined
+        sourceArticleText: captionContinuations.length || paragraphRecoveries.length ? article.text : undefined,
+        captionContinuations: captionContinuations.length ? captionContinuations : undefined,
+        paragraphRecoveries: paragraphRecoveries.length ? paragraphRecoveries : undefined
       } : undefined
     };
   }

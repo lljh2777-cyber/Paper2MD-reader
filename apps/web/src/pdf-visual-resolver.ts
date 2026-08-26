@@ -8,7 +8,9 @@ import {
 import { Diagnostic, LoadedAsset, LoadedPaperPackage, NormalizedBBox } from "../../../src/model/reader-contract";
 import type { PdfPageRenderResult, PdfReferenceRuntime } from "../../../src/render/pdf-reference-pane";
 import {
+  applyRecoveredParagraph,
   applyRecoveredText,
+  recoverMinerUParagraph,
   recoverReplacementCharacters
 } from "../../../src/model/mineru-text-recovery";
 
@@ -196,6 +198,7 @@ export class PdfVisualResolver implements PdfReferenceRuntime {
     let projected = articleText;
     let recoveredCount = 0;
     let recoveredCaptionCount = 0;
+    let recoveredParagraphCount = 0;
     try {
       const document = await this.loadDocument(fileSystem, recovery.pdfPath);
       const pageCache = new Map<number, Promise<{
@@ -252,6 +255,24 @@ export class PdfVisualResolver implements PdfReferenceRuntime {
         projected = next;
         recoveredCount += recovered.recoveredCount;
       }
+      if (recovery.sourceArticleText && recovery.paragraphRecoveries?.length) {
+        for (const request of recovery.paragraphRecoveries) {
+          const { viewport, items } = await pageData(request.pageIndex);
+          const pdfText = textInBbox(viewport, items, request.bbox);
+          const recovered = recoverMinerUParagraph(recovery.sourceArticleText, request, pdfText);
+          const next = recovered ? applyRecoveredParagraph(projected, recovered) : undefined;
+          if (!recovered || !next) {
+            diagnostics.push({
+              level: "warning",
+              code: "mineru-pdf-paragraph-recovery-abstained",
+              message: `第 ${request.pageIndex + 1} 页的空白正文块无法唯一恢复，已保留原始显示。`
+            });
+            continue;
+          }
+          projected = next;
+          recoveredParagraphCount += 1;
+        }
+      }
       if (recovery.sourceArticleText && recovery.captionContinuations?.length) {
         for (const request of recovery.captionContinuations) {
           const { viewport, items } = await pageData(request.pageIndex);
@@ -294,6 +315,13 @@ export class PdfVisualResolver implements PdfReferenceRuntime {
         level: "info",
         code: "mineru-pdf-caption-continuation-recovered",
         message: `已从原 PDF 文本层恢复 ${recoveredCaptionCount} 处跨栏续图注；仅用于当前显示。`
+      });
+    }
+    if (recoveredParagraphCount) {
+      diagnostics.push({
+        level: "info",
+        code: "mineru-pdf-paragraph-recovered",
+        message: `已从原 PDF 文本层恢复 ${recoveredParagraphCount} 个完整正文段落；仅用于当前显示。`
       });
     }
     return { articleText: projected, diagnostics, captionUpdates };

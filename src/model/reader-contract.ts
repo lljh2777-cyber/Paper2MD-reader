@@ -180,6 +180,7 @@ export interface LoadedPaperPackage {
     candidates: import("./mineru-text-recovery").MinerUTextRecoveryCandidate[];
     sourceArticleText?: string;
     captionContinuations?: import("./mineru-caption-recovery").PdfCaptionContinuationRequest[];
+    paragraphRecoveries?: import("./mineru-text-recovery").MinerUParagraphRecoveryRequest[];
   };
 }
 
