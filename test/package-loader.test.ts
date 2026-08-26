@@ -57,4 +57,190 @@ describe("PackageLoader host abstraction", () => {
     expect(loaded.state).toBe("unsupported-version");
     expect(loaded.contract).toBeUndefined();
   });
+
+  it("recognizes the normalized article.md plus mineru-result.json package before Markdown fallback", async () => {
+    const fileSystem = new MemoryReaderFileSystem({
+      "article.md": "# MinerU paper\n\nBody text.\n\n![](images/figure.png)\n",
+      "mineru-result.json": JSON.stringify([{
+        type: "image",
+        page_idx: 2,
+        img_path: "images/figure.png",
+        image_caption: ["Figure 1. Structured output"]
+      }]),
+      "images/figure.png": new Uint8Array([137, 80, 78, 71])
+    });
+
+    const loaded = await new PackageLoader(fileSystem).loadDetected();
+
+    expect(loaded.state).toBe("mineru");
+    expect(loaded.sourceFormat).toBe("mineru");
+    expect(loaded.contractPath).toBe("fixture/mineru-result.json");
+    expect(loaded.assets).toEqual([
+      expect.objectContaining({ path: "images/figure.png", pageIndex: 2, display_label: "Figure 1" })
+    ]);
+  });
+
+  it("replaces high-confidence MinerU fragments with one hash-bound PDF crop", async () => {
+    const article = "# MinerU paper\n\n![](images/a.png)\n\n![](images/b.png)\n";
+    const mineru = JSON.stringify([
+      { type: "image", page_idx: 2, bbox: [60, 300, 490, 700], img_path: "images/a.png", image_caption: ["A"] },
+      { type: "image", page_idx: 2, bbox: [510, 300, 940, 700], img_path: "images/b.png", image_caption: ["Figure 1. Complete caption"] }
+    ]);
+    const articleHash = await sha256(article);
+    const mineruHash = await sha256(mineru);
+    const inputs = {
+      article: { path: "article.md", sha256: articleHash },
+      mineru_result: { path: "mineru-result.json", sha256: mineruHash }
+    };
+    const viewerIndex = {
+      schema_version: 1,
+      inputs,
+      pages: [{
+        page_idx: 2,
+        blocks: [
+          { id: "p0002-s000000", asset_path: "images/a.png", caption: { items: [{ text: "A", kind: "panel-label" }] } },
+          { id: "p0002-s000001", asset_path: "images/b.png", caption: { items: [{ text: "Figure 1. Complete caption", kind: "formal-caption" }] } }
+        ]
+      }]
+    };
+    const visualRepair = {
+      schema_version: 1,
+      algorithm_version: "visual-repair-v1.6",
+      inputs,
+      groups: [{
+        id: "vr-p0002-g0000",
+        page_idx: 2,
+        member_block_ids: ["p0002-s000000", "p0002-s000001"],
+        member_asset_paths: ["images/a.png", "images/b.png"],
+        decision: "auto",
+        replacement: { mode: "pdf_crop", bbox_norm: [60, 300, 940, 700], padding_norm: 6 }
+      }]
+    };
+    const fileSystem = new MemoryReaderFileSystem({
+      "article.md": article,
+      "mineru-result.json": mineru,
+      "images/a.png": new Uint8Array([1]),
+      "images/b.png": new Uint8Array([2]),
+      "_extraction/source.pdf": new Uint8Array([37, 80, 68, 70, 45]),
+      "_extraction/viewer-index.json": JSON.stringify(viewerIndex),
+      "_extraction/visual-repair.json": JSON.stringify(visualRepair)
+    });
+
+    const loaded = await new PackageLoader(fileSystem).loadDetected();
+
+    expect(loaded.assets).toHaveLength(1);
+    expect(loaded.assets[0]).toEqual(expect.objectContaining({
+      id: "vr-p0002-g0000",
+      display_label: "Figure 1",
+      memberAssetPaths: ["images/a.png", "images/b.png"],
+      display: expect.objectContaining({ mode: "pdf-crop", pdfPath: "_extraction/source.pdf" })
+    }));
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-applied" }));
+  });
+
+  it("fails closed when a MinerU visual repair contract hash is stale", async () => {
+    const article = "# MinerU paper\n\n![](images/a.png)\n";
+    const mineru = JSON.stringify([{ type: "image", page_idx: 0, bbox: [0, 0, 500, 500], img_path: "images/a.png" }]);
+    const staleInputs = {
+      article: { path: "article.md", sha256: "0".repeat(64) },
+      mineru_result: { path: "mineru-result.json", sha256: "0".repeat(64) }
+    };
+    const fileSystem = new MemoryReaderFileSystem({
+      "article.md": article,
+      "mineru-result.json": mineru,
+      "images/a.png": new Uint8Array([1]),
+      "_extraction/source.pdf": new Uint8Array([37, 80, 68, 70, 45]),
+      "_extraction/viewer-index.json": JSON.stringify({ schema_version: 1, inputs: staleInputs, pages: [] }),
+      "_extraction/visual-repair.json": JSON.stringify({ schema_version: 1, inputs: staleInputs, groups: [] })
+    });
+
+    const loaded = await new PackageLoader(fileSystem).loadDetected();
+
+    expect(loaded.assets).toHaveLength(1);
+    expect(loaded.assets[0].display).toBeUndefined();
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-binding-invalid" }));
+  });
+
+  it("projects a unique next-page formal caption from the original MinerU payload without editing article.md", async () => {
+    const caption = "Fig. 2. Caption begins on the next PDF page.";
+    const article = `# MinerU paper\n\n![](images/a.png)\n\n![](images/b.png)\n\n${caption}\n\nBody remains.\n`;
+    const mineruPayload = [
+      { type: "image", page_idx: 0, bbox: [50, 200, 450, 700], img_path: "images/a.png" },
+      { type: "image", page_idx: 0, bbox: [460, 200, 950, 700], img_path: "images/b.png" },
+      { type: "text", page_idx: 1, bbox: [50, 40, 950, 180], text: caption }
+    ];
+    const mineru = JSON.stringify(mineruPayload);
+    const articleHash = await sha256(article);
+    const mineruHash = await sha256(mineru);
+    const inputs = {
+      article: { path: "article.md", sha256: articleHash },
+      mineru_result: { path: "mineru-result.json", sha256: mineruHash }
+    };
+    const imageRange = (id: string, path: string) => {
+      const token = `![](${path})`;
+      const start = article.indexOf(token);
+      return { id, asset_path: path, char_start: start, char_end: start + token.length };
+    };
+    const viewerIndex = {
+      schema_version: 1,
+      inputs,
+      markdown_images: [imageRange("md-img-0000", "images/a.png"), imageRange("md-img-0001", "images/b.png")],
+      pages: [
+        {
+          page_idx: 0,
+          blocks: [
+            { id: "p0000-s000000", source_index: 0, page_order: 0, role: "visual", asset_path: "images/a.png", markdown_image_ids: ["md-img-0000"], caption: { items: [] } },
+            { id: "p0000-s000001", source_index: 1, page_order: 1, role: "visual", asset_path: "images/b.png", markdown_image_ids: ["md-img-0001"], caption: { items: [] } }
+          ]
+        },
+        {
+          page_idx: 1,
+          blocks: [{
+            id: "p0001-s000002",
+            source_index: 2,
+            page_order: 0,
+            role: "text",
+            text: { leading_formal_figure_caption_key: "figure:2" },
+            caption: { items: [] }
+          }]
+        }
+      ]
+    };
+    const visualRepair = {
+      schema_version: 1,
+      inputs,
+      caption_links: [],
+      groups: [{
+        id: "vr-p0000-g0000",
+        page_idx: 0,
+        member_block_ids: ["p0000-s000000", "p0000-s000001"],
+        member_asset_paths: ["images/a.png", "images/b.png"],
+        member_markdown_image_ids: ["md-img-0000", "md-img-0001"],
+        decision: "auto",
+        replacement: { mode: "pdf_crop", bbox_norm: [50, 200, 950, 700], padding_norm: 6 }
+      }]
+    };
+    const fileSystem = new MemoryReaderFileSystem({
+      "article.md": article,
+      "mineru-result.json": mineru,
+      "images/a.png": new Uint8Array([1]),
+      "images/b.png": new Uint8Array([2]),
+      "_extraction/source.pdf": new Uint8Array([37, 80, 68, 70, 45]),
+      "_extraction/viewer-index.json": JSON.stringify(viewerIndex),
+      "_extraction/visual-repair.json": JSON.stringify(visualRepair)
+    });
+
+    const loaded = await new PackageLoader(fileSystem).loadDetected();
+
+    expect(article).toContain(caption);
+    expect(loaded.articleText).not.toContain(caption);
+    expect(loaded.articleText).not.toContain("![](images/a.png)");
+    expect(loaded.articleText).toContain("Body remains.");
+    expect(loaded.assets).toEqual([expect.objectContaining({
+      display_label: "Fig. 2",
+      captionText: caption,
+      captionPageIndex: 1,
+      captionStatus: "complete"
+    })]);
+  });
 });

@@ -14,6 +14,7 @@ export type PackageState =
   | "edited-with-anchors"
   | "recoverable"
   | "mineru"
+  | "markdown"
   | "ambiguous"
   | "reader-missing"
   | "unsupported-version"
@@ -145,6 +146,13 @@ export interface LoadedAsset {
   captionText?: string;
   pageIndex?: number;
   sourceBBox?: NormalizedBBox;
+  memberAssetPaths?: string[];
+  captionPageIndex?: number;
+  captionStatus?: "complete" | "partial";
+  display?:
+    | { mode: "asset" }
+    | { mode: "pdf-crop"; pdfPath: string; bbox: NormalizedBBox; padding: number }
+    | { mode: "fragment-set"; assetPaths: string[] };
 }
 
 export interface LoadedPaperPackage {

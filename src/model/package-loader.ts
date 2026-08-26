@@ -14,7 +14,10 @@ import {
   LoadedPaperPackage,
   RawReaderContract
 } from "./reader-contract";
+import { adaptClippingMarkdown, ClippingVisual } from "./clipping-markdown";
 import { injectMinerUVisualAnchors, parseMinerUContentList } from "./mineru-content-list";
+import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
+import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
 import { contentListForMarkdown, detectPackageSource } from "./package-source";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
@@ -73,18 +76,28 @@ export class PackageLoader {
     const diagnostics: Diagnostic[] = [];
 
     if (!await this.fileSystem.exists(contractRelativePath)) {
-      diagnostics.push({
+      const hasPaper2mdAnchors = anchors.blockIds.length > 0 || anchors.slotIds.length > 0 || anchors.malformedMarkers.length > 0;
+      const adapted = hasPaper2mdAnchors
+        ? { articleText, visuals: [] }
+        : adaptClippingMarkdown(articleText);
+      const pairedAssets = await this.loadClippingAssets(adapted.visuals, diagnostics);
+      diagnostics.push(adapted.visuals.length ? {
+        level: "info",
+        code: "markdown-display-pairing",
+        message: `已在阅读显示层配对 ${adapted.visuals.length} 个图片与紧邻图注；Figure 编号未写回原始 Markdown。`
+      } : {
         level: "info",
         code: "reader-missing",
         message: "未找到 _paper2md/reader.json，已使用普通 Markdown 与图片目录降级。"
       });
       return {
-        state: "reader-missing",
+        state: adapted.visuals.length ? "markdown" : "reader-missing",
+        sourceFormat: "markdown",
         articlePath,
-        articleText,
+        articleText: adapted.articleText,
         articleHash,
-        anchors,
-        assets: await this.loadFallbackAssets(),
+        anchors: parseAnchorInventory(adapted.articleText),
+        assets: pairedAssets.length ? pairedAssets : await this.loadFallbackAssets(),
         diagnostics
       };
     }
@@ -249,7 +262,8 @@ export class PackageLoader {
       PACKAGE_LIMITS.mineruContentListBytes,
       "MinerU content list"
     );
-    const parsed = parseMinerUContentList(JSON.parse(contentList.text) as unknown);
+    const mineruPayload = JSON.parse(contentList.text) as unknown;
+    const parsed = parseMinerUContentList(mineruPayload);
     if (parsed.visuals.length > PACKAGE_LIMITS.assetCount) {
       throw new PackageLimitError(
         `MinerU content list contains ${parsed.visuals.length} visual assets; the safe limit is ${PACKAGE_LIMITS.assetCount}.`,
@@ -258,7 +272,9 @@ export class PackageLoader {
       );
     }
 
-    const articleText = injectMinerUVisualAnchors(article.text, parsed.visuals);
+    const articleHash = await sha256(article.bytes);
+    const mineruHash = await sha256(contentList.bytes);
+    let articleText = injectMinerUVisualAnchors(article.text, parsed.visuals);
     const diagnostics: Diagnostic[] = [...parsed.diagnostics, {
       level: "info",
       code: "mineru-structured-source",
@@ -272,14 +288,79 @@ export class PackageLoader {
       });
     }
 
+    let visuals: RepairedMinerUVisual[] = parsed.visuals;
+    let contractVersion = `mineru-content-list-${parsed.version}`;
+    const viewerIndexPath = "_extraction/viewer-index.json";
+    const visualRepairPath = "_extraction/visual-repair.json";
+    const sourcePdfPath = "_extraction/source.pdf";
+    const [hasViewerIndex, hasVisualRepair, hasSourcePdf] = await Promise.all([
+      this.fileSystem.exists(viewerIndexPath),
+      this.fileSystem.exists(visualRepairPath),
+      this.fileSystem.exists(sourcePdfPath)
+    ]);
+    if (hasViewerIndex && hasVisualRepair) {
+      try {
+        const [viewerIndex, visualRepair] = await Promise.all([
+          this.readTextWithinLimit(viewerIndexPath, PACKAGE_LIMITS.viewerContractBytes, "viewer-index.json"),
+          this.readTextWithinLimit(visualRepairPath, PACKAGE_LIMITS.viewerContractBytes, "visual-repair.json")
+        ]);
+        if (hasSourcePdf) {
+          const sourceInfo = await this.fileSystem.fileInfo(sourcePdfPath);
+          if (sourceInfo && sourceInfo.size > PACKAGE_LIMITS.sourcePdfBytes) {
+            throw new PackageLimitError(
+              `source.pdf is ${sourceInfo.size} bytes; the safe limit is ${PACKAGE_LIMITS.sourcePdfBytes}.`,
+              sourceInfo.size,
+              PACKAGE_LIMITS.sourcePdfBytes
+            );
+          }
+        }
+        const viewerContract = JSON.parse(viewerIndex.text) as unknown;
+        const applied = applyMinerUVisualRepair({
+          visuals: parsed.visuals,
+          viewerIndex: viewerContract,
+          visualRepair: JSON.parse(visualRepair.text) as unknown,
+          mineruPayload,
+          articleMarkdown: article.text,
+          articleHash,
+          mineruHash,
+          sourcePdfPath: hasSourcePdf ? sourcePdfPath : undefined
+        });
+        visuals = applied.visuals;
+        diagnostics.push(...applied.diagnostics);
+        const projected = projectMinerUReaderMarkdown({
+          markdown: article.text,
+          visuals,
+          viewerIndex: viewerContract,
+          articleHash,
+          mineruHash
+        });
+        articleText = projected.markdown;
+        diagnostics.push(...projected.diagnostics);
+        contractVersion = "mineru-viewer-index-v1";
+      } catch (error) {
+        if (error instanceof PackageLimitError) throw error;
+        diagnostics.push({
+          level: "warning",
+          code: "mineru-visual-repair-invalid",
+          message: `视觉修复契约无法使用，已保留 MinerU 原图：${error instanceof Error ? error.message : String(error)}`
+        });
+      }
+    } else if (hasViewerIndex || hasVisualRepair) {
+      diagnostics.push({
+        level: "warning",
+        code: "mineru-visual-repair-incomplete",
+        message: "视觉修复契约不完整，已保留 MinerU 原图显示。"
+      });
+    }
+
     const assetInfos = await mapWithConcurrency(
-      parsed.visuals,
+      visuals,
       PACKAGE_LIMITS.assetHashConcurrency,
       (visual) => this.fileSystem.fileInfo(visual.path)
     );
     let totalBytes = 0;
     assetInfos.forEach((info, index) => {
-      const visual = parsed.visuals[index];
+      const visual = visuals[index];
       if (!info) {
         diagnostics.push({ level: "error", code: "mineru-asset-missing", message: `MinerU 资源不存在：${visual.path}` });
         return;
@@ -301,7 +382,7 @@ export class PackageLoader {
       }
     });
 
-    const unplaced = parsed.visuals.filter((visual) => !visual.placementBlockId).length;
+    const unplaced = visuals.filter((visual) => !visual.placementBlockId).length;
     if (unplaced) {
       diagnostics.push({
         level: "warning",
@@ -310,7 +391,7 @@ export class PackageLoader {
       });
     }
 
-    const assets: LoadedAsset[] = parsed.visuals.map((visual, index) => ({
+    const assets: LoadedAsset[] = visuals.map((visual, index) => ({
       id: visual.id,
       kind: visual.kind,
       path: visual.path,
@@ -322,7 +403,11 @@ export class PackageLoader {
       size_bytes: assetInfos[index]?.size,
       captionText: visual.captionText,
       pageIndex: visual.pageIndex,
-      sourceBBox: visual.bbox
+      sourceBBox: visual.bbox,
+      memberAssetPaths: visual.memberAssetPaths,
+      captionPageIndex: visual.captionPageIndex,
+      captionStatus: visual.captionStatus,
+      display: visual.display
     }));
 
     return {
@@ -330,9 +415,9 @@ export class PackageLoader {
       sourceFormat: "mineru",
       articlePath: this.fileSystem.resolvePath(articleRelativePath),
       articleText,
-      articleHash: await sha256(article.bytes),
+      articleHash,
       contractPath: this.fileSystem.resolvePath(contentListRelativePath),
-      contractVersion: `mineru-content-list-${parsed.version}`,
+      contractVersion,
       anchors: parseAnchorInventory(articleText),
       assets,
       diagnostics
@@ -382,5 +467,54 @@ export class PackageLoader {
         vaultPath: this.fileSystem.resolvePath(path),
         exists: true
       }));
+  }
+
+  private async loadClippingAssets(visuals: readonly ClippingVisual[], diagnostics: Diagnostic[]): Promise<LoadedAsset[]> {
+    if (visuals.length > PACKAGE_LIMITS.assetCount) {
+      throw new PackageLimitError(
+        `Markdown contains ${visuals.length} paired visuals; the safe limit is ${PACKAGE_LIMITS.assetCount}.`,
+        visuals.length,
+        PACKAGE_LIMITS.assetCount
+      );
+    }
+    const infos = await mapWithConcurrency(
+      visuals,
+      PACKAGE_LIMITS.assetHashConcurrency,
+      (visual) => this.fileSystem.fileInfo(visual.path)
+    );
+    let totalBytes = 0;
+    infos.forEach((info, index) => {
+      if (!info) {
+        diagnostics.push({ level: "error", code: "markdown-asset-missing", message: `Markdown 图片不存在：${visuals[index].path}` });
+        return;
+      }
+      if (info.size > PACKAGE_LIMITS.assetBytes) {
+        throw new PackageLimitError(
+          `Markdown asset ${visuals[index].path} is ${info.size} bytes; the safe limit is ${PACKAGE_LIMITS.assetBytes}.`,
+          info.size,
+          PACKAGE_LIMITS.assetBytes
+        );
+      }
+      totalBytes += info.size;
+      if (totalBytes > PACKAGE_LIMITS.totalAssetBytes) {
+        throw new PackageLimitError(
+          `Markdown assets total ${totalBytes} bytes; the safe aggregate limit is ${PACKAGE_LIMITS.totalAssetBytes}.`,
+          totalBytes,
+          PACKAGE_LIMITS.totalAssetBytes
+        );
+      }
+    });
+    return visuals.map((visual, index) => ({
+      id: visual.id,
+      kind: visual.kind,
+      path: visual.path,
+      display_label: visual.label,
+      caption_block_id: visual.captionBlockId ?? null,
+      placement_block_id: visual.placementBlockId,
+      vaultPath: this.fileSystem.resolvePath(visual.path),
+      exists: Boolean(infos[index]),
+      size_bytes: infos[index]?.size,
+      captionText: visual.captionText
+    }));
   }
 }

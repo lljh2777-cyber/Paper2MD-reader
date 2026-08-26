@@ -52,7 +52,12 @@ export function contentListForMarkdown(articlePath: string, rootFiles: string[])
 }
 
 export async function detectPackageSource(fileSystem: ReaderFileSystem): Promise<DetectedPackageSource> {
-  if (await fileSystem.exists("article.md")) return { format: "paper2md", articlePath: "article.md" };
+  if (await fileSystem.exists("article.md")) {
+    if (await fileSystem.exists("mineru-result.json")) {
+      return { format: "mineru", articlePath: "article.md", contentListPath: "mineru-result.json" };
+    }
+    return { format: "paper2md", articlePath: "article.md" };
+  }
 
   const rootFiles = await fileSystem.listFiles("");
   const markdown = markdownCandidates(rootFiles);

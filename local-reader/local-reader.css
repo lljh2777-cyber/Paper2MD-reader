@@ -29,7 +29,8 @@ button:disabled { cursor: default; opacity: 0.58; }
 }
 
 .p2md-local-folder-button,
-.p2md-local-primary-button {
+.p2md-local-primary-button,
+.p2md-local-secondary-button {
   align-items: center;
   border-radius: 5px;
   display: inline-flex;
@@ -61,6 +62,16 @@ button:disabled { cursor: default; opacity: 0.58; }
 }
 
 .p2md-local-primary-button:hover { background: #123f75; }
+.p2md-local-secondary-button {
+  background: var(--background-primary);
+  border: 1px solid var(--p2md-border);
+  color: var(--text-normal);
+  min-height: 38px;
+  padding: 8px 15px;
+}
+.p2md-local-secondary-button:hover { background: var(--background-modifier-hover); }
+.p2md-local-secondary-button svg { height: 15px; stroke-width: 1.75; width: 15px; }
+.p2md-local-welcome-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .p2md-local-folder-input { display: none; }
 
 .p2md-local-welcome {
@@ -83,6 +94,14 @@ button:disabled { cursor: default; opacity: 0.58; }
 
 .p2md-local-welcome p { font-size: 14px; line-height: 1.6; margin: 0 0 24px; }
 .p2md-local-welcome small { color: var(--text-faint); font-size: 11px; margin-top: 14px; }
+.p2md-local-processing-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 14px;
+  max-width: 460px;
+}
+.p2md-local-processing-status[data-state="failed"] { color: var(--text-error); }
 .p2md-local-error .p2md-local-primary-button { margin-top: 12px; }
 
 .p2md-local-dialog {

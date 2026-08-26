@@ -16,3 +16,8 @@ sites-reader/tsconfig.tsbuildinfo
 sites-reader/.dev-server.*.log
 apps/desktop/dist/
 apps/desktop/out/
+apps/processing-service/dist/
+paper2md-service-data/
+service-qa-data/
+**/__pycache__/
+*.pyc

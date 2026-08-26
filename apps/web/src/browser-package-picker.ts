@@ -1,5 +1,7 @@
 import { BrowserDirectoryReaderFileSystem } from "../../../src/filesystem/browser-directory-reader-file-system";
 import { ReaderPackagePicker } from "../../../packages/reader-core/src/index";
+import type { ReaderProcessingProgress } from "../../../packages/reader-core/src/index";
+import { configuredProcessingApiBaseUrl, ProcessingClient } from "./processing-client";
 
 type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
@@ -8,6 +10,11 @@ type DirectoryPickerWindow = Window & {
 export class BrowserPackagePicker implements ReaderPackagePicker {
   readonly platform = "web" as const;
   private readonly input: HTMLInputElement;
+  private readonly markdownInput: HTMLInputElement;
+  private readonly pdfInput: HTMLInputElement;
+  readonly choosePdfPackage?: (
+    onProgress: (progress: ReaderProcessingProgress) => void
+  ) => Promise<BrowserDirectoryReaderFileSystem | import("./remote-package-reader-file-system").RemotePackageReaderFileSystem | undefined>;
 
   constructor() {
     this.input = document.createElement("input");
@@ -16,6 +23,29 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
     this.input.setAttribute("webkitdirectory", "");
     this.input.className = "p2md-local-folder-input";
     document.body.appendChild(this.input);
+    this.markdownInput = document.createElement("input");
+    this.markdownInput.type = "file";
+    this.markdownInput.accept = ".md,text/markdown,text/plain";
+    this.markdownInput.className = "p2md-local-folder-input";
+    document.body.appendChild(this.markdownInput);
+    this.pdfInput = document.createElement("input");
+    this.pdfInput.type = "file";
+    this.pdfInput.accept = ".pdf,application/pdf";
+    this.pdfInput.className = "p2md-local-folder-input";
+    document.body.appendChild(this.pdfInput);
+    const apiBaseUrl = configuredProcessingApiBaseUrl();
+    if (apiBaseUrl) {
+      const client = new ProcessingClient(apiBaseUrl);
+      this.choosePdfPackage = async (onProgress) => {
+        const file = await this.chooseSingleFile(this.pdfInput);
+        return file ? client.processPdf(file, onProgress) : undefined;
+      };
+    }
+  }
+
+  async chooseMarkdownDocument(): Promise<BrowserDirectoryReaderFileSystem | undefined> {
+    const file = await this.chooseSingleFile(this.markdownInput);
+    return file ? BrowserDirectoryReaderFileSystem.fromFileList([file]) : undefined;
   }
 
   async choosePackage(): Promise<BrowserDirectoryReaderFileSystem | undefined> {
@@ -43,5 +73,19 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
 
   dispose(): void {
     this.input.remove();
+    this.markdownInput.remove();
+    this.pdfInput.remove();
+  }
+
+  private chooseSingleFile(input: HTMLInputElement): Promise<File | undefined> {
+    return new Promise((resolve) => {
+      const onChange = () => {
+        const file = input.files?.[0];
+        input.value = "";
+        resolve(file);
+      };
+      input.addEventListener("change", onChange, { once: true });
+      input.click();
+    });
   }
 }

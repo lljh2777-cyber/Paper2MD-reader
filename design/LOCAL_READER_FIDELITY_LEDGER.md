@@ -43,3 +43,39 @@ The `apps/web` entry was compared at the native 1600×900 size against
 No above-the-fold copy remains added, removed or reordered relative to the
 existing Local Reader specification. The new desktop task and PDF panes are an
 intentional host-only extension; they do not change shared article/Figure UI.
+
+## Markdown import iteration
+
+The standalone Markdown entry was verified on 2026-08-26. Persistent comparison
+captures are `qa-latest-reader.png` for the import state and
+`qa-latest-reader-loaded.png` for the loaded two-visual state.
+
+| Check | Existing design | Current render | Result |
+|---|---|---|---|
+| Product skeleton | Quiet toolbar and 68/32 reading split | Import state and loaded state preserve the same regions | Matched |
+| Typography | Editorial serif paper and compact sans-serif chrome | New headline and both import controls use the existing type system | Matched |
+| Palette | True white, cool gray and restrained deep blue | Secondary Markdown action uses a hairline neutral border; no new palette | Matched |
+| Figure treatment | Selected visual, complete caption and thumbnail rail | Loaded regression shows two thumbnails, full caption and pinned actions | Matched |
+| Responsive behavior | Sidebar disappears below the shared breakpoint | 720×900 regression keeps both import actions readable without overflow | Matched |
+| Copy boundary | Host copy explains local/read-only behavior | Added copy states supported sources and display-only Figure numbering | Intentional functional extension |
+
+No material visual mismatch remains. The visible change is limited to the new
+Markdown action and source explanation required by the import workflow.
+
+## PDF processing entry iteration
+
+The processing-service entry was verified at 1600×1000, 720×900 and 390×844.
+The latest desktop capture is `qa-latest-reader.png`.
+
+| Check | Existing design | Current render | Result |
+|---|---|---|---|
+| Product skeleton | Quiet toolbar and 68/32 reading split | Unchanged article and Figure regions | Matched |
+| Action family | One primary folder action and neutral secondary Markdown action | PDF uses the same neutral secondary control family | Matched |
+| Typography | Serif reading headline and compact sans-serif controls | No type-scale or weight drift | Matched |
+| Palette | True white, cool gray and deep blue | No new tint, gradient, card or overlay | Matched |
+| Privacy copy | Local-only behavior must be explicit | Copy switches when PDF processing is available and names the configured processor | Intentional functional extension |
+| Responsive behavior | Actions remain readable in narrow mode | 390×844 wraps the Markdown action to a second row with `scrollWidth === clientWidth` | Matched |
+
+Above-the-fold additions are limited to the requested **处理 PDF** action and its
+privacy clarification. Browser console warning/error output was empty. No material
+visual mismatch remains.

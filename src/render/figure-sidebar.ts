@@ -10,6 +10,8 @@ export interface FigurePresentation {
   captionElement?: HTMLElement;
   captionText?: string;
   pageIndex?: number;
+  captionPageIndex?: number;
+  captionStatus?: "complete" | "partial";
   slotElement?: HTMLElement;
   available: boolean;
 }
@@ -100,7 +102,12 @@ export class FigureSidebar {
     const count = element("span");
     const page = selected.pageIndex === undefined
       ? ""
-      : ` · ${readerText(this.locale, "pageNumber", { page: selected.pageIndex + 1 })}`;
+      : selected.captionPageIndex !== undefined && selected.captionPageIndex !== selected.pageIndex
+        ? ` · ${readerText(this.locale, "visualCaptionPages", {
+          visualPage: selected.pageIndex + 1,
+          captionPage: selected.captionPageIndex + 1
+        })}`
+        : ` · ${readerText(this.locale, "pageNumber", { page: selected.pageIndex + 1 })}`;
     count.textContent = `${this.figures.indexOf(selected) + 1} / ${this.figures.length}${page}`;
     stageHeader.append(title, count);
 
@@ -132,6 +139,11 @@ export class FigureSidebar {
       caption.textContent = selected.captionText;
     } else {
       caption.textContent = selected.label;
+    }
+    if (selected.captionStatus === "partial") {
+      const note = element("p", "p2md-figure-caption-note");
+      note.textContent = readerText(this.locale, "partialCaptionNotice");
+      caption.appendChild(note);
     }
 
     const actions = element("div", "p2md-figure-actions");

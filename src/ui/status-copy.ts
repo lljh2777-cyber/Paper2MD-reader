@@ -6,6 +6,7 @@ const STATUS_DEFINITIONS: Record<PackageState, { key: ReaderMessageKey; tone: st
   "edited-with-anchors": { key: "statusEdited", tone: "warning" },
   recoverable: { key: "statusRecoverable", tone: "warning" },
   mineru: { key: "statusMineru", tone: "ok" },
+  markdown: { key: "statusMarkdown", tone: "ok" },
   ambiguous: { key: "statusAmbiguous", tone: "error" },
   "reader-missing": { key: "statusReaderMissing", tone: "neutral" },
   "unsupported-version": { key: "statusUnsupported", tone: "error" },

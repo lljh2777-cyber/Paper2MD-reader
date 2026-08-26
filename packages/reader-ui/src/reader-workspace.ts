@@ -1,5 +1,5 @@
 import { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
-import { assetDisplayLabel, LoadedPaperPackage } from "../../../src/model/reader-contract";
+import { assetDisplayLabel, LoadedAsset, LoadedPaperPackage } from "../../../src/model/reader-contract";
 import { PackageLoader } from "../../../src/model/package-loader";
 import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
@@ -19,9 +19,14 @@ import {
 } from "../../../src/ui/locale";
 import { statusCopy } from "../../../src/ui/status-copy";
 import type { ReaderPackagePicker } from "../../reader-core/src/index";
+import type { ReaderProcessingProgress } from "../../reader-core/src/index";
 
 export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
+  visualResolver?: {
+    resolve(asset: LoadedAsset, fileSystem: ReaderFileSystem): Promise<string>;
+    dispose(): void;
+  };
   /** Mount the linked figure browser outside the reader shell, such as in a desktop tab pane. */
   figureHost?: HTMLElement;
   title?: string;
@@ -72,6 +77,7 @@ export class ReaderWorkspace {
   private statusLabel!: HTMLElement;
   private reloadButton!: HTMLButtonElement;
   private figureSidebar!: FigureSidebar;
+  private welcomeStatus?: HTMLElement;
   private readonly scrollController = new ScrollController();
   private locale: ReaderLocale = getReaderLocale();
   private readonly stopLocaleSubscription: () => void;
@@ -85,6 +91,7 @@ export class ReaderWorkspace {
 
   destroy(): void {
     this.scrollController.disconnect();
+    this.options.visualResolver?.dispose();
     this.fileSystem?.dispose();
     this.options.picker.dispose?.();
     this.stopLocaleSubscription();
@@ -116,6 +123,7 @@ export class ReaderWorkspace {
 
   async attachFileSystem(fileSystem: ReaderFileSystem): Promise<void> {
     this.scrollController.disconnect();
+    this.options.visualResolver?.dispose();
     this.fileSystem?.dispose();
     this.fileSystem = fileSystem;
     this.fileLabel.textContent = fileSystem.rootLabel;
@@ -207,7 +215,7 @@ export class ReaderWorkspace {
       const loaded = await new PackageLoader(this.fileSystem).loadDetected();
       this.loaded = loaded;
       this.updateStatus(loaded);
-      const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru";
+      const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru" || loaded.state === "markdown";
       this.root.classList.toggle("p2md-contract-mode", contractUsable);
       const rendered = await renderLocalArticle(loaded.articleText, this.articleContent, this.fileSystem, contractUsable);
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
@@ -237,7 +245,9 @@ export class ReaderWorkspace {
       let imageSrc = "";
       if (asset.exists && this.fileSystem) {
         try {
-          imageSrc = await this.fileSystem.resolveAssetUrl(asset.path);
+          imageSrc = this.options.visualResolver
+            ? await this.options.visualResolver.resolve(asset, this.fileSystem)
+            : await this.fileSystem.resolveAssetUrl(asset.path);
         } catch {
           imageSrc = "";
         }
@@ -250,6 +260,8 @@ export class ReaderWorkspace {
         captionElement: asset.caption_block_id ? rendered.blockElements.get(asset.caption_block_id) : undefined,
         captionText: asset.captionText,
         pageIndex: asset.pageIndex,
+        captionPageIndex: asset.captionPageIndex,
+        captionStatus: asset.captionStatus,
         slotElement: slotId ? rendered.slotElements.get(slotId) : undefined,
         available: asset.exists && Boolean(imageSrc)
       };
@@ -288,11 +300,59 @@ export class ReaderWorkspace {
     copy.textContent = this.localizedCopy("emptyCopy", "choosePackageCopy");
     const openButton = button(this.localizedCopy("emptyOpenLabel", "openPaperFolder"), "p2md-local-primary-button", "folder");
     openButton.addEventListener("click", () => void this.choosePackage());
+    const actions = element("div", "p2md-local-welcome-actions");
+    actions.appendChild(openButton);
+    if (this.options.picker.choosePdfPackage) {
+      const pdfButton = button(readerText(this.locale, "processPdfFile"), "p2md-local-secondary-button", "upload");
+      pdfButton.addEventListener("click", () => void this.choosePdfPackage(pdfButton));
+      actions.appendChild(pdfButton);
+    }
+    if (this.options.picker.chooseMarkdownDocument) {
+      const markdownButton = button(readerText(this.locale, "openMarkdownFile"), "p2md-local-secondary-button", "document");
+      markdownButton.addEventListener("click", () => void this.chooseMarkdownDocument());
+      actions.appendChild(markdownButton);
+    }
     const note = element("small");
     note.textContent = this.localizedCopy("emptyNote", "contractValidatedNote");
-    empty.append(title, copy, openButton, note);
+    this.welcomeStatus = element("div", "p2md-local-processing-status");
+    this.welcomeStatus.hidden = true;
+    this.welcomeStatus.setAttribute("role", "status");
+    empty.append(title, copy, actions, this.welcomeStatus, note);
     this.articleContent.appendChild(empty);
     this.figureSidebar.setFigures([]);
+  }
+
+  private async chooseMarkdownDocument(): Promise<void> {
+    try {
+      const fileSystem = await this.options.picker.chooseMarkdownDocument?.();
+      if (fileSystem) await this.attachFileSystem(fileSystem);
+    } catch (error) {
+      console.error("Could not open Markdown document", error);
+      this.renderFailure(readerText(this.locale, "selectedMarkdownOpenFailed"));
+    }
+  }
+
+  private async choosePdfPackage(trigger: HTMLButtonElement): Promise<void> {
+    const choosePdfPackage = this.options.picker.choosePdfPackage;
+    if (!choosePdfPackage) return;
+    trigger.disabled = true;
+    const updateProgress = (progress: ReaderProcessingProgress) => {
+      if (!this.welcomeStatus) return;
+      this.welcomeStatus.hidden = false;
+      this.welcomeStatus.dataset.state = progress.state;
+      this.welcomeStatus.textContent = progress.message || readerText(this.locale, "processingPdf");
+    };
+    try {
+      const fileSystem = await choosePdfPackage(updateProgress);
+      if (fileSystem) await this.attachFileSystem(fileSystem);
+    } catch (error) {
+      console.error("Could not process PDF", error);
+      this.renderFailure(error instanceof Error && error.message
+        ? error.message
+        : readerText(this.locale, "selectedPdfOpenFailed"));
+    } finally {
+      trigger.disabled = false;
+    }
   }
 
   private renderFailure(message: string): void {

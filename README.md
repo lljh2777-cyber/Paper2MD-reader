@@ -1,23 +1,30 @@
 # Paper2MD Reader
 
-The repository also contains a Codex Sites host in `sites-reader/`. It reuses
-the independent Local Reader and shared Reader core, so hosted and desktop
-browser behavior remain contract-driven without duplicating paper-structure
-recognition.
+The primary product track is now a standalone Web Reader plus an isolated PDF
+processing service. `sites-reader/` hosts the shared Reader UI; the processing
+service runs MinerU on a separate controlled Node host and never exposes MinerU
+credentials or arbitrary commands to the browser.
 
-Paper2MD Reader provides multiple hosts over the same contract-driven reading core:
+The active standalone paths share one contract-driven reading core:
 
-- An Obsidian `ItemView`.
-- A public/browser Reader that opens one Paper2MD output directory without uploading it.
-- An Electron desktop Reader with local PDF preview, Paper2MD conversion tasks and a restricted filesystem adapter.
+- A public/browser Reader that opens one local Paper2MD/MinerU output directory without uploading it.
+- A standalone Markdown entry for Web Clipper-style documents, with display-only image/caption pairing.
+- An optional PDF upload path backed by the isolated MinerU processing service.
 
 Both hosts consume explicit Paper2MD contract data. They can also adapt official MinerU
 Markdown and structured content-list output at load time without rewriting the source files.
 
-## Phase-one features
+For ordinary Markdown, the Reader pairs only standalone local images with immediately
+adjacent caption paragraphs. It inserts temporary reading anchors, removes frontmatter from
+the rendered view, and supplies missing Figure labels in the UI only. The selected Markdown
+file is never rewritten. Markdown with local attachments should be opened through its folder
+so the browser can resolve those assets inside the same read-only boundary.
 
-- `Open in Paper2MD Reader` command and Markdown file-menu action.
-- Continuous Obsidian Markdown rendering in the main column.
+## Standalone Reader features
+
+- Local Paper2MD/MinerU folder import and standalone Markdown import.
+- Optional PDF processing through an isolated MinerU precision-extract service.
+- Continuous Markdown rendering in the main column.
 - Contract-backed Figure rail with full rendered captions and thumbnails.
 - Figure-rail **Follow reading** switch: automatic stage changes when enabled; separate reading-target highlight and manual selection when disabled.
 - Image lightbox and return-to-placement action.
@@ -25,22 +32,27 @@ Markdown and structured content-list output at load time without rewriting the s
 - Container-responsive narrow mode that restores Figure and caption content inline.
 - Strict Reader v0.1 field/graph/path validation, manifest v0.8–v0.10 binding, article hash, and asset size/hash checks.
 - Explicit package states: valid, edited with anchors, recoverable, ambiguous, missing, unsupported and invalid.
-- Safe fallback: ordinary Markdown plus a filename-only `images/` list when `reader.json` is absent. No Figure/caption inference is performed.
+- Safe fallback: ordinary Markdown remains readable when no structured contract is available.
+- Display-only pairing for standalone local images and immediately adjacent captions; source Markdown is not rewritten.
 
-## Build and install
+## Build
 
 ```powershell
 npm install
-npm run build
+npm run web:build
+npm run processing:build
 ```
 
-Copy `main.js`, `manifest.json`, and `styles.css` to:
+For local PDF processing, start the complete Reader with one command:
 
-```text
-<vault>/.obsidian/plugins/paper2md-reader/
+```powershell
+cd E:\Paper2MD-Reader
+npm run reader:dev
 ```
 
-Enable **Paper2MD Reader** in Obsidian, open an `article.md`, then run **Open in Paper2MD Reader**.
+After `Paper2MD Reader is ready` appears, open `http://127.0.0.1:4174/` and keep
+that terminal window open. The launcher checks both ports and avoids starting a
+second processing service when `127.0.0.1:8787` is already healthy.
 
 ## Local Reader
 
@@ -54,18 +66,23 @@ Open `http://127.0.0.1:4174/local-reader/` in Chrome or Edge, choose a Paper2MD 
 or MinerU result directory, and grant read-only access. The browser reads files directly
 from the selected directory. It does not upload package content or write files back.
 
+When the local processing service is configured, the welcome screen also shows
+**Process PDF**. Only the selected PDF is sent to that configured service. See
+`apps/processing-service/README.md` for the security and deployment boundary.
+
 ## MinerU result compatibility
 
 Official references: [MinerU output files](https://opendatalab.github.io/MinerU/reference/output_files/),
 [MinerU Ecosystem](https://mineru.net/ecosystem), and the
 [official MCP implementation](https://github.com/opendatalab/MinerU-Ecosystem/tree/main/mcp).
 
-The Reader accepts three directory shapes, in this priority order:
+The Reader accepts four directory shapes, in this priority order:
 
-1. A Paper2MD package containing `article.md` (and optionally `_paper2md/reader.json`).
-2. A full MinerU result containing a same-stem Markdown/content-list pair and `images/`, or
+1. A normalized MinerU package containing `article.md`, `mineru-result.json`, and optional `images/`.
+2. A Paper2MD package containing `article.md` (and optionally `_paper2md/reader.json`).
+3. A full MinerU result containing a same-stem Markdown/content-list pair and `images/`, or
    MinerU Desktop's `full.md` plus one UUID-named `*_content_list.json`.
-3. A directory containing exactly one non-README Markdown file, including Markdown saved by MinerU MCP.
+4. A directory containing exactly one non-README Markdown file, including Markdown saved by MinerU MCP.
 
 ```text
 paper-result/
@@ -113,41 +130,34 @@ npm run local:build
 
 The output is written to `dist-local/`. Because browser directory access requires a secure context, serve that directory through localhost rather than opening the HTML through `file://`.
 
-## Shared Web and desktop applications
+## Standalone architecture and legacy freeze
 
-The gradual workspace migration now has two application entries and two shared boundaries:
+The standalone product uses these active boundaries:
 
 ```text
 apps/web/                 browser-only package picker and Vite entry
-apps/desktop/             Electron main, preload, renderer and task adapter
+apps/processing-service/  isolated upload, MinerU, validation and publication service
 packages/reader-core/     contracts, loading and host interfaces
 packages/reader-ui/       shared article/Figure/caption workspace
 ```
 
+The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
+implementations and receive no new functionality. The separate Research Agent Reader
+Obsidian plugin is the behavioral reference for extraction repair and reading features;
+its deterministic viewer/visual-repair contract generation and PDF-crop rendering have
+now been extracted into the standalone processing and Web layers. Continuous PDF pages,
+the complete cross-page caption projection path, and PDF text-layer recovery remain to
+be migrated before the obsolete in-repository hosts can be removed.
+
 The shared Reader toolbar includes an English/中文 language selector. The choice is
-stored locally and reused by the Web, Electron and Obsidian entries; before a choice
+stored locally and reused by the Web entry; before a choice
 is saved, the Reader follows the system language. Reader controls, package states,
-visual navigation and desktop workflow controls are translated. Contract diagnostics
+and visual navigation are translated. Contract diagnostics
 and unexpected backend errors retain their original text so technical evidence is not
 silently rewritten.
 
-Build the public Web entry with `npm run web:build`. Build the Electron entry with
-`npm run desktop:build`, then start it with `npm run desktop:start`. The desktop
-renderer never imports Node or Electron modules. Directory reads, PDF bytes and
-Paper2MD processes cross a context-isolated preload API with fixed IPC methods.
-
-The desktop task rail offers two isolated workflows. `Process PDF (direct)` invokes
-`paper2md convert` for a quick readable package. `Start reviewed layout` orchestrates
-the non-destructive Paper2MD review gates: ROI proposal, confirmed ROI import,
-per-page visual layout review, strict result validation, and `layout-apply`. The
-renderer never supplies raw commands or paths; it advances only registered task IDs
-through fixed IPC methods. Visual models and human reviewers work on the exported
-review artifacts rather than receiving filesystem or Electron privileges.
-
-Desktop task history is persisted under Electron `userData`. After a restart the
-main process reconstructs temporary access tokens and resumes only from complete
-on-disk review gates. Interrupted or partial writes are surfaced for inspection and
-are never overwritten automatically.
+Build the public Web entry with `npm run web:build`. Build and start the local
+processing service with `npm run processing:build` and `npm run processing:start`.
 
 ## Expected package contract
 
@@ -231,12 +241,12 @@ Unknown contract versions are never guessed. The Reader renders ordinary Markdow
 
 - `npm run typecheck` — TypeScript validation.
 - `npm test` — contract and anchor tests.
-- `npm run build` — production plugin bundle.
+- `npm run processing:build` — isolated MinerU processing-service bundle.
+- `npm run processing:start` — start the previously built processing service.
 - `npm run local:dev` — Local Reader at `http://127.0.0.1:4174/local-reader/`.
 - `npm run local:build` — production Local Reader bundle.
 - `npm run web:build` — workspace Web application bundle.
-- `npm run desktop:build` — Electron main/preload/renderer bundles.
-- `npm run desktop:start` — start the previously built Electron desktop application.
+- `npm run desktop:build` — frozen legacy migration-reference build; no new features.
 - `npm run preview` — visual preview at `http://127.0.0.1:4173/preview/`.
 
 The Quarto/HTML experiment under `test/` remains a visual prototype only and is not a production input path.
