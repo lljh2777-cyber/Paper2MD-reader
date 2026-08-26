@@ -24,6 +24,11 @@ const CAPTION_CORRECTION_KEYS = new Set(["kind", "visual_block_id", "caption_blo
 const MAX_CANDIDATES = 128;
 const MAX_DECISIONS = 128;
 const MAX_GROUP_MEMBERS = 32;
+const MAX_VIEWER_PAGES = 2048;
+const MAX_BLOCKS_PER_PAGE = 512;
+const MAX_INDEXED_BLOCKS = 8192;
+const MAX_REVIEW_TEXT_CHARS = 2048;
+export const MAX_VISUAL_REVIEW_SIDECAR_BYTES = 64 * 1024;
 
 export type MinerUReviewVerdict = "accept" | "reject" | "abstain";
 
@@ -113,6 +118,10 @@ function strings(value: unknown): string[] | undefined {
   return new Set(result).size === result.length ? [...result] : undefined;
 }
 
+export function visualReviewSidecarByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
 function bboxArray(value: unknown): [number, number, number, number] | undefined {
   if (!Array.isArray(value) || value.length !== 4 || value.some((item) => typeof item !== "number" || !Number.isFinite(item))) return undefined;
   const [x0, y0, x1, y1] = value as number[];
@@ -182,15 +191,25 @@ function indexBlocks(viewerIndex: unknown, mineruPayload?: unknown, articleMarkd
   const sources = sourceRecords(mineruPayload);
   const result = new Map<string, IndexedBlock>();
   if (!Array.isArray(viewer?.pages)) return result;
+  if (viewer.pages.length > MAX_VIEWER_PAGES) throw new Error("viewer-index 页数超过人工审阅安全上限");
+  const seenPages = new Set<number>();
   for (const pageValue of viewer.pages) {
     const page = record(pageValue);
     if (!page || !safeInteger(page.page_idx) || !Array.isArray(page.blocks)) continue;
+    if (seenPages.has(page.page_idx)) throw new Error(`viewer-index 含重复页码 ${page.page_idx}`);
+    seenPages.add(page.page_idx);
+    if (page.blocks.length > MAX_BLOCKS_PER_PAGE) throw new Error(`viewer-index 第 ${page.page_idx + 1} 页块数量超过人工审阅安全上限`);
+    const seenOrders = new Set<number>();
     for (const blockValue of page.blocks) {
       const block = record(blockValue);
       const id = block?.id;
       const box = bboxArray(block?.bbox_norm);
       const order = block?.page_order;
-      if (!block || !safeId(id) || !box || !safeInteger(order) || result.has(id)) continue;
+      if (!block || !safeId(id) || !box || !safeInteger(order)) continue;
+      if (result.has(id)) throw new Error(`viewer-index 含重复 block ID：${id}`);
+      if (seenOrders.has(order)) throw new Error(`viewer-index 第 ${page.page_idx + 1} 页含重复阅读顺序 ${order}`);
+      seenOrders.add(order);
+      if (result.size >= MAX_INDEXED_BLOCKS) throw new Error("viewer-index 块数量超过人工审阅安全上限");
       const rawMarkdownIds = strings(block.markdown_image_ids);
       const assetPath = typeof block.asset_path === "string" && isSafeRelativePath(block.asset_path) ? block.asset_path : undefined;
       const sourceIndex = Number(block.source_index);
@@ -255,7 +274,7 @@ async function parseCandidates(input: {
   mineruHash: string;
   mineruPayload?: unknown;
   articleMarkdown?: string;
-}): Promise<{ packageHash: string; candidates: MinerUVisualReviewCandidate[]; blocks: Map<string, IndexedBlock> }> {
+}): Promise<{ candidates: MinerUVisualReviewCandidate[]; blocks: Map<string, IndexedBlock> }> {
   const payload = record(input.payload);
   if (!payload || !exactKeys(payload, CANDIDATE_KEYS)) throw new Error("视觉候选包字段不完整或含额外字段");
   if (payload.schema_version !== 1 || payload.contract !== "mineru-visual-candidates") throw new Error("视觉候选包版本或类型不受支持");
@@ -325,6 +344,7 @@ async function parseCandidates(input: {
       if (
         !safeId(candidate.visual_block_id)
         || !ids?.length
+        || ids.length > 2
         || !safeId(candidate.figure_key)
         || candidate.target_page_idx !== candidate.source_page_idx + 1
         || !source
@@ -355,7 +375,7 @@ async function parseCandidates(input: {
   if (payload.status === "ready" && !candidates.length) throw new Error("视觉候选包标记为 ready，但不含候选");
   if (payload.status === "empty" && candidates.length) throw new Error("视觉候选包标记为 empty，但仍含候选");
   if (payload.status === "invalid") throw new Error("视觉候选包生成状态无效，已停止审阅");
-  return { packageHash: payload.candidate_package_sha256.toLowerCase(), candidates, blocks };
+  return { candidates, blocks };
 }
 
 function axisOverlap(a0: number, a1: number, b0: number, b1: number): number {
@@ -403,12 +423,13 @@ function validateCorrection(
   blocks: Map<string, IndexedBlock>,
   visualRepair: unknown,
   claimed: Set<string>,
-  sourcePdfPath?: string
+  sourcePdfPath?: string,
+  allowOriginal = false
 ): UnknownRecord {
   if (memberIds.length < 2 || memberIds.length > MAX_GROUP_MEMBERS || new Set(memberIds).size !== memberIds.length) {
     throw new Error("正确组合必须选择 2–32 个不重复图块");
   }
-  if (canonicalJson([...memberIds].sort()) === canonicalJson([...candidate.memberBlockIds].sort())) {
+  if (!allowOriginal && canonicalJson([...memberIds].sort()) === canonicalJson([...candidate.memberBlockIds].sort())) {
     throw new Error("新组合与原候选完全相同；请直接接受原候选或调整图块");
   }
   const members = memberIds.map((id) => blocks.get(id));
@@ -453,19 +474,20 @@ function validateCorrection(
   const autoGroups = Array.isArray(repair?.groups) ? repair.groups.map(record).filter((group) => group?.decision === "auto") : [];
   const autoMembers = new Set(autoGroups.flatMap((group) => strings(group?.member_block_ids) ?? []));
   if (selected.some((block) => autoMembers.has(block.id))) throw new Error("所选图块已属于确定性自动修复组");
-  selected.forEach((block) => claimed.add(block.id));
+  const ordered = [...selected].sort((left, right) => left.pageOrder - right.pageOrder);
+  ordered.forEach((block) => claimed.add(block.id));
   return {
     id: `user-${candidate.id}`,
     page_idx: candidate.pageIndex,
-    member_block_ids: selected.map((block) => block.id).sort((left, right) => (blocks.get(left)?.pageOrder ?? 0) - (blocks.get(right)?.pageOrder ?? 0)),
-    member_asset_paths: selected.map((block) => block.assetPath),
-    member_markdown_image_ids: selected.flatMap((block) => block.markdownImageIds),
+    member_block_ids: ordered.map((block) => block.id),
+    member_asset_paths: ordered.map((block) => block.assetPath),
+    member_markdown_image_ids: ordered.flatMap((block) => block.markdownImageIds),
     caption_anchor_block_ids: [],
     decision: "auto",
     confidence: 1,
     replacement: sourcePdfPath
       ? { mode: "pdf_crop", bbox_norm: union, padding_norm: 6 }
-      : { mode: "fragment_set", fragments: selected.map((block) => ({ asset_path: block.assetPath, bbox_norm: block.bbox })) },
+      : { mode: "fragment_set", fragments: ordered.map((block) => ({ asset_path: block.assetPath, bbox_norm: block.bbox })) },
     reason_codes: ["explicit_user_fragment_group", "runtime_geometry_revalidated"],
     fallback: "original_assets"
   };
@@ -565,6 +587,11 @@ function validateCaptionCorrection(
   if (captions.some((block) => !block.markdownTextRange)) {
     throw new Error("图注文本在 Markdown 中不是唯一精确区间，不能安全隐藏");
   }
+  for (let index = 1; index < captions.length; index += 1) {
+    const previous = captions[index - 1].markdownTextRange!;
+    const current = captions[index].markdownTextRange!;
+    if (current.start < previous.end) throw new Error("所选图注文本在 Markdown 中重叠或顺序冲突");
+  }
   const anchor = captions[0];
   if (anchor.bbox[1] > 320 || leadingFormalFigureKey(anchor) !== figureKey) {
     throw new Error("首个文本块不是页面顶部且 Figure 编号匹配的正式图注");
@@ -620,6 +647,9 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
     candidate_package_sha256: packageHash,
     decisions: []
   };
+  if (visualReviewSidecarByteLength(value) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
+    throw new Error("用户视觉修复 sidecar 超过 64 KiB 安全上限");
+  }
   const sidecar = record(value);
   if (!sidecar || !exactKeys(sidecar, SIDECAR_KEYS) || sidecar.schema_version !== 1 || sidecar.contract !== "paper2md-user-visual-review") {
     throw new Error("用户视觉修复 sidecar 结构无效");
@@ -642,7 +672,7 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
       const value = record(decision.correction);
       if (value?.kind === "fragment_group") {
         const memberIds = strings(value.member_block_ids);
-        if (!exactKeys(value, FRAGMENT_CORRECTION_KEYS) || !memberIds) {
+        if (!exactKeys(value, FRAGMENT_CORRECTION_KEYS) || !memberIds || memberIds.length < 2 || memberIds.length > MAX_GROUP_MEMBERS) {
           throw new Error(`用户视觉修复决定 ${index + 1} 含坐标、路径、正文或其他未允许字段`);
         }
         if (decision.verdict !== "reject" || candidate.kind !== "fragment_group") {
@@ -651,7 +681,7 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
         correction = { kind: "fragment_group", member_block_ids: memberIds };
       } else if (value?.kind === "cross_page_caption") {
         const captionIds = strings(value.caption_block_ids);
-        if (!exactKeys(value, CAPTION_CORRECTION_KEYS) || !safeId(value.visual_block_id) || !captionIds) {
+        if (!exactKeys(value, CAPTION_CORRECTION_KEYS) || !safeId(value.visual_block_id) || !captionIds || captionIds.length < 1 || captionIds.length > 2) {
           throw new Error(`用户视觉修复决定 ${index + 1} 含坐标、路径、正文或其他未允许字段`);
         }
         if (decision.verdict !== "reject" || candidate.kind !== "cross_page_caption") {
@@ -677,14 +707,16 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
 }
 
 export function visualReviewStorageKey(packageHash: string): string {
-  return `paper2md-reader:visual-review:v1:${packageHash}`;
+  if (!safeHash(packageHash)) throw new Error("视觉候选文件哈希无效");
+  return `paper2md-reader:visual-review:v2:${packageHash.toLowerCase()}`;
 }
 
 export function createVisualReviewSidecar(packageHash: string, decisions: MinerUVisualReviewDecision[]): MinerUVisualReviewSidecar {
+  if (!safeHash(packageHash)) throw new Error("视觉候选文件哈希无效");
   return {
     schema_version: 1,
     contract: "paper2md-user-visual-review",
-    candidate_package_sha256: packageHash,
+    candidate_package_sha256: packageHash.toLowerCase(),
     decisions
   };
 }
@@ -698,6 +730,7 @@ export async function prepareMinerUVisualReview(input: {
   mineruPayload?: unknown;
   articleMarkdown?: string;
   sourcePdfPath?: string;
+  candidateFileHash: string;
   sidecar?: unknown;
 }): Promise<PreparedMinerUVisualReview> {
   const diagnostics: Diagnostic[] = [];
@@ -711,16 +744,18 @@ export async function prepareMinerUVisualReview(input: {
       mineruPayload: input.mineruPayload,
       articleMarkdown: input.articleMarkdown
     });
+    if (!safeHash(input.candidateFileHash)) throw new Error("visual-candidates.json 缺少 manifest 验证文件哈希");
+    const packageHash = input.candidateFileHash.toLowerCase();
     let sidecar: MinerUVisualReviewSidecar;
     try {
-      sidecar = parseSidecar(input.sidecar, parsed.packageHash, parsed.candidates);
+      sidecar = parseSidecar(input.sidecar, packageHash, parsed.candidates);
     } catch (error) {
       diagnostics.push({
         level: "warning",
         code: "mineru-user-review-sidecar-invalid",
         message: `用户视觉修复记录无效，已忽略：${error instanceof Error ? error.message : String(error)}`
       });
-      sidecar = createVisualReviewSidecar(parsed.packageHash, []);
+      sidecar = createVisualReviewSidecar(packageHash, []);
     }
     const repair = record(input.visualRepair);
     if (!repair) throw new Error("visual-repair.json 必须是对象");
@@ -748,16 +783,26 @@ export async function prepareMinerUVisualReview(input: {
       const candidate = parsed.candidates.find((item) => item.id === decision.candidate_id)!;
       let visibleDecision = decision;
       if (decision.verdict === "accept" && candidate.kind === "fragment_group") {
-        const group = groups.map(record).find((item) => item?.id === candidate.repairGroupId);
+        const groupIndex = groups.findIndex((item) => record(item)?.id === candidate.repairGroupId);
+        const group = groupIndex >= 0 ? record(groups[groupIndex]) : undefined;
         const memberIds = strings(group?.member_block_ids) ?? [];
         if (!group || group.decision !== "review" || candidate.replacementMode === "none" || memberIds.some((id) => claimed.has(id))) {
           diagnostics.push({ level: "warning", code: "mineru-user-review-accept-abstained", message: `候选 ${candidate.id} 缺少可验证替换方式，未应用接受操作。` });
           visibleDecision = { ...decision, verdict: "abstain" };
         } else {
-          group.decision = "auto";
-          group.reason_codes = [...new Set([...(Array.isArray(group.reason_codes) ? group.reason_codes : []), "explicit_user_accept"])] ;
-          memberIds.forEach((id) => claimed.add(id));
-          applied += 1;
+          try {
+            const verified = validateCorrection(memberIds, candidate, parsed.blocks, input.visualRepair, claimed, input.sourcePdfPath, true);
+            verified.reason_codes = ["explicit_user_accept", "runtime_geometry_revalidated"];
+            groups.splice(groupIndex, 1, verified);
+            applied += 1;
+          } catch (error) {
+            visibleDecision = { ...decision, verdict: "abstain" };
+            diagnostics.push({
+              level: "warning",
+              code: "mineru-user-review-accept-abstained",
+              message: `候选 ${candidate.id} 的碎图组合未通过重新检测：${error instanceof Error ? error.message : String(error)}`
+            });
+          }
         }
       }
       if (decision.verdict === "accept" && candidate.kind === "cross_page_caption") {
@@ -827,7 +872,7 @@ export async function prepareMinerUVisualReview(input: {
         role: block.role as "visual" | "text" | "title",
         bbox: normalizedBbox(block.bbox)!,
         assetPath: block.assetPath,
-        text: block.sourceText,
+        text: block.sourceText?.slice(0, MAX_REVIEW_TEXT_CHARS),
         formalFigureKey: leadingFormalFigureKey(block)
       }))
       .sort((left, right) => left.pageIndex - right.pageIndex || left.pageOrder - right.pageOrder);
@@ -840,8 +885,8 @@ export async function prepareMinerUVisualReview(input: {
     });
     return {
       review: {
-        packageHash: parsed.packageHash,
-        storageKey: visualReviewStorageKey(parsed.packageHash),
+        packageHash,
+        storageKey: visualReviewStorageKey(packageHash),
         candidates: parsed.candidates,
         blocks,
         decisions: visibleDecisions

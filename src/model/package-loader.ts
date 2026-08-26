@@ -348,10 +348,11 @@ export class PackageLoader {
         let effectiveVisualRepair = visualRepairContract;
         if (integrity.status === "verified" && integrity.derived.has(visualCandidatesPath)) {
           try {
+            const candidateRecord = integrity.derived.get(visualCandidatesPath)!;
             const candidatePackage = await readVerifiedMinerUDerivedJson(
               this.fileSystem,
               visualCandidatesPath,
-              integrity.derived.get(visualCandidatesPath)
+              candidateRecord
             );
             const prepared = await prepareMinerUVisualReview({
               candidatePackage,
@@ -362,6 +363,7 @@ export class PackageLoader {
               mineruPayload,
               articleMarkdown: article.text,
               sourcePdfPath: hasSourcePdf ? sourcePdfPath : undefined,
+              candidateFileHash: candidateRecord.sha256,
               sidecar: visualReviewSidecar
             });
             effectiveVisualRepair = prepared.visualRepair;

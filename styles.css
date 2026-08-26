@@ -197,8 +197,10 @@
   line-height: 1.72;
   margin: 0 auto;
   max-width: 960px;
+  min-width: 0;
   min-height: 100%;
   padding: clamp(34px, 5vw, 70px) clamp(28px, 4.5vw, 64px) 100px;
+  width: 100%;
 }
 
 .p2md-article.markdown-rendered h1,
@@ -231,6 +233,7 @@
 
 .p2md-article.markdown-rendered p {
   margin: 0 0 1.08em;
+  overflow-wrap: anywhere;
 }
 
 .p2md-article.markdown-rendered img {
@@ -242,6 +245,14 @@
 
 .p2md-article .p2md-math-source {
   font-family: KaTeX_Main, "Times New Roman", serif;
+}
+
+.p2md-article .p2md-math-source:not(.p2md-math-block) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
 }
 
 .p2md-article .p2md-math-block {

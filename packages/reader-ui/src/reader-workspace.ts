@@ -7,9 +7,11 @@ import { PackageLimitError } from "../../../src/model/package-limits";
 import { MinerUPackageIntegrityError } from "../../../src/model/mineru-package-integrity";
 import {
   createVisualReviewSidecar,
+  MAX_VISUAL_REVIEW_SIDECAR_BYTES,
   type MinerUReviewVerdict,
   type MinerUVisualReview,
-  type MinerUVisualReviewDecision
+  type MinerUVisualReviewDecision,
+  visualReviewSidecarByteLength
 } from "../../../src/model/mineru-visual-review";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
 import type { RenderedArticle } from "../../../src/render/contract-renderer";
@@ -579,7 +581,7 @@ export class ReaderWorkspace {
     try {
       const raw = window.localStorage.getItem(review.storageKey);
       if (raw === null) return undefined;
-      if (raw.length > 64 * 1024) {
+      if (new TextEncoder().encode(raw).byteLength > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
         loaded.diagnostics.push({
           level: "warning",
           code: "mineru-visual-review-storage-oversized",
@@ -608,7 +610,9 @@ export class ReaderWorkspace {
     const sidecar = createVisualReviewSidecar(review.packageHash, [...decisions.values()]);
     try {
       const serialized = JSON.stringify(sidecar);
-      if (serialized.length > 64 * 1024) throw new Error("Visual review sidecar exceeds 64 KiB");
+      if (visualReviewSidecarByteLength(sidecar) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
+        throw new Error("Visual review sidecar exceeds 64 KiB");
+      }
       window.localStorage.setItem(review.storageKey, serialized);
     } catch {
       const message = element("p", "p2md-review-error");

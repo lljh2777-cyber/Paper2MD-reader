@@ -96,7 +96,7 @@ function fixture() {
     issues: []
   };
   const candidatePackage = { ...packageMaterial, candidate_package_sha256: digest(packageMaterial) };
-  return { viewerIndex, visualRepair, candidatePackage, candidate };
+  return { viewerIndex, visualRepair, candidatePackage, candidate, candidateFileHash: digest(candidatePackage) };
 }
 
 function decision(candidateId: string, memberIds?: string[]): MinerUVisualReviewDecision {
@@ -187,13 +187,15 @@ function crossPageFixture() {
     policy: { allowed_verdicts: ["accept", "reject", "abstain"], minimum_accept_confidence: 0.85 },
     candidates: [candidate], issues: []
   };
+  const candidatePackage = { ...packageMaterial, candidate_package_sha256: digest(packageMaterial) };
   return {
     articleMarkdown,
     mineruPayload,
     viewerIndex,
     visualRepair,
     candidate,
-    candidatePackage: { ...packageMaterial, candidate_package_sha256: digest(packageMaterial) }
+    candidatePackage,
+    candidateFileHash: digest(candidatePackage)
   };
 }
 
@@ -208,12 +210,33 @@ describe("prepareMinerUVisualReview", () => {
       articleHash,
       mineruHash,
       sourcePdfPath: "_extraction/source.pdf",
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [decision(input.candidate.candidate_id)])
+      candidateFileHash: input.candidateFileHash,
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [decision(input.candidate.candidate_id)])
     });
 
     expect(result.review?.decisions).toHaveLength(1);
     expect((result.visualRepair as { groups: Array<{ decision: string }> }).groups[0].decision).toBe("auto");
     expect(JSON.stringify(input.visualRepair)).toBe(source);
+  });
+
+  it("revalidates an accepted fragment candidate and abstains when its blocks are disconnected", async () => {
+    const input = fixture();
+    input.viewerIndex.pages[0].blocks[1].bbox_norm = [800, 700, 950, 900];
+    input.candidatePackage.candidates[0].evidence.member_geometry[1].bbox_norm = [800, 700, 950, 900];
+    const result = await prepareMinerUVisualReview({
+      candidatePackage: input.candidatePackage,
+      viewerIndex: input.viewerIndex,
+      visualRepair: input.visualRepair,
+      articleHash,
+      mineruHash,
+      candidateFileHash: input.candidateFileHash,
+      sourcePdfPath: "_extraction/source.pdf",
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [decision(input.candidate.candidate_id)])
+    });
+
+    expect(result.review?.decisions[0].verdict).toBe("abstain");
+    expect((result.visualRepair as { groups: Array<{ decision: string }> }).groups[0].decision).toBe("review");
+    expect(result.diagnostics.some((item) => item.code === "mineru-user-review-accept-abstained" && item.message.includes("不连通"))).toBe(true);
   });
 
   it("derives a replacement crop only after the user's corrected group passes geometry checks", async () => {
@@ -225,7 +248,8 @@ describe("prepareMinerUVisualReview", () => {
       articleHash,
       mineruHash,
       sourcePdfPath: "_extraction/source.pdf",
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [
+      candidateFileHash: input.candidateFileHash,
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [
         decision(input.candidate.candidate_id, ["block-a", "block-b", "block-c"])
       ])
     });
@@ -251,7 +275,8 @@ describe("prepareMinerUVisualReview", () => {
       articleHash,
       mineruHash,
       sourcePdfPath: "_extraction/source.pdf",
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [
+      candidateFileHash: input.candidateFileHash,
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [
         decision(input.candidate.candidate_id, ["block-a", "block-c"])
       ])
     });
@@ -276,6 +301,7 @@ describe("prepareMinerUVisualReview", () => {
       visualRepair: input.visualRepair,
       articleHash,
       mineruHash,
+      candidateFileHash: input.candidateFileHash,
       sidecar: malicious
     });
 
@@ -283,6 +309,69 @@ describe("prepareMinerUVisualReview", () => {
     expect(result.review?.decisions).toEqual([]);
     expect(result.diagnostics.some((item) => item.code === "mineru-user-review-sidecar-invalid")).toBe(true);
     expect((result.visualRepair as { groups: unknown[] }).groups).toHaveLength(1);
+  });
+
+  it("binds stored decisions to the manifest-verified candidate file hash", async () => {
+    const input = fixture();
+    const stale = createVisualReviewSidecar(input.candidateFileHash, [decision(input.candidate.candidate_id)]);
+    const result = await prepareMinerUVisualReview({
+      ...input,
+      articleHash,
+      mineruHash,
+      candidateFileHash: "d".repeat(64),
+      sidecar: stale
+    });
+
+    expect(result.review?.packageHash).toBe("d".repeat(64));
+    expect(result.review?.decisions).toEqual([]);
+    expect((result.visualRepair as { groups: Array<{ decision: string }> }).groups[0].decision).toBe("review");
+    expect(result.diagnostics.some((item) => item.code === "mineru-user-review-sidecar-invalid" && item.message.includes("已过期"))).toBe(true);
+  });
+
+  it("rejects a byte-oversized sidecar before parsing its decisions", async () => {
+    const input = fixture();
+    const oversized = {
+      schema_version: 1,
+      contract: "paper2md-user-visual-review",
+      candidate_package_sha256: input.candidateFileHash,
+      decisions: [{ candidate_id: input.candidate.candidate_id, verdict: "拒".repeat(30_000), correction: null }]
+    };
+    const result = await prepareMinerUVisualReview({ ...input, articleHash, mineruHash, sidecar: oversized });
+
+    expect(result.review?.decisions).toEqual([]);
+    expect(result.diagnostics.some((item) => item.code === "mineru-user-review-sidecar-invalid" && item.message.includes("64 KiB"))).toBe(true);
+  });
+
+  it("fails closed when viewer-index block identities are ambiguous", async () => {
+    const input = fixture();
+    input.viewerIndex.pages[0].blocks.push({
+      ...input.viewerIndex.pages[0].blocks[2],
+      id: "block-a",
+      page_order: 3
+    });
+    const result = await prepareMinerUVisualReview({ ...input, articleHash, mineruHash });
+
+    expect(result.review).toBeUndefined();
+    expect(result.diagnostics.some((item) => item.code === "mineru-visual-review-invalid" && item.message.includes("重复 block ID"))).toBe(true);
+  });
+
+  it("fails closed before rendering an excessive number of review controls", async () => {
+    const input = fixture();
+    input.viewerIndex.pages[0].blocks.push(...Array.from({ length: 510 }, (_, index) => ({
+      id: `filler-${index}`,
+      source_index: 10_000 + index,
+      page_order: 3 + index,
+      role: "text",
+      bbox_norm: [0, 0, 1, 1],
+      asset_path: "",
+      markdown_image_ids: [],
+      caption: { formal_figure_caption_keys: [] },
+      text: { formal_figure_caption_keys: [] }
+    })));
+    const result = await prepareMinerUVisualReview({ ...input, articleHash, mineruHash });
+
+    expect(result.review).toBeUndefined();
+    expect(result.diagnostics.some((item) => item.code === "mineru-visual-review-invalid" && item.message.includes("块数量"))).toBe(true);
   });
 
   it("fails closed when candidate geometry no longer matches viewer-index", async () => {
@@ -296,7 +385,8 @@ describe("prepareMinerUVisualReview", () => {
       viewerIndex: input.viewerIndex,
       visualRepair: input.visualRepair,
       articleHash,
-      mineruHash
+      mineruHash,
+      candidateFileHash: input.candidateFileHash
     });
 
     expect(result.review).toBeUndefined();
@@ -309,7 +399,7 @@ describe("prepareMinerUVisualReview", () => {
       ...input,
       articleHash,
       mineruHash,
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [{
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [{
         candidate_id: input.candidate.candidate_id,
         verdict: "accept",
         correction: null
@@ -328,7 +418,7 @@ describe("prepareMinerUVisualReview", () => {
       ...input,
       articleHash,
       mineruHash,
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [{
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [{
         candidate_id: input.candidate.candidate_id,
         verdict: "reject",
         correction: null
@@ -345,7 +435,7 @@ describe("prepareMinerUVisualReview", () => {
       ...input,
       articleHash,
       mineruHash,
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [{
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [{
         candidate_id: input.candidate.candidate_id,
         verdict: "reject",
         correction: {
@@ -375,7 +465,7 @@ describe("prepareMinerUVisualReview", () => {
       ...input,
       articleHash,
       mineruHash,
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [{
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [{
         candidate_id: input.candidate.candidate_id,
         verdict: "reject",
         correction: {
@@ -390,13 +480,35 @@ describe("prepareMinerUVisualReview", () => {
     expect(result.diagnostics.some((item) => item.code === "mineru-user-correction-rejected" && item.message.includes("唯一精确区间"))).toBe(true);
   });
 
+  it("rejects cross-page caption ranges that overlap in Markdown", async () => {
+    const input = crossPageFixture();
+    input.mineruPayload[2].text = "result continues";
+    const result = await prepareMinerUVisualReview({
+      ...input,
+      articleHash,
+      mineruHash,
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [{
+        candidate_id: input.candidate.candidate_id,
+        verdict: "reject",
+        correction: {
+          kind: "cross_page_caption",
+          visual_block_id: "source-visual",
+          caption_block_ids: ["caption-anchor", "caption-continuation"]
+        }
+      }])
+    });
+
+    expect((result.visualRepair as { caption_links: unknown[] }).caption_links).toEqual([]);
+    expect(result.diagnostics.some((item) => item.code === "mineru-user-correction-rejected" && item.message.includes("重叠"))).toBe(true);
+  });
+
   it("projects the validated user caption relationship without writing to article Markdown", async () => {
     const input = crossPageFixture();
     const prepared = await prepareMinerUVisualReview({
       ...input,
       articleHash,
       mineruHash,
-      sidecar: createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, [{
+      sidecar: createVisualReviewSidecar(input.candidateFileHash, [{
         candidate_id: input.candidate.candidate_id,
         verdict: "reject",
         correction: {
@@ -434,7 +546,7 @@ describe("prepareMinerUVisualReview", () => {
 
   it("rejects user-supplied cross-page coordinates or caption prose", async () => {
     const input = crossPageFixture();
-    const sidecar = createVisualReviewSidecar(input.candidatePackage.candidate_package_sha256, []) as unknown as Record<string, unknown>;
+    const sidecar = createVisualReviewSidecar(input.candidateFileHash, []) as unknown as Record<string, unknown>;
     sidecar.decisions = [{
       candidate_id: input.candidate.candidate_id,
       verdict: "reject",
