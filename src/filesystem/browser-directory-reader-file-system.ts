@@ -1,5 +1,6 @@
 import { isSafeRelativePath } from "../model/contract-validation";
 import { normalizeReaderPath, ReaderFileInfo, ReaderFileSystem } from "./reader-file-system";
+import { PACKAGE_LIMITS, PackageLimitError } from "../model/package-limits";
 
 type IterableDirectoryHandle = FileSystemDirectoryHandle & {
   values(): AsyncIterableIterator<FileSystemHandle>;
@@ -20,6 +21,13 @@ export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
 
   static fromFileList(fileList: FileList | File[]): BrowserDirectoryReaderFileSystem {
     const files = [...fileList];
+    if (files.length > PACKAGE_LIMITS.browserInputFiles) {
+      throw new PackageLimitError(
+        `The selection contains ${files.length} files; the safe limit is ${PACKAGE_LIMITS.browserInputFiles}.`,
+        files.length,
+        PACKAGE_LIMITS.browserInputFiles
+      );
+    }
     const firstRelativePath = files[0]?.webkitRelativePath ?? "";
     const rootLabel = firstRelativePath.split("/")[0] || "Local package";
     const index = new Map<string, File>();
@@ -29,7 +37,9 @@ export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
       const segments = normalizeReaderPath(relativePath).split("/");
       if (segments[0] === rootLabel && segments.length > 1) segments.shift();
       const packagePath = segments.join("/");
-      if (isSafeRelativePath(packagePath)) index.set(packagePath, file);
+      if (!isSafeRelativePath(packagePath)) continue;
+      if (index.has(packagePath)) throw new Error(`Duplicate normalized package path: ${packagePath}`);
+      index.set(packagePath, file);
     }
 
     return new BrowserDirectoryReaderFileSystem(rootLabel, undefined, index);

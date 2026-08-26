@@ -15,6 +15,7 @@ import {
   RawReaderContract
 } from "./reader-contract";
 import { adaptClippingMarkdown, ClippingVisual } from "./clipping-markdown";
+import { convertClippingHtmlToMarkdown } from "./clipping-html";
 import { injectMinerUVisualAnchors, parseMinerUContentList } from "./mineru-content-list";
 import {
   collectPdfCaptionContinuationRequests,
@@ -53,9 +54,65 @@ export class PackageLoader {
   async loadDetected(visualReviewSidecar?: unknown): Promise<LoadedPaperPackage> {
     const source = await detectPackageSource(this.fileSystem);
     if (source.format === "mineru") return this.loadMinerU(source.articlePath, source.contentListPath, visualReviewSidecar);
+    if (source.format === "html") return this.loadHtml(source.articlePath);
     const loaded = await this.load(source.articlePath, visualReviewSidecar);
     loaded.sourceFormat = source.format;
     return loaded;
+  }
+
+  private async loadHtml(articleRelativePath: string): Promise<LoadedPaperPackage> {
+    if (!isSafeRelativePath(articleRelativePath)) throw new Error(`Unsafe HTML article path: ${articleRelativePath}`);
+    const source = await this.readTextWithinLimit(
+      articleRelativePath,
+      PACKAGE_LIMITS.clippingHtmlBytes,
+      "Web clipping HTML"
+    );
+    const initial = convertClippingHtmlToMarkdown(source.text, { sourcePath: articleRelativePath });
+    const imageInfos = await mapWithConcurrency(
+      initial.localImagePaths,
+      PACKAGE_LIMITS.assetHashConcurrency,
+      (path) => this.fileSystem.fileInfo(path)
+    );
+    const availableImagePaths = new Set(initial.localImagePaths.filter((_, index) => Boolean(imageInfos[index])));
+    const converted = convertClippingHtmlToMarkdown(source.text, {
+      sourcePath: articleRelativePath,
+      availableImagePaths
+    });
+    const markdownBytes = new TextEncoder().encode(converted.markdown);
+    if (!converted.markdown.trim()) throw new Error("Web clipping HTML does not contain readable article content.");
+    if (markdownBytes.byteLength > PACKAGE_LIMITS.articleBytes) {
+      throw new PackageLimitError(
+        `Converted web clipping is ${markdownBytes.byteLength} bytes; the safe limit is ${PACKAGE_LIMITS.articleBytes}.`,
+        markdownBytes.byteLength,
+        PACKAGE_LIMITS.articleBytes
+      );
+    }
+    const adapted = adaptClippingMarkdown(converted.markdown);
+    const diagnostics: Diagnostic[] = [{
+      level: "info",
+      code: "html-display-conversion",
+      message: `网页 HTML 已转换为只读显示投影，并配对 ${adapted.visuals.length} 个本地图片与紧邻图注；原始 HTML 未修改。`
+    }];
+    const unavailableCount = initial.localImagePaths.length - availableImagePaths.size;
+    const blockedCount = new Set(initial.blockedImageSources).size;
+    if (unavailableCount || blockedCount) {
+      diagnostics.push({
+        level: "warning",
+        code: "html-resource-omitted",
+        message: `${unavailableCount + blockedCount} 个远程、不安全或缺失的网页图片未进入阅读显示；请随 HTML 一并导入本地图片资源。`
+      });
+    }
+    const assets = await this.loadClippingAssets(adapted.visuals, diagnostics);
+    return {
+      state: adapted.visuals.length ? "markdown" : "reader-missing",
+      sourceFormat: "html",
+      articlePath: this.fileSystem.resolvePath(articleRelativePath),
+      articleText: adapted.articleText,
+      articleHash: await sha256(source.bytes),
+      anchors: parseAnchorInventory(adapted.articleText),
+      assets,
+      diagnostics
+    };
   }
 
   private async readTextWithinLimit(relativePath: string, limit: number, label: string): Promise<{ text: string; bytes: Uint8Array }> {

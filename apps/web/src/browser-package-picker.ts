@@ -11,6 +11,7 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
   readonly platform = "web" as const;
   private readonly input: HTMLInputElement;
   private readonly markdownInput: HTMLInputElement;
+  private readonly clippingInput: HTMLInputElement;
   private readonly pdfInput: HTMLInputElement;
   readonly choosePdfPackage?: (
     onProgress: (progress: ReaderProcessingProgress) => void
@@ -28,6 +29,12 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
     this.markdownInput.accept = ".md,text/markdown,text/plain";
     this.markdownInput.className = "p2md-local-folder-input";
     document.body.appendChild(this.markdownInput);
+    this.clippingInput = document.createElement("input");
+    this.clippingInput.type = "file";
+    this.clippingInput.multiple = true;
+    this.clippingInput.accept = ".md,.html,.htm,text/markdown,text/html,image/png,image/jpeg,image/webp,image/gif,image/bmp";
+    this.clippingInput.className = "p2md-local-folder-input";
+    document.body.appendChild(this.clippingInput);
     this.pdfInput = document.createElement("input");
     this.pdfInput.type = "file";
     this.pdfInput.accept = ".pdf,application/pdf";
@@ -46,6 +53,11 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
   async chooseMarkdownDocument(): Promise<BrowserDirectoryReaderFileSystem | undefined> {
     const file = await this.chooseSingleFile(this.markdownInput);
     return file ? BrowserDirectoryReaderFileSystem.fromFileList([file]) : undefined;
+  }
+
+  async chooseWebClipping(): Promise<BrowserDirectoryReaderFileSystem | undefined> {
+    const files = await this.chooseFiles(this.clippingInput);
+    return files.length ? BrowserDirectoryReaderFileSystem.fromFileList(files) : undefined;
   }
 
   async choosePackage(): Promise<BrowserDirectoryReaderFileSystem | undefined> {
@@ -74,6 +86,7 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
   dispose(): void {
     this.input.remove();
     this.markdownInput.remove();
+    this.clippingInput.remove();
     this.pdfInput.remove();
   }
 
@@ -83,6 +96,18 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
         const file = input.files?.[0];
         input.value = "";
         resolve(file);
+      };
+      input.addEventListener("change", onChange, { once: true });
+      input.click();
+    });
+  }
+
+  private chooseFiles(input: HTMLInputElement): Promise<File[]> {
+    return new Promise((resolve) => {
+      const onChange = () => {
+        const files = [...(input.files ?? [])];
+        input.value = "";
+        resolve(files);
       };
       input.addEventListener("change", onChange, { once: true });
       input.click();

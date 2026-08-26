@@ -3,7 +3,8 @@ import { ReaderFileSystem } from "../filesystem/reader-file-system";
 export type DetectedPackageSource =
   | { format: "paper2md"; articlePath: "article.md" }
   | { format: "mineru"; articlePath: string; contentListPath: string }
-  | { format: "markdown"; articlePath: string };
+  | { format: "markdown"; articlePath: string }
+  | { format: "html"; articlePath: string };
 
 export class PackageSourceNotFoundError extends Error {
   constructor() {
@@ -67,5 +68,9 @@ export async function detectPackageSource(fileSystem: ReaderFileSystem): Promise
     if (contentListPath) return { format: "mineru", articlePath, contentListPath };
   }
   if (markdown.length === 1) return { format: "markdown", articlePath: markdown[0] };
+  const html = rootFiles
+    .filter((path) => /\.html?$/i.test(path))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  if (!markdown.length && html.length === 1) return { format: "html", articlePath: html[0] };
   throw new PackageSourceNotFoundError();
 }

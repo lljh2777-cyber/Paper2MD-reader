@@ -167,7 +167,7 @@ export interface LoadedPaperPackage {
   anchors: AnchorInventory;
   assets: LoadedAsset[];
   diagnostics: Diagnostic[];
-  sourceFormat?: "paper2md" | "mineru" | "markdown";
+  sourceFormat?: "paper2md" | "mineru" | "markdown" | "html";
   packageIntegrity?: "verified" | "unverified";
   visualReview?: import("./mineru-visual-review").MinerUVisualReview;
   sourcePdf?: {

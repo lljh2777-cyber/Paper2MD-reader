@@ -515,6 +515,11 @@ export class ReaderWorkspace {
       markdownButton.addEventListener("click", () => void this.chooseMarkdownDocument());
       actions.appendChild(markdownButton);
     }
+    if (this.options.picker.chooseWebClipping) {
+      const clippingButton = button(readerText(this.locale, "openWebClipping"), "p2md-local-secondary-button", "document");
+      clippingButton.addEventListener("click", () => void this.chooseWebClipping());
+      actions.appendChild(clippingButton);
+    }
     const note = element("small");
     note.textContent = this.localizedCopy("emptyNote", "contractValidatedNote");
     this.welcomeStatus = element("div", "p2md-local-processing-status");
@@ -533,6 +538,16 @@ export class ReaderWorkspace {
     } catch (error) {
       console.error("Could not open Markdown document", error);
       this.renderFailure(readerText(this.locale, "selectedMarkdownOpenFailed"));
+    }
+  }
+
+  private async chooseWebClipping(): Promise<void> {
+    try {
+      const fileSystem = await this.options.picker.chooseWebClipping?.();
+      if (fileSystem) await this.attachFileSystem(fileSystem);
+    } catch (error) {
+      console.error("Could not open web clipping", error);
+      this.renderFailure(readerText(this.locale, "selectedWebClippingOpenFailed"));
     }
   }
 
