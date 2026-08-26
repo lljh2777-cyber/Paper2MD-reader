@@ -168,6 +168,9 @@ export interface LoadedPaperPackage {
   assets: LoadedAsset[];
   diagnostics: Diagnostic[];
   sourceFormat?: "paper2md" | "mineru" | "markdown";
+  sourcePdf?: {
+    path: string;
+  };
   textRecovery?: {
     pdfPath: string;
     candidates: import("./mineru-text-recovery").MinerUTextRecoveryCandidate[];

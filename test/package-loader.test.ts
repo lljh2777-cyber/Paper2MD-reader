@@ -135,6 +135,7 @@ describe("PackageLoader host abstraction", () => {
       memberAssetPaths: ["images/a.png", "images/b.png"],
       display: expect.objectContaining({ mode: "pdf-crop", pdfPath: "_extraction/source.pdf" })
     }));
+    expect(loaded.sourcePdf).toEqual({ path: "_extraction/source.pdf" });
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-applied" }));
   });
 

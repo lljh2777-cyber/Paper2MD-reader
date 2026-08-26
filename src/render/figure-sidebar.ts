@@ -16,7 +16,7 @@ export interface FigurePresentation {
   available: boolean;
 }
 
-interface FigureSidebarOptions {
+export interface FigureSidebarOptions {
   onOpenImage: (figure: FigurePresentation) => void;
   onSelectionChange?: (figure: FigurePresentation, followingReading: boolean) => void;
   locale?: ReaderLocale;

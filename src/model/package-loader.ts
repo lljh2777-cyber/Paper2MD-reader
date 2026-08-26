@@ -304,22 +304,22 @@ export class PackageLoader {
       this.fileSystem.exists(visualRepairPath),
       this.fileSystem.exists(sourcePdfPath)
     ]);
+    if (hasSourcePdf) {
+      const sourceInfo = await this.fileSystem.fileInfo(sourcePdfPath);
+      if (sourceInfo && sourceInfo.size > PACKAGE_LIMITS.sourcePdfBytes) {
+        throw new PackageLimitError(
+          `source.pdf is ${sourceInfo.size} bytes; the safe limit is ${PACKAGE_LIMITS.sourcePdfBytes}.`,
+          sourceInfo.size,
+          PACKAGE_LIMITS.sourcePdfBytes
+        );
+      }
+    }
     if (hasViewerIndex && hasVisualRepair) {
       try {
         const [viewerIndex, visualRepair] = await Promise.all([
           this.readTextWithinLimit(viewerIndexPath, PACKAGE_LIMITS.viewerContractBytes, "viewer-index.json"),
           this.readTextWithinLimit(visualRepairPath, PACKAGE_LIMITS.viewerContractBytes, "visual-repair.json")
         ]);
-        if (hasSourcePdf) {
-          const sourceInfo = await this.fileSystem.fileInfo(sourcePdfPath);
-          if (sourceInfo && sourceInfo.size > PACKAGE_LIMITS.sourcePdfBytes) {
-            throw new PackageLimitError(
-              `source.pdf is ${sourceInfo.size} bytes; the safe limit is ${PACKAGE_LIMITS.sourcePdfBytes}.`,
-              sourceInfo.size,
-              PACKAGE_LIMITS.sourcePdfBytes
-            );
-          }
-        }
         const viewerContract = JSON.parse(viewerIndex.text) as unknown;
         const applied = applyMinerUVisualRepair({
           visuals: parsed.visuals,
@@ -442,6 +442,7 @@ export class PackageLoader {
       anchors: parseAnchorInventory(articleText),
       assets,
       diagnostics,
+      sourcePdf: hasSourcePdf ? { path: sourcePdfPath } : undefined,
       textRecovery: hasSourcePdf ? {
         pdfPath: sourcePdfPath,
         candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text),

@@ -143,3 +143,19 @@ paragraph by MinerU.
 | Console | No relevant warning/error expected | Empty warning/error log after real-package import | Matched |
 
 No reader chrome, layout, typography, palette, icons, or controls changed.
+
+## Continuous PDF reference iteration
+
+The 2026-08-26 browser regression used the real 20-page
+`blampey_novae_2025` package after adding the original-PDF reference tab.
+
+| Check | Expected | Current render | Result |
+|---|---|---|---|
+| Reference modes | Switch between original PDF and figures/captions | Both tabs remain inside the existing right rail | Matched |
+| Continuous pages | Create all page placeholders and render only the nearby viewport | 20 wrappers; 6 pages rendered on the initial viewport | Matched |
+| PDF controls | Page navigation, zoom and fit-width remain bounded | Next-page moved to page 2; 115% zoom rerendered without errors | Matched |
+| Visual regression | Fig. 3 recovery survives mode switching | 1,693-character complete caption; both left-column duplicate counts remained zero | Matched |
+| Console | No relevant warning/error expected | Empty warning/error log | Matched |
+
+This iteration adds only the reference-mode header and PDF controls required by
+the migrated behavior; the accepted article and figure presentation remain unchanged.

@@ -6,6 +6,7 @@ import {
   suppressRecoveredCaptionContinuation
 } from "../../../src/model/mineru-caption-recovery";
 import { Diagnostic, LoadedAsset, LoadedPaperPackage, NormalizedBBox } from "../../../src/model/reader-contract";
+import type { PdfPageRenderResult, PdfReferenceRuntime } from "../../../src/render/pdf-reference-pane";
 import {
   applyRecoveredText,
   recoverReplacementCharacters
@@ -25,13 +26,74 @@ function padded(bbox: NormalizedBBox, padding: number): NormalizedBBox {
   return { x, y, width: right - x, height: bottom - y };
 }
 
-export class PdfVisualResolver {
+interface CancellablePdfRenderTask {
+  promise: Promise<void>;
+  cancel(): void;
+}
+
+export class PdfVisualResolver implements PdfReferenceRuntime {
   private fileSystem?: ReaderFileSystem;
   private pdfPath?: string;
   private documentPromise?: Promise<PDFDocumentProxy>;
   private document?: PDFDocumentProxy;
   private loadingTask?: PDFDocumentLoadingTask;
   private readonly urls = new Set<string>();
+  private readonly pageTasks = new Set<CancellablePdfRenderTask>();
+  private pageGeneration = 0;
+
+  async open(fileSystem: ReaderFileSystem, pdfPath: string): Promise<number> {
+    return (await this.loadDocument(fileSystem, pdfPath)).numPages;
+  }
+
+  async renderPage(
+    pageNumber: number,
+    canvas: HTMLCanvasElement,
+    availableWidth: number,
+    zoom: number
+  ): Promise<PdfPageRenderResult> {
+    const document = this.document ?? await this.documentPromise;
+    if (!document) throw new Error("PDF is not loaded");
+    const generation = this.pageGeneration;
+    const page = await document.getPage(Math.max(1, Math.min(document.numPages, pageNumber)));
+    if (generation !== this.pageGeneration) throw new DOMException("PDF page render superseded", "AbortError");
+    const base = page.getViewport({ scale: 1 });
+    const fitScale = Math.max(0.25, availableWidth / Math.max(1, base.width));
+    const viewport = page.getViewport({ scale: fitScale * Math.max(0.4, Math.min(4, zoom)) });
+    const outputScale = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
+    canvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
+    canvas.style.width = `${Math.floor(viewport.width)}px`;
+    canvas.style.height = `${Math.floor(viewport.height)}px`;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("Canvas is unavailable");
+    const task = page.render({
+      canvas,
+      canvasContext: context,
+      viewport,
+      transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+      background: "#ffffff"
+    }) as CancellablePdfRenderTask;
+    this.pageTasks.add(task);
+    try {
+      await task.promise;
+    } finally {
+      this.pageTasks.delete(task);
+    }
+    if (generation !== this.pageGeneration) throw new DOMException("PDF page render superseded", "AbortError");
+    return { width: viewport.width, height: viewport.height };
+  }
+
+  cancelPageRender(): void {
+    this.pageGeneration += 1;
+    for (const task of this.pageTasks) {
+      try {
+        task.cancel();
+      } catch {
+        // PDF.js may reject cancellation after a task has just completed.
+      }
+    }
+    this.pageTasks.clear();
+  }
 
   async resolve(asset: LoadedAsset, fileSystem: ReaderFileSystem): Promise<string> {
     if (asset.display?.mode !== "pdf-crop") return fileSystem.resolveAssetUrl(asset.path);
@@ -187,6 +249,7 @@ export class PdfVisualResolver {
   }
 
   dispose(): void {
+    this.cancelPageRender();
     this.urls.forEach((url) => URL.revokeObjectURL(url));
     this.urls.clear();
     this.document = undefined;

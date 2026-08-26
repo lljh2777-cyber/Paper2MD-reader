@@ -74,7 +74,25 @@ const ENGLISH = {
   selectedMarkdownOpenFailed: "The selected Markdown document could not be opened.",
   pageNumber: "Page {page}",
   visualCaptionPages: "Figure p. {visualPage} · caption p. {captionPage}",
-  partialCaptionNotice: "The linked MinerU caption is incomplete; the Reader has preserved the verified portion only."
+  partialCaptionNotice: "The linked MinerU caption is incomplete; the Reader has preserved the verified portion only.",
+  referenceViews: "Reference views",
+  originalPdf: "Original PDF",
+  imagesAndCaptions: "Images and captions",
+  previousPdfPage: "Previous PDF page",
+  nextPdfPage: "Next PDF page",
+  pdfPage: "PDF page",
+  zoomOutPdf: "Zoom out PDF",
+  zoomInPdf: "Zoom in PDF",
+  fitPdfWidth: "Fit width",
+  continuousPdf: "Continuous PDF pages",
+  loadingPdf: "Loading original PDF…",
+  pdfHasNoPages: "The PDF has no readable pages",
+  pdfLoadFailed: "Original PDF could not be loaded",
+  noSourcePdf: "This package does not include the original PDF.",
+  pdfPageNumber: "PDF page {page}",
+  loadingPdfPage: "Loading page {page}…",
+  pdfPageContent: "PDF page {page} content",
+  pdfPageLoadFailed: "Page {page} could not be rendered"
 } as const;
 
 export type ReaderMessageKey = keyof typeof ENGLISH;
@@ -150,7 +168,25 @@ const CHINESE: Record<ReaderMessageKey, string> = {
   selectedMarkdownOpenFailed: "无法打开所选 Markdown 文档。",
   pageNumber: "第 {page} 页",
   visualCaptionPages: "图第 {visualPage} 页 · 图注第 {captionPage} 页",
-  partialCaptionNotice: "关联的 MinerU 图注不完整；Reader 仅显示已验证部分。"
+  partialCaptionNotice: "关联的 MinerU 图注不完整；Reader 仅显示已验证部分。",
+  referenceViews: "参考视图",
+  originalPdf: "原始 PDF",
+  imagesAndCaptions: "图片与图注",
+  previousPdfPage: "上一页",
+  nextPdfPage: "下一页",
+  pdfPage: "PDF 页码",
+  zoomOutPdf: "缩小 PDF",
+  zoomInPdf: "放大 PDF",
+  fitPdfWidth: "适合宽度",
+  continuousPdf: "连续 PDF 页面",
+  loadingPdf: "正在加载原始 PDF…",
+  pdfHasNoPages: "PDF 中没有可读取的页面",
+  pdfLoadFailed: "无法加载原始 PDF",
+  noSourcePdf: "此内容包未附带原始 PDF。",
+  pdfPageNumber: "PDF 第 {page} 页",
+  loadingPdfPage: "正在载入第 {page} 页…",
+  pdfPageContent: "PDF 第 {page} 页内容",
+  pdfPageLoadFailed: "第 {page} 页加载失败"
 };
 
 const COPY: Record<ReaderLocale, Record<ReaderMessageKey, string>> = {

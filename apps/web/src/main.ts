@@ -25,6 +25,7 @@ export function mountWebReader(root: HTMLElement): () => void {
   const workspace: ReaderWorkspace = mountReaderWorkspace(root, {
     picker,
     visualResolver,
+    pdfRuntime: visualResolver,
     localizedCopy: {
       en: webCopy("en", pdfProcessingEnabled),
       "zh-CN": webCopy("zh-CN", pdfProcessingEnabled)

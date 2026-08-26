@@ -5,7 +5,9 @@ import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
 import type { RenderedArticle } from "../../../src/render/contract-renderer";
-import { FigurePresentation, FigureSidebar } from "../../../src/render/figure-sidebar";
+import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "../../../src/render/figure-sidebar";
+import type { PdfReferenceRuntime } from "../../../src/render/pdf-reference-pane";
+import { ReferenceSidebar } from "../../../src/render/reference-sidebar";
 import { setReaderIcon } from "../../../src/render/icons";
 import { renderLocalArticle } from "../../../src/render/local-article-renderer";
 import { UnsafeMarkdownResourceError } from "../../../src/render/markdown-resource-policy";
@@ -40,6 +42,7 @@ export interface ReaderWorkspaceOptions {
     }>;
     dispose(): void;
   };
+  pdfRuntime?: PdfReferenceRuntime;
   /** Mount the linked figure browser outside the reader shell, such as in a desktop tab pane. */
   figureHost?: HTMLElement;
   title?: string;
@@ -89,7 +92,8 @@ export class ReaderWorkspace {
   private statusButton!: HTMLButtonElement;
   private statusLabel!: HTMLElement;
   private reloadButton!: HTMLButtonElement;
-  private figureSidebar!: FigureSidebar;
+  private figureSidebar!: Pick<FigureSidebar, "setFigures" | "trackReadingTarget">;
+  private referenceSidebar?: ReferenceSidebar;
   private welcomeStatus?: HTMLElement;
   private readonly scrollController = new ScrollController();
   private locale: ReaderLocale = getReaderLocale();
@@ -104,6 +108,7 @@ export class ReaderWorkspace {
 
   destroy(): void {
     this.scrollController.disconnect();
+    this.referenceSidebar?.destroy();
     this.options.visualResolver?.dispose();
     this.fileSystem?.dispose();
     this.options.picker.dispose?.();
@@ -124,6 +129,8 @@ export class ReaderWorkspace {
     if (locale === this.locale) return;
     this.locale = locale;
     this.scrollController.disconnect();
+    this.referenceSidebar?.destroy();
+    this.referenceSidebar = undefined;
     this.renderShell();
     if (this.fileSystem) {
       this.fileLabel.textContent = this.fileSystem.rootLabel;
@@ -198,13 +205,20 @@ export class ReaderWorkspace {
     reader.append(toolbar, workspace);
     this.root.replaceChildren(reader);
 
-    this.figureSidebar = new FigureSidebar(figureHost, {
+    const figureOptions: FigureSidebarOptions = {
       locale: this.locale,
       onOpenImage: (figure) => this.openLightbox(figure),
       onSelectionChange: (figure, followingReading) => {
         if (followingReading) figure.slotElement?.scrollIntoView({ behavior: "smooth", block: "center" });
       }
-    });
+    };
+    if (this.options.figureHost) {
+      this.referenceSidebar = undefined;
+      this.figureSidebar = new FigureSidebar(figureHost, figureOptions);
+    } else {
+      this.referenceSidebar = new ReferenceSidebar(figureHost, figureOptions, this.options.pdfRuntime, this.locale);
+      this.figureSidebar = this.referenceSidebar;
+    }
   }
 
   private async choosePackage(): Promise<void> {
@@ -249,6 +263,7 @@ export class ReaderWorkspace {
       const rendered = await renderLocalArticle(articleText, this.articleContent, this.fileSystem, contractUsable);
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
       this.figureSidebar.setFigures(await this.createFigurePresentations(loaded, rendered, contractUsable));
+      if (this.referenceSidebar) await this.referenceSidebar.setPdfSource(loaded.sourcePdf, this.fileSystem);
       this.connectScrollSync(loaded, rendered, contractUsable);
       this.root.dataset.state = contractUsable ? "ready" : "degraded";
       this.articleScroll.scrollTop = 0;
@@ -349,6 +364,7 @@ export class ReaderWorkspace {
     empty.append(title, copy, actions, this.welcomeStatus, note);
     this.articleContent.appendChild(empty);
     this.figureSidebar.setFigures([]);
+    this.referenceSidebar?.clearPdfSource();
   }
 
   private async chooseMarkdownDocument(): Promise<void> {
@@ -398,6 +414,7 @@ export class ReaderWorkspace {
     empty.append(title, copy, chooseButton);
     this.articleContent.appendChild(empty);
     this.figureSidebar.setFigures([]);
+    this.referenceSidebar?.clearPdfSource();
     this.statusLabel.textContent = readerText(this.locale, "loadFailed");
     this.statusButton.dataset.tone = "error";
     this.statusButton.disabled = true;
