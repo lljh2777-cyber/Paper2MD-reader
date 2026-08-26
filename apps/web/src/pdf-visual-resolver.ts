@@ -1,10 +1,13 @@
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
-import { Diagnostic, LoadedAsset, NormalizedBBox } from "../../../src/model/reader-contract";
+import {
+  recoverPdfCaptionContinuation,
+  suppressRecoveredCaptionContinuation
+} from "../../../src/model/mineru-caption-recovery";
+import { Diagnostic, LoadedAsset, LoadedPaperPackage, NormalizedBBox } from "../../../src/model/reader-contract";
 import {
   applyRecoveredText,
-  MinerUTextRecoveryCandidate,
   recoverReplacementCharacters
 } from "../../../src/model/mineru-text-recovery";
 
@@ -68,20 +71,26 @@ export class PdfVisualResolver {
 
   async recoverText(
     articleText: string,
-    recovery: { pdfPath: string; candidates: MinerUTextRecoveryCandidate[] },
+    recovery: NonNullable<LoadedPaperPackage["textRecovery"]>,
     fileSystem: ReaderFileSystem
-  ): Promise<{ articleText: string; diagnostics: Diagnostic[] }> {
+  ): Promise<{
+    articleText: string;
+    diagnostics: Diagnostic[];
+    captionUpdates: Array<{ visualId: string; captionText: string; captionStatus: "complete" | "partial" }>;
+  }> {
     const diagnostics: Diagnostic[] = [];
+    const captionUpdates: Array<{ visualId: string; captionText: string; captionStatus: "complete" | "partial" }> = [];
     let projected = articleText;
     let recoveredCount = 0;
+    let recoveredCaptionCount = 0;
     try {
       const document = await this.loadDocument(fileSystem, recovery.pdfPath);
       const pageCache = new Map<number, Promise<{
         viewport: ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["getViewport"]>;
         items: Array<{ text: string; x: number; centerY: number; width: number }>;
       }>>();
-      for (const candidate of recovery.candidates) {
-        const pageNumber = Math.max(1, Math.min(document.numPages, candidate.pageIndex + 1));
+      const pageData = async (pageIndex: number) => {
+        const pageNumber = Math.max(1, Math.min(document.numPages, pageIndex + 1));
         if (!pageCache.has(pageNumber)) {
           pageCache.set(pageNumber, document.getPage(pageNumber).then(async (page) => {
             const viewport = page.getViewport({ scale: 1 });
@@ -95,16 +104,26 @@ export class PdfVisualResolver {
             return { viewport, items };
           }));
         }
-        const { viewport, items } = await pageCache.get(pageNumber)!;
+        return { pageNumber, ...await pageCache.get(pageNumber)! };
+      };
+      const textInBbox = (
+        viewport: Awaited<ReturnType<typeof pageData>>["viewport"],
+        items: Awaited<ReturnType<typeof pageData>>["items"],
+        bbox: NormalizedBBox
+      ) => {
         const padding = 0.015;
-        const left = Math.max(0, candidate.bbox.x - padding) * viewport.width;
-        const right = Math.min(1, candidate.bbox.x + candidate.bbox.width + padding) * viewport.width;
-        const top = Math.max(0, candidate.bbox.y - padding) * viewport.height;
-        const bottom = Math.min(1, candidate.bbox.y + candidate.bbox.height + padding) * viewport.height;
-        const blockText = items
+        const left = Math.max(0, bbox.x - padding) * viewport.width;
+        const right = Math.min(1, bbox.x + bbox.width + padding) * viewport.width;
+        const top = Math.max(0, bbox.y - padding) * viewport.height;
+        const bottom = Math.min(1, bbox.y + bbox.height + padding) * viewport.height;
+        return items
           .filter((item) => item.x + item.width / 2 >= left && item.x + item.width / 2 <= right && item.centerY >= top && item.centerY <= bottom)
           .map((item) => item.text)
           .join(" ");
+      };
+      for (const candidate of recovery.candidates) {
+        const { viewport, items } = await pageData(candidate.pageIndex);
+        const blockText = textInBbox(viewport, items, candidate.bbox);
         const pageText = items.map((item) => item.text).join(" ");
         const recovered = recoverReplacementCharacters(candidate.sourceText, blockText)
           ?? recoverReplacementCharacters(candidate.sourceText, pageText);
@@ -120,6 +139,29 @@ export class PdfVisualResolver {
         projected = next;
         recoveredCount += recovered.recoveredCount;
       }
+      if (recovery.sourceArticleText && recovery.captionContinuations?.length) {
+        for (const request of recovery.captionContinuations) {
+          const { viewport, items } = await pageData(request.pageIndex);
+          const pdfText = textInBbox(viewport, items, request.bbox);
+          const recovered = recoverPdfCaptionContinuation(recovery.sourceArticleText, request, pdfText);
+          const next = recovered ? suppressRecoveredCaptionContinuation(projected, recovered) : undefined;
+          if (!recovered || !next) {
+            diagnostics.push({
+              level: "warning",
+              code: "mineru-pdf-caption-continuation-abstained",
+              message: `第 ${request.pageIndex + 1} 页的跨栏续图注无法唯一映射到 Markdown，已保留原文。`
+            });
+            continue;
+          }
+          projected = next;
+          captionUpdates.push({
+            visualId: recovered.visualId,
+            captionText: recovered.captionText,
+            captionStatus: recovered.captionStatus
+          });
+          recoveredCaptionCount += 1;
+        }
+      }
     } catch (error) {
       diagnostics.push({
         level: "warning",
@@ -134,7 +176,14 @@ export class PdfVisualResolver {
         message: `已从原 PDF 文本层恢复 ${recoveredCount} 个缺失字符；仅用于当前显示。`
       });
     }
-    return { articleText: projected, diagnostics };
+    if (recoveredCaptionCount) {
+      diagnostics.push({
+        level: "info",
+        code: "mineru-pdf-caption-continuation-recovered",
+        message: `已从原 PDF 文本层恢复 ${recoveredCaptionCount} 处跨栏续图注；仅用于当前显示。`
+      });
+    }
+    return { articleText: projected, diagnostics, captionUpdates };
   }
 
   dispose(): void {

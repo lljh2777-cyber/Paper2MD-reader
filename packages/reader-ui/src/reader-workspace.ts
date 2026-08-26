@@ -1,6 +1,5 @@
 import { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
 import { assetDisplayLabel, Diagnostic, LoadedAsset, LoadedPaperPackage } from "../../../src/model/reader-contract";
-import { MinerUTextRecoveryCandidate } from "../../../src/model/mineru-text-recovery";
 import { PackageLoader } from "../../../src/model/package-loader";
 import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
@@ -26,10 +25,19 @@ export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
   visualResolver?: {
     resolve(asset: LoadedAsset, fileSystem: ReaderFileSystem): Promise<string>;
-    recoverText?(articleText: string, recovery: {
-      pdfPath: string;
-      candidates: MinerUTextRecoveryCandidate[];
-    }, fileSystem: ReaderFileSystem): Promise<{ articleText: string; diagnostics: Diagnostic[] }>;
+    recoverText?(
+      articleText: string,
+      recovery: NonNullable<LoadedPaperPackage["textRecovery"]>,
+      fileSystem: ReaderFileSystem
+    ): Promise<{
+      articleText: string;
+      diagnostics: Diagnostic[];
+      captionUpdates?: Array<{
+        visualId: string;
+        captionText: string;
+        captionStatus: "complete" | "partial";
+      }>;
+    }>;
     dispose(): void;
   };
   /** Mount the linked figure browser outside the reader shell, such as in a desktop tab pane. */
@@ -222,10 +230,20 @@ export class ReaderWorkspace {
       const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru" || loaded.state === "markdown";
       this.root.classList.toggle("p2md-contract-mode", contractUsable);
       let articleText = loaded.articleText;
-      if (loaded.textRecovery?.candidates.length && this.options.visualResolver?.recoverText) {
+      if (
+        loaded.textRecovery
+        && (loaded.textRecovery.candidates.length || loaded.textRecovery.captionContinuations?.length)
+        && this.options.visualResolver?.recoverText
+      ) {
         const recovered = await this.options.visualResolver.recoverText(articleText, loaded.textRecovery, this.fileSystem);
         articleText = recovered.articleText;
         loaded.diagnostics.push(...recovered.diagnostics);
+        recovered.captionUpdates?.forEach((update) => {
+          const asset = loaded.assets.find((candidate) => candidate.id === update.visualId);
+          if (!asset) return;
+          asset.captionText = update.captionText;
+          asset.captionStatus = update.captionStatus;
+        });
       }
       this.updateStatus(loaded);
       const rendered = await renderLocalArticle(articleText, this.articleContent, this.fileSystem, contractUsable);

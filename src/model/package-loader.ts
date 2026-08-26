@@ -16,6 +16,10 @@ import {
 } from "./reader-contract";
 import { adaptClippingMarkdown, ClippingVisual } from "./clipping-markdown";
 import { injectMinerUVisualAnchors, parseMinerUContentList } from "./mineru-content-list";
+import {
+  collectPdfCaptionContinuationRequests,
+  PdfCaptionContinuationRequest
+} from "./mineru-caption-recovery";
 import { collectMinerUTextRecoveryCandidates } from "./mineru-text-recovery";
 import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
@@ -290,6 +294,7 @@ export class PackageLoader {
     }
 
     let visuals: RepairedMinerUVisual[] = parsed.visuals;
+    let captionContinuations: PdfCaptionContinuationRequest[] = [];
     let contractVersion = `mineru-content-list-${parsed.version}`;
     const viewerIndexPath = "_extraction/viewer-index.json";
     const visualRepairPath = "_extraction/visual-repair.json";
@@ -328,6 +333,21 @@ export class PackageLoader {
         });
         visuals = applied.visuals;
         diagnostics.push(...applied.diagnostics);
+        if (hasSourcePdf) {
+          captionContinuations = collectPdfCaptionContinuationRequests({
+            visuals,
+            viewerIndex: viewerContract,
+            mineruPayload,
+            markdown: article.text
+          });
+          if (captionContinuations.length) {
+            diagnostics.push({
+              level: "info",
+              code: "mineru-pdf-caption-continuation-candidates",
+              message: `检测到 ${captionContinuations.length} 处可由原 PDF 文本层严格恢复的跨栏续图注。`
+            });
+          }
+        }
         const projected = projectMinerUReaderMarkdown({
           markdown: article.text,
           visuals,
@@ -424,7 +444,9 @@ export class PackageLoader {
       diagnostics,
       textRecovery: hasSourcePdf ? {
         pdfPath: sourcePdfPath,
-        candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text)
+        candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text),
+        sourceArticleText: captionContinuations.length ? article.text : undefined,
+        captionContinuations: captionContinuations.length ? captionContinuations : undefined
       } : undefined
     };
   }

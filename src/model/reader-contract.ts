@@ -171,6 +171,8 @@ export interface LoadedPaperPackage {
   textRecovery?: {
     pdfPath: string;
     candidates: import("./mineru-text-recovery").MinerUTextRecoveryCandidate[];
+    sourceArticleText?: string;
+    captionContinuations?: import("./mineru-caption-recovery").PdfCaptionContinuationRequest[];
   };
 }
 

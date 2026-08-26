@@ -127,3 +127,19 @@ the Fig. 6 two-column caption shown in the reported failure.
 | Source fidelity | `article.md` is immutable | Only derived visual metadata and the in-memory Markdown projection change | Matched |
 
 No reader chrome, layout, typography, palette, or controls changed.
+
+## PDF cross-column caption recovery iteration
+
+The 2026-08-26 regression used the real `blampey_novae_2025` package and the
+Fig. 3 caption whose right PDF column had been merged into a preceding body
+paragraph by MinerU.
+
+| Check | Before | Current render | Result |
+|---|---|---|---|
+| Caption assembly | Fig. 3 stopped at panel e | PDF bbox text locates the unique f–i continuation and the rail shows the complete caption | Fixed |
+| Article projection | The formal prefix and polluted continuation remained in the article | Both verified caption spans are absent; the legitimate body prefix remains | Fixed |
+| Failure behavior | A guessed suffix could delete prose | Competing empty columns, non-sequential panels, duplicate Markdown text or unavailable PDF text abstain | Matched |
+| Source fidelity | `article.md` is immutable | PDF text is evidence for an in-memory projection only | Matched |
+| Console | No relevant warning/error expected | Empty warning/error log after real-package import | Matched |
+
+No reader chrome, layout, typography, palette, icons, or controls changed.
