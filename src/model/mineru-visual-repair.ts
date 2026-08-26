@@ -15,7 +15,7 @@ export interface RepairedMinerUVisual extends MinerUVisual {
   display?:
     | { mode: "asset" }
     | { mode: "pdf-crop"; pdfPath: string; bbox: NormalizedBBox; padding: number }
-    | { mode: "fragment-set"; assetPaths: string[] };
+    | { mode: "fragment-set"; fragments: Array<{ path: string; bbox: NormalizedBBox }> };
 }
 
 function record(value: unknown): UnknownRecord | undefined {
@@ -677,6 +677,16 @@ export function applyMinerUVisualRepair(input: {
         : anchor.path;
       display = { mode: "asset" };
       displayPath = path;
+    } else if (replacement?.mode === "fragment_set") {
+      const fragments = Array.isArray(replacement.fragments)
+        ? replacement.fragments.map(record).flatMap((fragment) => {
+          const path = typeof fragment?.asset_path === "string" ? fragment.asset_path : "";
+          const fragmentBbox = bbox(fragment?.bbox_norm);
+          return memberPaths.includes(path) && fragmentBbox ? [{ path, bbox: fragmentBbox }] : [];
+        })
+        : [];
+      if (fragments.length !== memberPaths.length || new Set(fragments.map((fragment) => fragment.path)).size !== memberPaths.length) return;
+      display = { mode: "fragment-set", fragments };
     } else {
       return;
     }

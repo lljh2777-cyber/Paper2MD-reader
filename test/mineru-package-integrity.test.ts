@@ -18,6 +18,13 @@ function size(value: string | Uint8Array): number {
   return typeof value === "string" ? new TextEncoder().encode(value).byteLength : value.byteLength;
 }
 
+function canonical(value: unknown): string {
+  if (value === null || typeof value === "boolean" || typeof value === "string" || typeof value === "number") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`;
+}
+
 async function fixture(options: { staleArticle?: boolean; staleDerived?: boolean; validationStatus?: string } = {}) {
   const article = "# Verified paper\n\n![](images/a.png)\n";
   const mineru = JSON.stringify([{ type: "image", page_idx: 0, bbox: [20, 30, 900, 700], img_path: "images/a.png" }]);
@@ -28,6 +35,25 @@ async function fixture(options: { staleArticle?: boolean; staleDerived?: boolean
   };
   const viewerIndex = JSON.stringify({ schema_version: 1, inputs, pages: [] });
   const visualRepair = JSON.stringify({ schema_version: 1, inputs, groups: [] });
+  const candidateInputs = {
+    article: { sha256: inputs.article.sha256 },
+    mineru_result: { sha256: inputs.mineru_result.sha256 },
+    viewer_index_sha256: await digest(canonical(JSON.parse(viewerIndex))),
+    visual_repair_sha256: await digest(canonical(JSON.parse(visualRepair)))
+  };
+  const candidateMaterial = {
+    schema_version: 1,
+    contract: "mineru-visual-candidates",
+    status: "empty",
+    inputs: candidateInputs,
+    policy: { allowed_verdicts: ["accept", "reject", "abstain"], minimum_accept_confidence: 0.85 },
+    candidates: [],
+    issues: []
+  };
+  const visualCandidates = JSON.stringify({
+    ...candidateMaterial,
+    candidate_package_sha256: await digest(canonical(candidateMaterial))
+  });
   const outputs = [
     { path: "article.md", size: size(article), sha256: await digest(options.staleArticle ? `${article}changed` : article) },
     { path: "mineru-result.json", size: size(mineru), sha256: await digest(mineru) },
@@ -39,7 +65,8 @@ async function fixture(options: { staleArticle?: boolean; staleDerived?: boolean
       path: "_extraction/visual-repair.json",
       size: size(visualRepair),
       sha256: options.staleDerived ? "0".repeat(64) : await digest(visualRepair)
-    }
+    },
+    { path: "_extraction/visual-candidates.json", size: size(visualCandidates), sha256: await digest(visualCandidates) }
   ];
   const manifest = JSON.stringify({
     schema_version: 1,
@@ -56,7 +83,8 @@ async function fixture(options: { staleArticle?: boolean; staleDerived?: boolean
     "_extraction/manifest.json": manifest,
     "_extraction/validation.json": JSON.stringify({ status: options.validationStatus ?? "passed" }),
     "_extraction/viewer-index.json": viewerIndex,
-    "_extraction/visual-repair.json": visualRepair
+    "_extraction/visual-repair.json": visualRepair,
+    "_extraction/visual-candidates.json": visualCandidates
   };
   return { article, mineru, files };
 }
@@ -75,7 +103,7 @@ describe("MinerU formal package integrity", () => {
     });
 
     expect(integrity.status).toBe("verified");
-    expect(integrity.derived.size).toBe(2);
+    expect(integrity.derived.size).toBe(3);
     await expect(readVerifiedMinerUDerivedJson(
       fileSystem,
       "_extraction/viewer-index.json",
@@ -113,6 +141,14 @@ describe("MinerU formal package integrity", () => {
     expect(loaded.assets[0].display).toBeUndefined();
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-package-integrity-verified" }));
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-invalid" }));
+  });
+
+  it("loads a manifest-bound empty candidate package as a safe review state", async () => {
+    const built = await fixture();
+    const loaded = await new PackageLoader(new MemoryReaderFileSystem(built.files)).loadDetected();
+
+    expect(loaded.visualReview).toEqual(expect.objectContaining({ candidates: [], decisions: [] }));
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-review-ready" }));
   });
 
   it("marks a plain MinerU export as unverified without pretending it is a formal package", async () => {

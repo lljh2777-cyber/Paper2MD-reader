@@ -5,6 +5,12 @@ import { injectMinerUPageAnchors } from "../../../src/model/mineru-page-map";
 import { PackageSourceNotFoundError } from "../../../src/model/package-source";
 import { PackageLimitError } from "../../../src/model/package-limits";
 import { MinerUPackageIntegrityError } from "../../../src/model/mineru-package-integrity";
+import {
+  createVisualReviewSidecar,
+  type MinerUReviewVerdict,
+  type MinerUVisualReview,
+  type MinerUVisualReviewDecision
+} from "../../../src/model/mineru-visual-review";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
 import type { RenderedArticle } from "../../../src/render/contract-renderer";
 import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "../../../src/render/figure-sidebar";
@@ -273,7 +279,10 @@ export class ReaderWorkspace {
     this.statusLabel.textContent = readerText(this.locale, "loading");
     this.root.dataset.state = "loading";
     try {
-      const loaded = await new PackageLoader(this.fileSystem).loadDetected();
+      const loader = new PackageLoader(this.fileSystem);
+      let loaded = await loader.loadDetected();
+      const storedSidecar = this.readVisualReviewSidecar(loaded);
+      if (storedSidecar !== undefined) loaded = await loader.loadDetected(storedSidecar);
       this.loaded = loaded;
       this.stateKey = loaded.articleHash ? readerViewStateKey(loaded.articleHash) : undefined;
       const restoredState = this.loadViewState();
@@ -564,6 +573,155 @@ export class ReaderWorkspace {
     this.statusButton.disabled = true;
   }
 
+  private readVisualReviewSidecar(loaded: LoadedPaperPackage): unknown | undefined {
+    const review = loaded.visualReview;
+    if (!review) return undefined;
+    try {
+      const raw = window.localStorage.getItem(review.storageKey);
+      if (raw === null) return undefined;
+      if (raw.length > 64 * 1024) {
+        loaded.diagnostics.push({
+          level: "warning",
+          code: "mineru-visual-review-storage-oversized",
+          message: "浏览器中的视觉审阅记录超过 64 KiB 安全上限，已忽略。"
+        });
+        return undefined;
+      }
+      return JSON.parse(raw) as unknown;
+    } catch {
+      loaded.diagnostics.push({
+        level: "warning",
+        code: "mineru-visual-review-storage-invalid",
+        message: "浏览器中的视觉审阅记录不是有效 JSON，已忽略。"
+      });
+      return undefined;
+    }
+  }
+
+  private async storeVisualReviewDecision(
+    review: MinerUVisualReview,
+    decision: MinerUVisualReviewDecision,
+    trigger: HTMLElement
+  ): Promise<void> {
+    const decisions = new Map(review.decisions.map((item) => [item.candidate_id, item]));
+    decisions.set(decision.candidate_id, decision);
+    const sidecar = createVisualReviewSidecar(review.packageHash, [...decisions.values()]);
+    try {
+      const serialized = JSON.stringify(sidecar);
+      if (serialized.length > 64 * 1024) throw new Error("Visual review sidecar exceeds 64 KiB");
+      window.localStorage.setItem(review.storageKey, serialized);
+    } catch {
+      const message = element("p", "p2md-review-error");
+      message.setAttribute("role", "alert");
+      message.textContent = readerText(this.locale, "reviewStorageFailed");
+      trigger.closest(".p2md-review-card")?.appendChild(message);
+      return;
+    }
+    trigger.closest("dialog")?.close();
+    await this.loadPackage();
+    this.openDiagnostics();
+  }
+
+  private reviewDecisionLabel(decision: MinerUVisualReviewDecision | undefined): string | undefined {
+    if (!decision) return undefined;
+    if (decision.correction) return readerText(this.locale, "reviewDecisionCorrected");
+    if (decision.verdict === "accept") return readerText(this.locale, "reviewDecisionAccept");
+    if (decision.verdict === "reject") return readerText(this.locale, "reviewDecisionReject");
+    return readerText(this.locale, "reviewDecisionAbstain");
+  }
+
+  private createVisualReviewSection(review: MinerUVisualReview): HTMLElement {
+    const section = element("section", "p2md-visual-review");
+    const heading = element("h3");
+    heading.textContent = readerText(this.locale, "visualReviewTitle");
+    const intro = element("p", "p2md-review-intro");
+    intro.textContent = readerText(this.locale, "visualReviewIntro");
+    section.append(heading, intro);
+    if (!review.candidates.length) {
+      const empty = element("p", "p2md-review-empty");
+      empty.textContent = readerText(this.locale, "visualReviewNone");
+      section.appendChild(empty);
+      return section;
+    }
+    const decisions = new Map(review.decisions.map((item) => [item.candidate_id, item]));
+    review.candidates.forEach((candidate) => {
+      const card = element("article", "p2md-review-card");
+      const cardHeader = element("div", "p2md-review-card-header");
+      const title = element("strong");
+      title.textContent = readerText(this.locale, candidate.kind === "fragment_group" ? "fragmentCandidate" : "captionCandidate");
+      const meta = element("span");
+      meta.textContent = readerText(this.locale, "reviewCandidatePage", {
+        page: candidate.pageIndex + 1,
+        count: candidate.memberBlockIds.length
+      });
+      cardHeader.append(title, meta);
+      const existing = decisions.get(candidate.id);
+      const decisionLabel = this.reviewDecisionLabel(existing);
+      if (decisionLabel) {
+        const badge = element("span", "p2md-review-decision");
+        badge.dataset.verdict = existing?.verdict ?? "abstain";
+        badge.textContent = decisionLabel;
+        cardHeader.appendChild(badge);
+      }
+      const actions = element("div", "p2md-review-actions");
+      const saveVerdict = (verdict: MinerUReviewVerdict) => (event: MouseEvent) => {
+        void this.storeVisualReviewDecision(review, { candidate_id: candidate.id, verdict, correction: null }, event.currentTarget as HTMLElement);
+      };
+      const accept = button(readerText(this.locale, "acceptCandidate"), "p2md-review-button p2md-review-primary");
+      const canAccept = candidate.kind === "fragment_group" && candidate.replacementMode !== "none";
+      accept.disabled = !canAccept;
+      if (!canAccept) accept.title = readerText(this.locale, "reviewUnsupportedAccept");
+      accept.addEventListener("click", saveVerdict("accept"));
+      const reject = button(readerText(this.locale, "rejectCandidate"), "p2md-review-button");
+      reject.addEventListener("click", saveVerdict("reject"));
+      const abstain = button(readerText(this.locale, "abstainCandidate"), "p2md-review-button");
+      abstain.addEventListener("click", saveVerdict("abstain"));
+      actions.append(accept, reject, abstain);
+      card.append(cardHeader, actions);
+
+      if (candidate.kind === "fragment_group") {
+        const details = element("details", "p2md-review-correction");
+        const summary = element("summary");
+        summary.textContent = readerText(this.locale, "specifyCorrectGroup");
+        const help = element("p");
+        help.textContent = readerText(this.locale, "correctionHelp");
+        const choices = element("div", "p2md-review-blocks");
+        const selectedIds = new Set(existing?.correction?.member_block_ids ?? candidate.memberBlockIds);
+        review.blocks.filter((block) => block.pageIndex === candidate.pageIndex).forEach((block) => {
+          const label = element("label", "p2md-review-block");
+          const checkbox = element("input");
+          checkbox.type = "checkbox";
+          checkbox.value = block.id;
+          checkbox.checked = selectedIds.has(block.id);
+          const preview = element("span", "p2md-review-block-preview");
+          if (block.assetPath && this.fileSystem) {
+            const image = element("img");
+            image.alt = "";
+            void this.fileSystem.resolveAssetUrl(block.assetPath).then((url) => { image.src = url; }).catch(() => undefined);
+            preview.appendChild(image);
+          }
+          const copy = element("span");
+          copy.textContent = `${readerText(this.locale, "visualBlockLabel", { order: block.pageOrder + 1 })} · ${(block.bbox.x * 100).toFixed(0)}%, ${(block.bbox.y * 100).toFixed(0)}%`;
+          label.append(checkbox, preview, copy);
+          choices.appendChild(label);
+        });
+        const submit = button(readerText(this.locale, "submitCorrectGroup"), "p2md-review-button p2md-review-primary");
+        submit.addEventListener("click", (event) => {
+          const memberIds = [...choices.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked')].map((input) => input.value);
+          void this.storeVisualReviewDecision(review, {
+            candidate_id: candidate.id,
+            verdict: "reject",
+            correction: { kind: "fragment_group", member_block_ids: memberIds }
+          }, event.currentTarget as HTMLElement);
+        });
+        details.append(summary, help, choices, submit);
+        card.appendChild(details);
+      }
+      section.appendChild(card);
+    });
+    return section;
+  }
+
   private openDiagnostics(): void {
     if (!this.loaded) return;
     const status = statusCopy(this.loaded.state, this.locale);
@@ -587,6 +745,7 @@ export class ReaderWorkspace {
       list.appendChild(item);
     });
     content.append(heading, summary, list);
+    if (this.loaded.visualReview) content.appendChild(this.createVisualReviewSection(this.loaded.visualReview));
     this.openDialog(content, readerText(this.locale, "closeDiagnostics"));
   }
 

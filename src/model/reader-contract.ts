@@ -152,7 +152,7 @@ export interface LoadedAsset {
   display?:
     | { mode: "asset" }
     | { mode: "pdf-crop"; pdfPath: string; bbox: NormalizedBBox; padding: number }
-    | { mode: "fragment-set"; assetPaths: string[] };
+    | { mode: "fragment-set"; fragments: Array<{ path: string; bbox: NormalizedBBox }> };
 }
 
 export interface LoadedPaperPackage {
@@ -169,6 +169,7 @@ export interface LoadedPaperPackage {
   diagnostics: Diagnostic[];
   sourceFormat?: "paper2md" | "mineru" | "markdown";
   packageIntegrity?: "verified" | "unverified";
+  visualReview?: import("./mineru-visual-review").MinerUVisualReview;
   sourcePdf?: {
     path: string;
   };

@@ -26,6 +26,16 @@ function padded(bbox: NormalizedBBox, padding: number): NormalizedBBox {
   return { x, y, width: right - x, height: bottom - y };
 }
 
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.addEventListener("load", () => resolve(image), { once: true });
+    image.addEventListener("error", () => reject(new Error("Fragment image could not be decoded")), { once: true });
+    image.src = url;
+  });
+}
+
 interface CancellablePdfRenderTask {
   promise: Promise<void>;
   cancel(): void;
@@ -96,6 +106,47 @@ export class PdfVisualResolver implements PdfReferenceRuntime {
   }
 
   async resolve(asset: LoadedAsset, fileSystem: ReaderFileSystem): Promise<string> {
+    if (asset.display?.mode === "fragment-set") {
+      try {
+        const fragments = asset.display.fragments;
+        if (fragments.length < 2) return fileSystem.resolveAssetUrl(asset.path);
+        const left = Math.min(...fragments.map((fragment) => fragment.bbox.x));
+        const top = Math.min(...fragments.map((fragment) => fragment.bbox.y));
+        const right = Math.max(...fragments.map((fragment) => fragment.bbox.x + fragment.bbox.width));
+        const bottom = Math.max(...fragments.map((fragment) => fragment.bbox.y + fragment.bbox.height));
+        const unionWidth = right - left;
+        const unionHeight = bottom - top;
+        if (unionWidth <= 0 || unionHeight <= 0) throw new Error("Fragment layout has an invalid union box");
+        const width = 1600;
+        const height = Math.max(1, Math.min(2400, Math.round(width * unionHeight / unionWidth)));
+        const canvas = window.document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) throw new Error("Canvas is unavailable");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, width, height);
+        const images = await Promise.all(fragments.map(async (fragment) => {
+          const url = await fileSystem.resolveAssetUrl(fragment.path);
+          return { fragment, image: await loadImage(url) };
+        }));
+        images.forEach(({ fragment, image }) => {
+          context.drawImage(
+            image,
+            Math.round((fragment.bbox.x - left) / unionWidth * width),
+            Math.round((fragment.bbox.y - top) / unionHeight * height),
+            Math.max(1, Math.round(fragment.bbox.width / unionWidth * width)),
+            Math.max(1, Math.round(fragment.bbox.height / unionHeight * height))
+          );
+        });
+        const url = URL.createObjectURL(await canvasBlob(canvas));
+        this.urls.add(url);
+        return url;
+      } catch (error) {
+        console.warn("Fragment-set reconstruction failed; using the first packaged asset", error);
+        return fileSystem.resolveAssetUrl(asset.path);
+      }
+    }
     if (asset.display?.mode !== "pdf-crop") return fileSystem.resolveAssetUrl(asset.path);
     try {
       const document = await this.loadDocument(fileSystem, asset.display.pdfPath);

@@ -100,7 +100,26 @@ const ENGLISH = {
   pdfLayoutBoxes: "Layout boxes",
   pdfImageCompatibility: "PDF page {page} image compatibility layer",
   locateVisual: "Locate figure",
-  resizeReaderColumns: "Resize article and reference columns"
+  resizeReaderColumns: "Resize article and reference columns",
+  visualReviewTitle: "Visual repair review",
+  visualReviewNone: "No uncertain visual candidates need review.",
+  visualReviewIntro: "Decisions affect only this browser's reading view. Source Markdown, MinerU JSON, images, and PDF remain unchanged.",
+  fragmentCandidate: "Fragment group",
+  captionCandidate: "Cross-page caption",
+  reviewCandidatePage: "Page {page} · {count} referenced blocks",
+  acceptCandidate: "Accept candidate",
+  rejectCandidate: "Reject candidate",
+  abstainCandidate: "Decide later",
+  specifyCorrectGroup: "Specify the correct fragment group",
+  correctionHelp: "Select existing visual blocks from this page. Coordinates and paths are derived from the verified package and checked again before display.",
+  visualBlockLabel: "Block {order}",
+  submitCorrectGroup: "Validate and apply group",
+  reviewDecisionAccept: "Accepted",
+  reviewDecisionReject: "Rejected",
+  reviewDecisionAbstain: "Pending",
+  reviewDecisionCorrected: "Rejected · replacement submitted",
+  reviewStorageFailed: "The review decision could not be stored in this browser.",
+  reviewUnsupportedAccept: "This candidate cannot be safely accepted automatically; reject it or decide later."
 } as const;
 
 export type ReaderMessageKey = keyof typeof ENGLISH;
@@ -202,7 +221,26 @@ const CHINESE: Record<ReaderMessageKey, string> = {
   pdfLayoutBoxes: "版面框",
   pdfImageCompatibility: "PDF 第 {page} 页图片兼容补绘",
   locateVisual: "定位图片",
-  resizeReaderColumns: "调整正文与参考栏宽度"
+  resizeReaderColumns: "调整正文与参考栏宽度",
+  visualReviewTitle: "视觉修复审阅",
+  visualReviewNone: "当前没有需要人工审阅的不确定视觉候选。",
+  visualReviewIntro: "决定只影响当前浏览器的阅读显示；原始 Markdown、MinerU JSON、图片和 PDF 均不会修改。",
+  fragmentCandidate: "碎图组合",
+  captionCandidate: "跨页图注",
+  reviewCandidatePage: "第 {page} 页 · 引用 {count} 个块",
+  acceptCandidate: "接受候选",
+  rejectCandidate: "拒绝候选",
+  abstainCandidate: "稍后判断",
+  specifyCorrectGroup: "指定正确的碎图组合",
+  correctionHelp: "只能勾选本页已有视觉块。坐标与路径由已验证内容包提供，并会在显示前重新检测。",
+  visualBlockLabel: "图块 {order}",
+  submitCorrectGroup: "检测并应用组合",
+  reviewDecisionAccept: "已接受",
+  reviewDecisionReject: "已拒绝",
+  reviewDecisionAbstain: "暂未判断",
+  reviewDecisionCorrected: "已拒绝 · 已提交替代组合",
+  reviewStorageFailed: "无法在当前浏览器中保存审阅决定。",
+  reviewUnsupportedAccept: "此候选不能安全地直接接受；请拒绝或稍后判断。"
 };
 
 const COPY: Record<ReaderLocale, Record<ReaderMessageKey, string>> = {

@@ -29,6 +29,7 @@ import {
 } from "./mineru-package-integrity";
 import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
+import { prepareMinerUVisualReview } from "./mineru-visual-review";
 import { contentListForMarkdown, detectPackageSource } from "./package-source";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
@@ -45,10 +46,10 @@ async function sha256(data: string | ArrayBuffer | Uint8Array): Promise<string> 
 export class PackageLoader {
   constructor(private readonly fileSystem: ReaderFileSystem) {}
 
-  async loadDetected(): Promise<LoadedPaperPackage> {
+  async loadDetected(visualReviewSidecar?: unknown): Promise<LoadedPaperPackage> {
     const source = await detectPackageSource(this.fileSystem);
-    if (source.format === "mineru") return this.loadMinerU(source.articlePath, source.contentListPath);
-    const loaded = await this.load(source.articlePath);
+    if (source.format === "mineru") return this.loadMinerU(source.articlePath, source.contentListPath, visualReviewSidecar);
+    const loaded = await this.load(source.articlePath, visualReviewSidecar);
     loaded.sourceFormat = source.format;
     return loaded;
   }
@@ -66,16 +67,16 @@ export class PackageLoader {
     return { text, bytes };
   }
 
-  async load(articleRelativePath = "article.md"): Promise<LoadedPaperPackage> {
+  async load(articleRelativePath = "article.md", visualReviewSidecar?: unknown): Promise<LoadedPaperPackage> {
     if (!isSafeRelativePath(articleRelativePath)) throw new Error(`Unsafe article path: ${articleRelativePath}`);
     if (articleRelativePath !== "article.md") {
       const stem = articleRelativePath.replace(/\.md$/i, "");
       const stableContentList = `${stem}_content_list.json`;
       const v2ContentList = `${stem}_content_list_v2.json`;
-      if (await this.fileSystem.exists(stableContentList)) return this.loadMinerU(articleRelativePath, stableContentList);
-      if (await this.fileSystem.exists(v2ContentList)) return this.loadMinerU(articleRelativePath, v2ContentList);
+      if (await this.fileSystem.exists(stableContentList)) return this.loadMinerU(articleRelativePath, stableContentList, visualReviewSidecar);
+      if (await this.fileSystem.exists(v2ContentList)) return this.loadMinerU(articleRelativePath, v2ContentList, visualReviewSidecar);
       const detectedContentList = contentListForMarkdown(articleRelativePath, await this.fileSystem.listFiles(""));
-      if (detectedContentList) return this.loadMinerU(articleRelativePath, detectedContentList);
+      if (detectedContentList) return this.loadMinerU(articleRelativePath, detectedContentList, visualReviewSidecar);
     }
     const article = await this.readTextWithinLimit(articleRelativePath, PACKAGE_LIMITS.articleBytes, "article.md");
     const articleText = article.text;
@@ -263,7 +264,7 @@ export class PackageLoader {
     };
   }
 
-  private async loadMinerU(articleRelativePath: string, contentListRelativePath: string): Promise<LoadedPaperPackage> {
+  private async loadMinerU(articleRelativePath: string, contentListRelativePath: string, visualReviewSidecar?: unknown): Promise<LoadedPaperPackage> {
     if (!isSafeRelativePath(articleRelativePath) || !isSafeRelativePath(contentListRelativePath)) {
       throw new Error("Unsafe MinerU package path");
     }
@@ -303,9 +304,11 @@ export class PackageLoader {
     let captionContinuations: PdfCaptionContinuationRequest[] = [];
     let pageMap: LoadedPaperPackage["pageMap"];
     let pdfLayout: LoadedPaperPackage["pdfLayout"];
+    let visualReview: LoadedPaperPackage["visualReview"];
     let contractVersion = `mineru-content-list-${parsed.version}`;
     const viewerIndexPath = "_extraction/viewer-index.json";
     const visualRepairPath = "_extraction/visual-repair.json";
+    const visualCandidatesPath = "_extraction/visual-candidates.json";
     const sourcePdfPath = "_extraction/source.pdf";
     const [hasViewerIndex, hasVisualRepair, hasSourcePdf] = await Promise.all([
       this.fileSystem.exists(viewerIndexPath),
@@ -342,10 +345,44 @@ export class PackageLoader {
             this.readTextWithinLimit(viewerIndexPath, PACKAGE_LIMITS.viewerContractBytes, "viewer-index.json").then((value) => JSON.parse(value.text) as unknown),
             this.readTextWithinLimit(visualRepairPath, PACKAGE_LIMITS.viewerContractBytes, "visual-repair.json").then((value) => JSON.parse(value.text) as unknown)
           ]);
+        let effectiveVisualRepair = visualRepairContract;
+        if (integrity.status === "verified" && integrity.derived.has(visualCandidatesPath)) {
+          try {
+            const candidatePackage = await readVerifiedMinerUDerivedJson(
+              this.fileSystem,
+              visualCandidatesPath,
+              integrity.derived.get(visualCandidatesPath)
+            );
+            const prepared = await prepareMinerUVisualReview({
+              candidatePackage,
+              viewerIndex: viewerContract,
+              visualRepair: visualRepairContract,
+              articleHash,
+              mineruHash,
+              sourcePdfPath: hasSourcePdf ? sourcePdfPath : undefined,
+              sidecar: visualReviewSidecar
+            });
+            effectiveVisualRepair = prepared.visualRepair;
+            visualReview = prepared.review;
+            diagnostics.push(...prepared.diagnostics);
+          } catch (error) {
+            diagnostics.push({
+              level: "warning",
+              code: "mineru-visual-review-invalid",
+              message: `视觉候选审阅不可用，已保留确定性修复：${error instanceof Error ? error.message : String(error)}`
+            });
+          }
+        } else if (integrity.status === "verified" && await this.fileSystem.exists(visualCandidatesPath)) {
+          diagnostics.push({
+            level: "warning",
+            code: "mineru-visual-review-unlisted",
+            message: "visual-candidates.json 未登记在 manifest.json，已禁止人工视觉修复。"
+          });
+        }
         const applied = applyMinerUVisualRepair({
           visuals: parsed.visuals,
           viewerIndex: viewerContract,
-          visualRepair: visualRepairContract,
+          visualRepair: effectiveVisualRepair,
           mineruPayload,
           articleMarkdown: article.text,
           articleHash,
@@ -483,6 +520,7 @@ export class PackageLoader {
       state: "mineru",
       sourceFormat: "mineru",
       packageIntegrity: integrity.status,
+      visualReview,
       articlePath: this.fileSystem.resolvePath(articleRelativePath),
       articleText,
       articleHash,
