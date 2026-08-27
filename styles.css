@@ -632,6 +632,7 @@ button.p2md-pdf-layout-box { cursor: pointer; pointer-events: auto; }
   align-items: center;
   cursor: zoom-in;
   display: flex;
+  flex: 0 0 auto;
   justify-content: center;
   min-height: 230px;
   padding: 0;
