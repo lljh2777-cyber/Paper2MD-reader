@@ -209,6 +209,14 @@ export class PdfReferencePane {
     if (this.visible) this.scrollToPage(this.state.currentPage, "auto");
   }
 
+  setFollowing(value: boolean): PdfReferencePaneState {
+    const pageChanged = this.state.setFollowing(value);
+    this.updateToolbar();
+    if (pageChanged && this.visible) this.scrollToPage(this.state.currentPage, "smooth");
+    this.onStateChange?.();
+    return this.getState();
+  }
+
   setCurrentVisual(id: string): void {
     this.currentVisualId = id;
     this.container.querySelectorAll<HTMLElement>(".p2md-pdf-layout-box").forEach((box) => {

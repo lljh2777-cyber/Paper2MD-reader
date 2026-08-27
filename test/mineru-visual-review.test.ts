@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createVisualReviewSidecar,
   prepareMinerUVisualReview,
+  previewMinerUVisualReviewDecision,
   type MinerUVisualReviewDecision
 } from "../src/model/mineru-visual-review";
 import { applyMinerUVisualRepair } from "../src/model/mineru-visual-repair";
@@ -200,6 +201,44 @@ function crossPageFixture() {
 }
 
 describe("prepareMinerUVisualReview", () => {
+  it("previews a decision through the full validator without writing or mutating current review state", async () => {
+    const input = fixture();
+    const source = JSON.stringify(input.visualRepair);
+    const prepared = await prepareMinerUVisualReview({
+      ...input,
+      articleHash,
+      mineruHash,
+      sourcePdfPath: "_extraction/source.pdf"
+    });
+    const requested = decision(input.candidate.candidate_id);
+    const preview = await previewMinerUVisualReviewDecision(prepared.review!, requested);
+
+    expect(preview).toMatchObject({
+      valid: true,
+      writesSidecar: false,
+      candidateId: input.candidate.candidate_id,
+      effect: "merge-fragments",
+      validatedDecision: requested
+    });
+    expect(prepared.review?.decisions).toEqual([]);
+    expect(JSON.stringify(input.visualRepair)).toBe(source);
+  });
+
+  it("fails a preview closed when a replacement group does not pass geometry checks", async () => {
+    const input = fixture();
+    input.viewerIndex.pages[0].blocks[2].bbox_norm = [800, 700, 950, 900];
+    const prepared = await prepareMinerUVisualReview({ ...input, articleHash, mineruHash });
+    const preview = await previewMinerUVisualReviewDecision(
+      prepared.review!,
+      decision(input.candidate.candidate_id, ["block-a", "block-c"])
+    );
+
+    expect(preview.valid).toBe(false);
+    expect(preview.effect).toBe("invalid");
+    expect(preview.writesSidecar).toBe(false);
+    expect(preview.diagnostics.some((item) => item.code === "mineru-user-correction-rejected")).toBe(true);
+  });
+
   it("accepts an existing bounded candidate without editing the source contracts", async () => {
     const input = fixture();
     const source = JSON.stringify(input.visualRepair);

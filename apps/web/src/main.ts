@@ -6,6 +6,7 @@ import { BrowserPackagePicker } from "./browser-package-picker";
 import { readerText, ReaderLocale } from "../../../src/ui/locale";
 import { PdfVisualResolver } from "./pdf-visual-resolver";
 import { configuredProcessingApiBaseUrl, ProcessingClient } from "./processing-client";
+import { registerReaderWebMcp } from "./reader-webmcp";
 
 export function requestedPackageId(pathname: string): string | undefined {
   const match = /^\/reader\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})\/?$/.exec(pathname);
@@ -37,6 +38,7 @@ export function mountWebReader(root: HTMLElement): () => void {
       "zh-CN": webCopy("zh-CN", pdfProcessingEnabled)
     }
   });
+  const webMcp = registerReaderWebMcp(workspace);
   const packageId = requestedPackageId(window.location.pathname);
   const apiBaseUrl = configuredProcessingApiBaseUrl();
   if (packageId && apiBaseUrl) {
@@ -44,8 +46,11 @@ export function mountWebReader(root: HTMLElement): () => void {
       .then((fileSystem) => workspace.attachFileSystem(fileSystem))
       .catch((error) => {
         console.error("Could not open linked Paper2MD package", error);
-        root.dataset.state = "failed";
+        root.dataset.state = "error";
       });
   }
-  return () => workspace.destroy();
+  return () => {
+    webMcp.dispose();
+    workspace.destroy();
+  };
 }

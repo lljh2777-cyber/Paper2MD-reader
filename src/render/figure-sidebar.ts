@@ -89,12 +89,32 @@ export class FigureSidebar {
     }
   }
 
+  navigateTo(id: string): boolean {
+    const figure = this.figures.find((item) => item.id === id);
+    if (!figure) return false;
+    const changed = figure.slotElement
+      ? this.followState.selectForNavigation(id)
+      : this.followState.select(id);
+    if (changed) this.render();
+    this.options.onSelectionChange?.(figure, this.followState.isFollowing);
+    return true;
+  }
+
   trackReadingTarget(id: string): void {
     if (this.followState.trackReadingTarget(id)) this.render();
   }
 
   activateReadingFollowing(): void {
     if (this.followState.cancelPendingNavigation()) this.render();
+  }
+
+  setFollowing(value: boolean): FigureSidebarState {
+    if (this.followState.setFollowing(value)) {
+      this.followInput.checked = this.followState.isFollowing;
+      this.render();
+      this.options.onStateChange?.();
+    }
+    return this.getState();
   }
 
   getState(): FigureSidebarState {

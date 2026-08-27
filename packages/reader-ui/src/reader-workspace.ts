@@ -8,6 +8,7 @@ import { MinerUPackageIntegrityError } from "../../../src/model/mineru-package-i
 import {
   createVisualReviewSidecar,
   MAX_VISUAL_REVIEW_SIDECAR_BYTES,
+  previewMinerUVisualReviewDecision,
   type MinerUReviewVerdict,
   type MinerUVisualReview,
   type MinerUVisualReviewDecision,
@@ -16,7 +17,7 @@ import {
 import { bindContractAssets } from "../../../src/render/contract-renderer";
 import type { RenderedArticle } from "../../../src/render/contract-renderer";
 import { ArticleOutline } from "../../../src/render/article-outline";
-import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "../../../src/render/figure-sidebar";
+import { FigurePresentation, FigureSidebar, FigureSidebarOptions, FigureSidebarState } from "../../../src/render/figure-sidebar";
 import type { PdfReferenceRuntime } from "../../../src/render/pdf-reference-pane";
 import { ReferenceSidebar } from "../../../src/render/reference-sidebar";
 import { materializeReaderPageOwnership } from "../../../src/render/page-ownership";
@@ -40,6 +41,16 @@ import {
 import { statusCopy } from "../../../src/ui/status-copy";
 import type { ReaderPackagePicker } from "../../reader-core/src/index";
 import type { ReaderProcessingProgress } from "../../reader-core/src/index";
+import type {
+  ReaderAgentController,
+  ReaderAgentPage,
+  ReaderAgentState,
+  ReaderFollowTarget,
+  ReaderHeadingSummary,
+  ReaderVisualRepairCandidateSummary,
+  ReaderVisualSummary
+} from "./reader-agent-controller";
+import type { ReferenceMode } from "../../../src/render/reference-sidebar";
 
 export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
@@ -101,7 +112,35 @@ function button(label: string, className: string, icon?: string): HTMLButtonElem
   return node;
 }
 
-export class ReaderWorkspace {
+interface ReaderFigureController {
+  setFigures(figures: FigurePresentation[]): void;
+  trackReadingTarget(id: string): void;
+  activateReadingFollowing(): void;
+  navigateTo(id: string): boolean;
+  setFollowing(value: boolean): unknown;
+  getState(): FigureSidebarState | ReturnType<ReferenceSidebar["getState"]>;
+}
+
+const MAX_AGENT_LABEL_CHARS = 500;
+const MAX_AGENT_CAPTION_CHARS = 2_000;
+const MAX_AGENT_PAGE_SIZE = 200;
+const MAX_AGENT_REPAIR_BLOCKS = 128;
+
+function boundedAgentText(value: string | undefined, maximum: number): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized ? normalized.slice(0, maximum) : undefined;
+}
+
+function agentPage<T>(items: T[], start = 0, limit = 100): ReaderAgentPage<T> {
+  const safeStart = Number.isSafeInteger(start) && start >= 0 ? start : 0;
+  const safeLimit = Number.isSafeInteger(limit) ? Math.max(1, Math.min(MAX_AGENT_PAGE_SIZE, limit)) : 100;
+  const pageItems = items.slice(safeStart, safeStart + safeLimit);
+  const nextStart = safeStart + pageItems.length < items.length ? safeStart + pageItems.length : undefined;
+  return { items: pageItems, total: items.length, start: safeStart, nextStart };
+}
+
+export class ReaderWorkspace implements ReaderAgentController {
   private fileSystem?: ReaderFileSystem;
   private loaded?: LoadedPaperPackage;
   private articleScroll!: HTMLElement;
@@ -111,8 +150,9 @@ export class ReaderWorkspace {
   private statusButton!: HTMLButtonElement;
   private statusLabel!: HTMLElement;
   private reloadButton!: HTMLButtonElement;
-  private figureSidebar!: Pick<FigureSidebar, "setFigures" | "trackReadingTarget" | "activateReadingFollowing">;
+  private figureSidebar!: ReaderFigureController;
   private referenceSidebar?: ReferenceSidebar;
+  private figures: FigurePresentation[] = [];
   private workspaceElement!: HTMLElement;
   private splitRatio = DEFAULT_READER_VIEW_STATE.splitRatio;
   private stateKey?: string;
@@ -177,6 +217,149 @@ export class ReaderWorkspace {
     this.fileLabel.textContent = fileSystem.rootLabel;
     this.reloadButton.disabled = false;
     await this.loadPackage();
+  }
+
+  getReaderState(): ReaderAgentState {
+    const lifecycle = (["idle", "loading", "ready", "degraded", "error"] as const).includes(
+      this.root.dataset.state as ReaderAgentState["lifecycle"]
+    ) ? this.root.dataset.state as ReaderAgentState["lifecycle"] : "idle";
+    const reference = this.readerReferenceState();
+    const headings = this.articleOutline?.listTargets() ?? [];
+    return {
+      lifecycle,
+      package: this.loaded ? {
+        label: boundedAgentText(this.fileSystem?.rootLabel, MAX_AGENT_LABEL_CHARS) ?? "",
+        articleSha256: this.loaded.articleHash,
+        sourceFormat: this.loaded.sourceFormat,
+        packageState: this.loaded.state,
+        packageIntegrity: this.loaded.packageIntegrity,
+        contractVersion: this.loaded.contractVersion
+      } : undefined,
+      headingCount: headings.length,
+      activeHeadingId: headings.find((heading) => heading.active)?.id,
+      visualCount: this.figures.length,
+      repairCandidateCount: this.loaded?.visualReview?.candidates.length ?? 0,
+      reference
+    };
+  }
+
+  listHeadings(start = 0, limit = 100): ReaderAgentPage<ReaderHeadingSummary> {
+    const headings = (this.articleOutline?.listTargets() ?? []).map((heading) => ({
+      ...heading,
+      label: boundedAgentText(heading.label, MAX_AGENT_LABEL_CHARS) ?? ""
+    }));
+    return agentPage(headings, start, limit);
+  }
+
+  listVisuals(start = 0, limit = 100): ReaderAgentPage<ReaderVisualSummary> {
+    const selected = this.readerReferenceState().selectedVisualId;
+    const visuals = this.figures.map((figure) => ({
+      id: figure.id,
+      label: boundedAgentText(figure.label, MAX_AGENT_LABEL_CHARS) ?? figure.id,
+      kind: figure.kind,
+      available: figure.available,
+      selected: figure.id === selected,
+      hasArticleAnchor: Boolean(figure.slotElement),
+      page: figure.pageIndex === undefined ? undefined : figure.pageIndex + 1,
+      captionPage: figure.captionPageIndex === undefined ? undefined : figure.captionPageIndex + 1,
+      captionStatus: figure.captionStatus,
+      captionText: boundedAgentText(figure.captionText, MAX_AGENT_CAPTION_CHARS)
+    }));
+    return agentPage(visuals, start, limit);
+  }
+
+  navigateToHeading(id: string): ReaderHeadingSummary {
+    const heading = this.articleOutline?.navigateTo(id);
+    if (!heading) throw new Error("Reader heading ID was not found in the current article");
+    this.scheduleViewStateSave();
+    return { ...heading, label: boundedAgentText(heading.label, MAX_AGENT_LABEL_CHARS) ?? "" };
+  }
+
+  navigateToVisual(id: string): ReaderVisualSummary {
+    const visual = this.figures.find((item) => item.id === id);
+    if (!visual || !this.figureSidebar.navigateTo(id)) {
+      throw new Error("Reader visual ID was not found in the current package");
+    }
+    this.referenceSidebar?.setMode("visuals");
+    this.scheduleViewStateSave();
+    return this.listVisuals(0, MAX_AGENT_PAGE_SIZE).items.find((item) => item.id === id)!;
+  }
+
+  setReferenceMode(mode: ReferenceMode): ReaderAgentState["reference"] {
+    if (!this.referenceSidebar) throw new Error("Reference modes are unavailable in this Reader host");
+    const selected = this.referenceSidebar.setMode(mode);
+    if (selected !== mode) throw new Error("The requested reference mode is unavailable for the current package");
+    this.scheduleViewStateSave();
+    return this.readerReferenceState();
+  }
+
+  setFollowMode(target: ReaderFollowTarget, enabled: boolean): ReaderAgentState["reference"] {
+    if (target === "pdf") {
+      if (!this.referenceSidebar || !this.loaded?.sourcePdf) throw new Error("PDF following is unavailable for the current package");
+      this.referenceSidebar.setPdfFollowing(enabled);
+    } else if (this.referenceSidebar) {
+      this.referenceSidebar.setVisualFollowing(enabled);
+    } else {
+      this.figureSidebar.setFollowing(enabled);
+    }
+    this.scheduleViewStateSave();
+    return this.readerReferenceState();
+  }
+
+  getVisualRepairCandidates(start = 0, limit = 100): ReaderAgentPage<ReaderVisualRepairCandidateSummary> {
+    const review = this.loaded?.visualReview;
+    if (!review) return agentPage([], start, limit);
+    const decisions = new Map(review.decisions.map((decision) => [decision.candidate_id, decision]));
+    const candidates = review.candidates.map((candidate) => {
+      const relevantPages = new Set([candidate.pageIndex, candidate.targetPageIndex].filter((value): value is number => value !== undefined));
+      const relevantBlocks = review.blocks.filter((block) => relevantPages.has(block.pageIndex));
+      return {
+        id: candidate.id,
+        kind: candidate.kind,
+        page: candidate.pageIndex + 1,
+        targetPage: candidate.targetPageIndex === undefined ? undefined : candidate.targetPageIndex + 1,
+        memberBlockIds: [...candidate.memberBlockIds],
+        replacementMode: candidate.replacementMode,
+        figureKey: candidate.figureKey,
+        visualBlockId: candidate.visualBlockId,
+        captionBlockIds: candidate.captionBlockIds ? [...candidate.captionBlockIds] : undefined,
+        decision: decisions.get(candidate.id) ? structuredClone(decisions.get(candidate.id)!) : undefined,
+        blockCount: relevantBlocks.length,
+        blocksTruncated: relevantBlocks.length > MAX_AGENT_REPAIR_BLOCKS,
+        blocks: relevantBlocks.slice(0, MAX_AGENT_REPAIR_BLOCKS).map((block) => ({
+          id: block.id,
+          page: block.pageIndex + 1,
+          order: block.pageOrder + 1,
+          role: block.role,
+          bbox: { ...block.bbox },
+          text: boundedAgentText(block.text, MAX_AGENT_LABEL_CHARS),
+          formalFigureKey: boundedAgentText(block.formalFigureKey, MAX_AGENT_LABEL_CHARS)
+        }))
+      };
+    });
+    return agentPage(candidates, start, limit);
+  }
+
+  async previewVisualCorrection(decision: MinerUVisualReviewDecision) {
+    const review = this.loaded?.visualReview;
+    if (!review) throw new Error("Visual repair candidates are unavailable for the current package");
+    return previewMinerUVisualReviewDecision(review, decision);
+  }
+
+  private readerReferenceState(): ReaderAgentState["reference"] {
+    const reference = this.referenceSidebar?.getState();
+    const visual = reference ?? this.figureSidebar?.getState();
+    return {
+      available: Boolean(this.referenceSidebar),
+      mode: reference?.mode ?? "visuals",
+      pdfAvailable: Boolean(this.referenceSidebar && this.loaded?.sourcePdf),
+      selectedVisualId: visual?.selectedVisualId ?? "",
+      visualFollowing: "visualFollowing" in (visual ?? {})
+        ? Boolean((visual as ReturnType<ReferenceSidebar["getState"]>).visualFollowing)
+        : Boolean((visual as FigureSidebarState | undefined)?.following ?? true),
+      pdfFollowing: reference?.pdf.following ?? false,
+      pdfPage: reference?.pdf.page ?? 1
+    };
   }
 
   private renderShell(): void {
@@ -334,7 +517,8 @@ export class ReaderWorkspace {
       this.articleOutline?.setArticle(this.articleContent);
       const pageBlocks = loaded.pageMap ? materializeReaderPageOwnership(this.articleContent) : [];
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
-      this.figureSidebar.setFigures(await this.createFigurePresentations(loaded, rendered, contractUsable));
+      this.figures = await this.createFigurePresentations(loaded, rendered, contractUsable);
+      this.figureSidebar.setFigures(this.figures);
       if (this.referenceSidebar) await this.referenceSidebar.setPdfSource(loaded.sourcePdf, this.fileSystem, loaded.pdfLayout);
       this.referenceSidebar?.restoreState({
         mode: restoredState.referenceMode,
@@ -514,6 +698,7 @@ export class ReaderWorkspace {
   private renderWelcome(): void {
     this.root.dataset.state = "idle";
     this.articleOutline?.clear();
+    this.figures = [];
     this.articleContent.replaceChildren();
     const empty = element("div", "p2md-reader-empty p2md-local-welcome");
     const title = element("h1");
@@ -597,6 +782,7 @@ export class ReaderWorkspace {
     this.root.dataset.state = "error";
     this.root.classList.remove("p2md-contract-mode");
     this.articleOutline?.clear();
+    this.figures = [];
     this.articleContent.replaceChildren();
     const empty = element("div", "p2md-reader-empty p2md-local-error");
     const title = element("h2");

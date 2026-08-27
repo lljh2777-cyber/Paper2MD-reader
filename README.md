@@ -182,7 +182,7 @@ The processing service now implements the first shared command adapter at
 cross-checks metadata through fixed Europe PMC/Crossref endpoints, and ranks verified
 open XML/HTML ahead of legal PDFs. Unpaywall OA discovery is enabled only when the
 operator configures `PAPER2MD_CONTACT_EMAIL`. Title matching, acquisition, package
-publication and Reader WebMCP remain separate capabilities rather than hidden dependencies
+publication remain separate capabilities rather than hidden dependencies
 of this resolver.
 
 `ingest_paper` and `get_ingest_job` now provide the first complete automatic path for
@@ -193,7 +193,7 @@ validates an isolated staging package, and atomically publishes it. Ready jobs r
 opaque `package_id` plus `/reader/{package_id}`; the Web Reader opens that package directly
 through the service package API, so ZIP remains an export/backup format instead of an
 internal handoff. Publisher-session pages, arbitrary URLs, legal-PDF download/MinerU
-fallback, title matching and WebMCP remain later stages.
+fallback, title matching and extension bridging remain later stages.
 
 An optional local MCP stdio sidecar exposes the four processing commands
 (`get_service_status`, `resolve_paper`, `ingest_paper`, and `get_ingest_job`) plus four
@@ -206,6 +206,19 @@ catalog discovers only atomically published packages in fixed storage roots, rev
 manifest-bound files, and continues to work after a service restart. Article reads are bounded
 by line and byte limits, and figure reads return metadata rather than file contents. MCP remains
 an external control surface and is not required by Reader or Clipper.
+
+The Web Reader also adds an optional WebMCP progressive adapter. On browsers exposing the current
+`document.modelContext` API (or the deprecated `navigator.modelContext` API), it registers nine
+bounded tools: Reader state, paged headings/visuals, exact heading/visual navigation, reference and
+follow modes, paged visual-repair candidates, and no-write correction preview. Registrations share
+one abort signal and are removed when the Reader unmounts. Unsupported browsers keep the complete
+Reader behavior with no error or polyfill. Tool results never contain image bytes, source paths, DOM
+or HTML; paper-derived labels, captions and text are marked as untrusted content. Correction preview
+replays the existing hash/geometry/Markdown validator in memory and reports `writesSidecar: false`.
+`apply_visual_correction` is deliberately not registered: a future write path must add explicit user
+confirmation and may write only the hash-bound user sidecar. WebMCP remains a draft enhancement, not
+a Reader dependency. See the [Chrome imperative API documentation](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
+and the [WebMCP Community Group draft](https://webmachinelearning.github.io/webmcp/).
 
 The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
 implementations and receive no new functionality. The separate Research Agent Reader

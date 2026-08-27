@@ -85,11 +85,36 @@ export interface MinerUVisualReview {
   decisions: MinerUVisualReviewDecision[];
 }
 
+export interface MinerUVisualReviewPreview {
+  valid: boolean;
+  writesSidecar: false;
+  candidateId: string;
+  effect: "merge-fragments" | "link-caption" | "reject-candidate" | "leave-unchanged" | "invalid";
+  requestedDecision: MinerUVisualReviewDecision;
+  validatedDecision?: MinerUVisualReviewDecision;
+  diagnostics: Diagnostic[];
+}
+
 export interface PreparedMinerUVisualReview {
   review?: MinerUVisualReview;
   visualRepair: unknown;
   diagnostics: Diagnostic[];
 }
+
+export interface PrepareMinerUVisualReviewInput {
+  candidatePackage: unknown;
+  viewerIndex: unknown;
+  visualRepair: unknown;
+  articleHash: string;
+  mineruHash: string;
+  mineruPayload?: unknown;
+  articleMarkdown?: string;
+  sourcePdfPath?: string;
+  candidateFileHash: string;
+  sidecar?: unknown;
+}
+
+const previewContexts = new WeakMap<MinerUVisualReview, Omit<PrepareMinerUVisualReviewInput, "sidecar">>();
 
 function record(value: unknown): UnknownRecord | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as UnknownRecord : undefined;
@@ -721,18 +746,7 @@ export function createVisualReviewSidecar(packageHash: string, decisions: MinerU
   };
 }
 
-export async function prepareMinerUVisualReview(input: {
-  candidatePackage: unknown;
-  viewerIndex: unknown;
-  visualRepair: unknown;
-  articleHash: string;
-  mineruHash: string;
-  mineruPayload?: unknown;
-  articleMarkdown?: string;
-  sourcePdfPath?: string;
-  candidateFileHash: string;
-  sidecar?: unknown;
-}): Promise<PreparedMinerUVisualReview> {
+export async function prepareMinerUVisualReview(input: PrepareMinerUVisualReviewInput): Promise<PreparedMinerUVisualReview> {
   const diagnostics: Diagnostic[] = [];
   try {
     const parsed = await parseCandidates({
@@ -883,14 +897,17 @@ export async function prepareMinerUVisualReview(input: {
         ? `已验证 ${parsed.candidates.length} 个视觉候选；${applied} 项用户决定通过检测并应用于当前显示。`
         : "视觉候选契约有效；当前没有需要人工审阅的项目。"
     });
-    return {
-      review: {
+    const review: MinerUVisualReview = {
         packageHash,
         storageKey: visualReviewStorageKey(packageHash),
         candidates: parsed.candidates,
         blocks,
         decisions: visibleDecisions
-      },
+    };
+    const { sidecar: _sidecar, ...previewInput } = input;
+    previewContexts.set(review, previewInput);
+    return {
+      review,
       visualRepair: cloned,
       diagnostics
     };
@@ -902,4 +919,40 @@ export async function prepareMinerUVisualReview(input: {
     });
     return { visualRepair: input.visualRepair, diagnostics };
   }
+}
+
+export async function previewMinerUVisualReviewDecision(
+  review: MinerUVisualReview,
+  decision: MinerUVisualReviewDecision
+): Promise<MinerUVisualReviewPreview> {
+  const input = previewContexts.get(review);
+  if (!input) throw new Error("视觉候选缺少当前源契约上下文，已拒绝预览");
+  const decisions = new Map(review.decisions.map((item) => [item.candidate_id, item]));
+  decisions.set(decision.candidate_id, decision);
+  const sidecar = createVisualReviewSidecar(review.packageHash, [...decisions.values()]);
+  if (visualReviewSidecarByteLength(sidecar) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
+    throw new Error("视觉修复预览超过 64 KiB 安全上限");
+  }
+  const prepared = await prepareMinerUVisualReview({ ...input, sidecar });
+  const validatedDecision = prepared.review?.decisions.find((item) => item.candidate_id === decision.candidate_id);
+  const valid = Boolean(validatedDecision && canonicalJson(validatedDecision) === canonicalJson(decision));
+  const candidate = review.candidates.find((item) => item.id === decision.candidate_id);
+  const effect: MinerUVisualReviewPreview["effect"] = !valid || !candidate
+    ? "invalid"
+    : decision.verdict === "abstain"
+      ? "leave-unchanged"
+      : decision.verdict === "reject" && !decision.correction
+        ? "reject-candidate"
+        : (decision.correction?.kind ?? candidate.kind) === "fragment_group"
+          ? "merge-fragments"
+          : "link-caption";
+  return {
+    valid,
+    writesSidecar: false,
+    candidateId: decision.candidate_id,
+    effect,
+    requestedDecision: structuredClone(decision),
+    validatedDecision: validatedDecision ? structuredClone(validatedDecision) : undefined,
+    diagnostics: prepared.diagnostics.map((item) => ({ ...item }))
+  };
 }

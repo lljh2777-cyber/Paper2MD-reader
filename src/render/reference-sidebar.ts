@@ -5,7 +5,7 @@ import { readerText, ReaderLocale } from "../ui/locale";
 import { MinerUPdfLayout } from "../model/mineru-pdf-layout";
 import { PdfReferencePaneState } from "./pdf-reference-pane";
 
-type ReferenceMode = "pdf" | "visuals";
+export type ReferenceMode = "pdf" | "visuals";
 
 export interface ReferenceSidebarState {
   mode: ReferenceMode;
@@ -111,6 +111,10 @@ export class ReferenceSidebar {
     this.figures.activateReadingFollowing();
   }
 
+  navigateTo(id: string): boolean {
+    return this.figures.navigateTo(id);
+  }
+
   trackMarkdownPage(pageNumber: number): void {
     this.pdfPane?.trackMarkdownPage(pageNumber);
   }
@@ -136,11 +140,25 @@ export class ReferenceSidebar {
     this.setMode(state.mode, false);
   }
 
+  setVisualFollowing(value: boolean): ReferenceSidebarState {
+    this.figures.setFollowing(value);
+    return this.getState();
+  }
+
+  setFollowing(value: boolean): ReferenceSidebarState {
+    return this.setVisualFollowing(value);
+  }
+
+  setPdfFollowing(value: boolean): ReferenceSidebarState {
+    this.pdfPane?.setFollowing(value);
+    return this.getState();
+  }
+
   destroy(): void {
     this.pdfPane?.destroy();
   }
 
-  private setMode(mode: ReferenceMode, notify = true): void {
+  setMode(mode: ReferenceMode, notify = true): ReferenceMode {
     if (mode === "pdf" && this.pdfTab.hidden) mode = "visuals";
     this.mode = mode;
     const pdf = mode === "pdf";
@@ -154,5 +172,6 @@ export class ReferenceSidebar {
     this.visualsHost.hidden = pdf;
     this.pdfPane?.setVisible(pdf);
     if (notify) this.onStateChange?.();
+    return this.mode;
   }
 }

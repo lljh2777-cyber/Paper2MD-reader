@@ -1,4 +1,5 @@
 export * from "./reader-workspace";
+export * from "./reader-agent-controller";
 export * from "../../../src/render/contract-renderer";
 export * from "../../../src/render/figure-sidebar";
 export * from "../../../src/sync/figure-follow-state";

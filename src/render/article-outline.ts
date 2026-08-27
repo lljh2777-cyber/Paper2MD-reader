@@ -10,6 +10,13 @@ export interface ArticleOutlineEntry {
   targetId: string;
 }
 
+export interface ArticleOutlineTarget {
+  id: string;
+  label: string;
+  level: number;
+  active: boolean;
+}
+
 export interface ArticleOutlineOptions {
   onNavigate?: () => void;
 }
@@ -135,6 +142,24 @@ export class ArticleOutline {
       current = entry.element;
     }
     this.setActive(current);
+  }
+
+  listTargets(): ArticleOutlineTarget[] {
+    return this.entries.map((entry) => ({
+      id: entry.targetId,
+      label: entry.label,
+      level: entry.level,
+      active: entry.element === this.active
+    }));
+  }
+
+  navigateTo(targetId: string): ArticleOutlineTarget | undefined {
+    const entry = this.entries.find((candidate) => candidate.targetId === targetId);
+    if (!entry) return undefined;
+    this.options.onNavigate?.();
+    this.setActive(entry.element);
+    entry.element.scrollIntoView({ behavior: "smooth", block: "start" });
+    return { id: entry.targetId, label: entry.label, level: entry.level, active: true };
   }
 
   private readonly scheduleActiveUpdate = (): void => {
