@@ -5,6 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "start": "node dist/server.mjs"
+    "start": "node dist/server.mjs",
+    "mcp:start": "node dist/mcp-server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.4.3"
   }
 }

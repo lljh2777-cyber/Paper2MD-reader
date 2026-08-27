@@ -162,7 +162,7 @@ The standalone product uses these active boundaries:
 ```text
 apps/web/                 browser-only package picker and Vite entry
 apps/clipper-extension/   browser tab, session, permission and download adapter
-apps/processing-service/  isolated upload, MinerU, validation and publication service
+apps/processing-service/  isolated processing service plus optional local MCP stdio sidecar
 packages/agent-contracts/ shared MCP/WebMCP command, ingest-state and error contracts
 packages/clipper-core/    deterministic Markdown/image/clipping package projection
 packages/reader-core/     contracts, loading and host interfaces
@@ -173,7 +173,7 @@ The shared agent contract treats every external payload as untrusted. It normali
 PMID, PMCID, DOI, URL and title queries, rejects arbitrary paths in favor of opaque
 IDs, constrains ingest state transitions, and marks commands as read, network, write,
 confirmed-write or UI effects. MCP and WebMCP adapters are intentionally not core
-dependencies; they will reuse this runtime-validated command boundary when enabled.
+dependencies; adapters reuse this runtime-validated command boundary when enabled.
 Visual corrections require validation plus explicit confirmation and may only produce
 user sidecars. They never rewrite source Markdown, MinerU JSON, images or PDF files.
 
@@ -182,8 +182,8 @@ The processing service now implements the first shared command adapter at
 cross-checks metadata through fixed Europe PMC/Crossref endpoints, and ranks verified
 open XML/HTML ahead of legal PDFs. Unpaywall OA discovery is enabled only when the
 operator configures `PAPER2MD_CONTACT_EMAIL`. Title matching, acquisition, package
-publication, MCP stdio and Reader WebMCP remain separate capabilities rather than hidden
-dependencies of this resolver.
+publication and Reader WebMCP remain separate capabilities rather than hidden dependencies
+of this resolver.
 
 `ingest_paper` and `get_ingest_job` now provide the first complete automatic path for
 session-free open PMC articles. The service resolves an exact identifier, acquires only
@@ -193,7 +193,15 @@ validates an isolated staging package, and atomically publishes it. Ready jobs r
 opaque `package_id` plus `/reader/{package_id}`; the Web Reader opens that package directly
 through the service package API, so ZIP remains an export/backup format instead of an
 internal handoff. Publisher-session pages, arbitrary URLs, legal-PDF download/MinerU
-fallback, title matching, MCP stdio and WebMCP remain later stages.
+fallback, title matching and WebMCP remain later stages.
+
+An optional local MCP stdio sidecar now exposes only the four commands implemented by the
+processing service: `get_service_status`, `resolve_paper`, `ingest_paper`, and
+`get_ingest_job`. It forwards already validated command envelopes to the running loopback
+processing service, so HTTP clients, MCP clients, package publication, and Reader deep links
+share one authoritative job state. The sidecar does not accept arbitrary paths, commands,
+URLs, or evaluation input; unimplemented package-reading and visual-write commands are not
+registered. MCP remains an external control surface and is not required by Reader or Clipper.
 
 The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
 implementations and receive no new functionality. The separate Research Agent Reader
@@ -212,6 +220,8 @@ silently rewritten.
 
 Build the public Web entry with `npm run web:build`. Build and start the local
 processing service with `npm run processing:build` and `npm run processing:start`.
+An MCP host can then spawn `apps/processing-service/dist/mcp-server.mjs`; `npm run mcp:start`
+is available for direct diagnostics.
 
 ## Expected package contract
 
@@ -297,6 +307,7 @@ Unknown contract versions are never guessed. The Reader renders ordinary Markdow
 - `npm test` — contract and anchor tests.
 - `npm run processing:build` — isolated MinerU processing-service bundle.
 - `npm run processing:start` — start the previously built processing service.
+- `npm run mcp:start` — start the optional stdio MCP sidecar; the processing service must already be running.
 - `npm run local:dev` — Local Reader at `http://127.0.0.1:4174/local-reader/`.
 - `npm run local:build` — production Local Reader bundle.
 - `npm run web:build` — workspace Web application bundle.

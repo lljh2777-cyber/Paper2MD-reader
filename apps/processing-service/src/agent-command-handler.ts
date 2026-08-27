@@ -17,7 +17,8 @@ export class AgentCommandHandler {
           resolver_query_kinds: ["pmid", "pmcid", "doi"],
           ingest_query_kinds: ["pmid", "pmcid", "doi"],
           automatic_ingest_sources: ["pmc-open-html"],
-          agent_transport: "http-command"
+          agent_transport: "http-command",
+          available_agent_transports: ["http-command", "mcp-stdio-sidecar"]
         };
       case "resolve_paper":
         return this.resolver.resolve(command.input.query);

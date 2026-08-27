@@ -37,6 +37,33 @@ npm run processing:start
 
 默认仅监听 `127.0.0.1:8787`，允许 `http://127.0.0.1:4174` 和 `http://localhost:4174` 访问。随后运行 `npm run web:dev`。
 
+## 本地 MCP stdio sidecar
+
+构建 processing service 后，Codex、Claude 等本地 MCP host 可以直接启动
+`apps/processing-service/dist/mcp-server.mjs`。该进程只通过 stdio 传输 MCP，并把经过
+共享契约校验的命令转发到已经运行的本地 processing service：
+
+```powershell
+npm run processing:build
+npm run processing:start
+```
+
+在 MCP host 中将 command 配置为 `node`，args 配置为上述 `mcp-server.mjs` 的绝对路径。
+`npm run mcp:start` 可用于直接诊断，但正常情况下应由 MCP host 启动和管理该进程。
+标准输出完全保留给 JSON-RPC；诊断信息只写标准错误。
+
+当前只注册 `get_service_status`、`resolve_paper`、`ingest_paper` 和
+`get_ingest_job`。`ingest_paper` 会产生网络与发布副作用，工具说明和 MCP annotations
+均将其标为非只读、非幂等，只有用户明确要求获取并发布时才应调用。其他共享命令在
+实现确定性 command handler 前不会注册，高风险视觉修复也不会由 MCP 直接写入。
+
+sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
+`PAPER2MD_MCP_SERVICE_URL` 改为另一个精确的 loopback HTTP origin，用
+`PAPER2MD_MCP_TIMEOUT_MS` 设置 1000–120000 毫秒的命令超时。如果 processing service
+启用了 `PAPER2MD_SERVICE_TOKEN`，sidecar 从同名环境变量读取并通过 Bearer header
+传递；token 不写入命令行参数、工具结果或网页。sidecar 拒绝远程地址、凭据 URL、
+路径、查询和 fragment。Streamable HTTP 与 Reader WebMCP 不属于本阶段。
+
 ## 对外部署边界
 
 - 监听非回环地址时必须设置 `PAPER2MD_SERVICE_TOKEN`；生产环境还应由反向代理提供用户登录、TLS、配额和审计。

@@ -22,6 +22,7 @@
     "clipper:build": "npm run build --workspace @paper2md/clipper-extension",
     "processing:build": "npm run build --workspace @paper2md/processing-service",
     "processing:start": "npm run start --workspace @paper2md/processing-service",
+    "mcp:start": "npm run mcp:start --workspace @paper2md/processing-service",
     "desktop:build": "node apps/desktop/build.mjs",
     "desktop:start": "electron apps/desktop",
     "desktop:dev": "npm run desktop:build && electron apps/desktop",
@@ -37,10 +38,11 @@
     "pdfjs-dist": "^6.2.108"
   },
   "devDependencies": {
-    "@types/markdown-it": "^14.1.2",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@types/chrome": "^0.1.33",
-    "defuddle": "^0.19.3",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.10.2",
+    "defuddle": "^0.19.3",
     "electron": "43.2.0",
     "esbuild": "^0.28.1",
     "linkedom": "^0.18.12",
