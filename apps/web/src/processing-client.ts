@@ -1,4 +1,5 @@
 import type { ReaderProcessingProgress } from "../../../packages/reader-core/src/index";
+import type { ProcessingJob } from "../../../packages/agent-contracts/src/index";
 import {
   RemotePackageDescriptor,
   RemotePackageReaderFileSystem
@@ -8,15 +9,7 @@ const CLIENT_MAX_PDF_BYTES = 64 * 1024 * 1024;
 const POLL_INTERVAL_MS = 1_000;
 const POLL_TIMEOUT_MS = 30 * 60 * 1_000;
 
-type ProcessingJobState = "queued" | "running" | "succeeded" | "failed" | "cancelled";
-
-interface ProcessingJob {
-  id: string;
-  state: ProcessingJobState;
-  stage: "extract" | "validate" | "publish" | "complete";
-  message: string;
-  package?: RemotePackageDescriptor;
-}
+type RemoteProcessingJob = Omit<ProcessingJob, "package"> & { package?: RemotePackageDescriptor };
 
 declare global {
   interface Window {
@@ -95,12 +88,12 @@ export class ProcessingClient {
     );
   }
 
-  private async parseJob(response: Response): Promise<ProcessingJob> {
-    const value = await response.json() as Partial<ProcessingJob>;
+  private async parseJob(response: Response): Promise<RemoteProcessingJob> {
+    const value = await response.json() as Partial<RemoteProcessingJob>;
     if (!value.id || !value.state || !value.stage || typeof value.message !== "string") {
       throw new Error("Processing service returned an invalid job response.");
     }
-    return value as ProcessingJob;
+    return value as RemoteProcessingJob;
   }
 
   private async errorMessage(response: Response): Promise<string> {

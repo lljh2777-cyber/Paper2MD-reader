@@ -9,7 +9,9 @@ Paper2MD-Reader/
 │  └─ desktop/
 ├─ packages/
 │  ├─ reader-core/
-│  └─ reader-ui/
+│  ├─ reader-ui/
+│  ├─ agent-contracts/
+│  └─ clipper-core/
 ├─ local-reader/     # 旧 URL/构建兼容入口
 ├─ sites-reader/     # 当前公开部署壳
 └─ src/              # Obsidian 与逐步迁移中的旧实现
@@ -23,7 +25,10 @@ Paper2MD-Reader/
 
 - `reader-core`：Reader/manifest 契约、PackageLoader、文件系统接口和平台选择接口；
 - `reader-ui`：正文、Figure、图注、诊断、联动滚动和图片查看；
+- `agent-contracts`：MCP/WebMCP 共用的强类型命令、论文查询、任务状态机和错误码；
+- `clipper-core`：不依赖浏览器扩展 API 的确定性 Markdown、图片本地化与剪藏包投影；
 - `apps/web`：浏览器目录选择与 `FileSystemDirectoryHandle`/`FileList` 适配；
+- `apps/clipper-extension`：只负责当前标签页、登录态、按域权限和下载；
 - Electron renderer：只使用 DOM、共享 UI 和 preload 暴露的类型化方法；
 - Electron preload：通过 `contextBridge` 暴露固定方法，不暴露 `ipcRenderer`；
 - Electron main：唯一可以读本地文件、显示系统选择框和启动 Paper2MD 的层。

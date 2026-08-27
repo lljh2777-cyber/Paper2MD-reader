@@ -12,7 +12,7 @@ function sourceFiles(root: string): string[] {
 
 describe("host boundaries", () => {
   it("keeps shared packages and the web host free of privileged desktop imports", () => {
-    const roots = ["packages/reader-core", "packages/reader-ui", "apps/web", "apps/clipper-extension/src"];
+    const roots = ["packages/agent-contracts", "packages/clipper-core", "packages/reader-core", "packages/reader-ui", "apps/web", "apps/clipper-extension/src"];
     const forbidden = /(?:from\s+["'](?:electron|node:fs|node:child_process)|require\(["'](?:electron|node:fs|node:child_process))/;
     const violations = roots.flatMap((root) => sourceFiles(root)
       .filter((path) => forbidden.test(readFileSync(path, "utf8")))

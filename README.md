@@ -161,11 +161,21 @@ The standalone product uses these active boundaries:
 
 ```text
 apps/web/                 browser-only package picker and Vite entry
-apps/clipper-extension/   current-page Defuddle extraction and local clipping package
+apps/clipper-extension/   browser tab, session, permission and download adapter
 apps/processing-service/  isolated upload, MinerU, validation and publication service
+packages/agent-contracts/ shared MCP/WebMCP command, ingest-state and error contracts
+packages/clipper-core/    deterministic Markdown/image/clipping package projection
 packages/reader-core/     contracts, loading and host interfaces
 packages/reader-ui/       shared article/Figure/caption workspace
 ```
+
+The shared agent contract treats every external payload as untrusted. It normalizes
+PMID, PMCID, DOI, URL and title queries, rejects arbitrary paths in favor of opaque
+IDs, constrains ingest state transitions, and marks commands as read, network, write,
+confirmed-write or UI effects. MCP and WebMCP adapters are intentionally not core
+dependencies; they will reuse this runtime-validated command boundary when enabled.
+Visual corrections require validation plus explicit confirmation and may only produce
+user sidecars. They never rewrite source Markdown, MinerU JSON, images or PDF files.
 
 The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
 implementations and receive no new functionality. The separate Research Agent Reader

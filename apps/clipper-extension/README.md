@@ -4,6 +4,11 @@ This is a standalone Chromium Manifest V3 extension for extracting the currently
 rendered paper page into a local Paper2MD clipping package. It does not depend on
 Obsidian and does not call AI.
 
+Deterministic Markdown/image localization rules live in `packages/clipper-core/`.
+This extension remains the browser adapter responsible for the active tab, publisher
+session, per-origin permission prompts and user-initiated download. A future local
+service bridge can reuse the same core without importing Chrome APIs.
+
 ## Build and load
 
 ```powershell

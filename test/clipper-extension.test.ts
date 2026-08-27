@@ -9,7 +9,7 @@ import {
   readResponseBytesWithinLimit,
   safeArchiveName,
   type LocalizedImage
-} from "../apps/clipper-extension/src/clipping-package";
+} from "../packages/clipper-core/src/index";
 import type { ExtractedPaperPage } from "../apps/clipper-extension/src/messages";
 import { mergeSeparatedFigureCaptions } from "../apps/clipper-extension/src/paper-dom-normalization";
 import { adaptClippingMarkdown } from "../src/model/clipping-markdown";
