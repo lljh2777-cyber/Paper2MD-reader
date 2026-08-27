@@ -107,6 +107,10 @@ export class ReferenceSidebar {
     this.pdfPane?.setCurrentVisual(id);
   }
 
+  activateReadingFollowing(): void {
+    this.figures.activateReadingFollowing();
+  }
+
   trackMarkdownPage(pageNumber: number): void {
     this.pdfPane?.trackMarkdownPage(pageNumber);
   }

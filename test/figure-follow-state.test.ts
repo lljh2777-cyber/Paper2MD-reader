@@ -38,4 +38,33 @@ describe("FigureFollowState", () => {
     expect(state.selected).toBe("figure-2");
     expect(state.isFollowing).toBe(true);
   });
+
+  it("does not let a stale reading observation undo manual thumbnail navigation", () => {
+    const state = new FigureFollowState();
+    state.setFigures(["figure-1", "figure-2", "figure-3"]);
+
+    state.selectForNavigation("figure-2");
+    state.trackReadingTarget("figure-1");
+
+    expect(state.selected).toBe("figure-2");
+    expect(state.readingTarget).toBe("figure-1");
+
+    state.trackReadingTarget("figure-2");
+    state.trackReadingTarget("figure-3");
+
+    expect(state.selected).toBe("figure-3");
+    expect(state.readingTarget).toBe("figure-3");
+  });
+
+  it("returns authority to the reading position when the user interrupts navigation", () => {
+    const state = new FigureFollowState();
+    state.setFigures(["figure-1", "figure-2"]);
+
+    state.selectForNavigation("figure-2");
+    state.trackReadingTarget("figure-1");
+    state.cancelPendingNavigation();
+
+    expect(state.selected).toBe("figure-1");
+    expect(state.readingTarget).toBe("figure-1");
+  });
 });

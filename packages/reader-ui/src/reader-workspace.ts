@@ -109,7 +109,7 @@ export class ReaderWorkspace {
   private statusButton!: HTMLButtonElement;
   private statusLabel!: HTMLElement;
   private reloadButton!: HTMLButtonElement;
-  private figureSidebar!: Pick<FigureSidebar, "setFigures" | "trackReadingTarget">;
+  private figureSidebar!: Pick<FigureSidebar, "setFigures" | "trackReadingTarget" | "activateReadingFollowing">;
   private referenceSidebar?: ReferenceSidebar;
   private workspaceElement!: HTMLElement;
   private splitRatio = DEFAULT_READER_VIEW_STATE.splitRatio;
@@ -227,10 +227,14 @@ export class ReaderWorkspace {
     this.articleContent = element("article", "p2md-article markdown-rendered");
     this.articleScroll.appendChild(this.articleContent);
     const activateMarkdownFollowing = () => this.referenceSidebar?.activateMarkdownFollowing();
+    const resumeReadingAuthority = () => {
+      activateMarkdownFollowing();
+      this.figureSidebar.activateReadingFollowing();
+    };
     this.articleScroll.addEventListener("pointerenter", activateMarkdownFollowing);
-    this.articleScroll.addEventListener("pointerdown", activateMarkdownFollowing);
-    this.articleScroll.addEventListener("wheel", activateMarkdownFollowing, { passive: true });
-    this.articleScroll.addEventListener("focusin", activateMarkdownFollowing);
+    this.articleScroll.addEventListener("pointerdown", resumeReadingAuthority);
+    this.articleScroll.addEventListener("wheel", resumeReadingAuthority, { passive: true });
+    this.articleScroll.addEventListener("focusin", resumeReadingAuthority);
     this.articleScroll.addEventListener("scroll", () => this.scheduleViewStateSave(), { passive: true });
     const figureHost = this.options.figureHost ?? element("aside", "p2md-figures-host");
     workspace.appendChild(this.articleScroll);

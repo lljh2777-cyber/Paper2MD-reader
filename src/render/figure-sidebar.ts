@@ -78,16 +78,23 @@ export class FigureSidebar {
   }
 
   select(id: string, notify = false): void {
-    if (!this.followState.select(id)) return;
+    const figure = this.figures.find((item) => item.id === id);
+    const changed = notify && figure?.slotElement
+      ? this.followState.selectForNavigation(id)
+      : this.followState.select(id);
+    if (!changed) return;
     this.render();
     if (notify) {
-      const figure = this.figures.find((item) => item.id === id);
       if (figure) this.options.onSelectionChange?.(figure, this.followState.isFollowing);
     }
   }
 
   trackReadingTarget(id: string): void {
     if (this.followState.trackReadingTarget(id)) this.render();
+  }
+
+  activateReadingFollowing(): void {
+    if (this.followState.cancelPendingNavigation()) this.render();
   }
 
   getState(): FigureSidebarState {
@@ -211,7 +218,8 @@ export class FigureSidebar {
       label.textContent = figure.label;
       button.appendChild(label);
       button.addEventListener("click", () => {
-        this.followState.select(figure.id);
+        if (figure.slotElement) this.followState.selectForNavigation(figure.id);
+        else this.followState.select(figure.id);
         this.render();
         this.options.onSelectionChange?.(figure, this.followState.isFollowing);
         this.options.onStateChange?.();
