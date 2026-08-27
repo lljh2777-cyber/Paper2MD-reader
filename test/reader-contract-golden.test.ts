@@ -1,10 +1,15 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import {
+  buildMineruViewerIndex,
+  extractMarkdownImageOccurrences
+} from "../apps/processing-service/src/reader-contract-generator";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(import.meta.dirname, "..");
@@ -15,6 +20,27 @@ const contractNames = ["viewer-index.json", "visual-repair.json", "visual-candid
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8")) as unknown;
 }
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+describe("TypeScript reader-contract generator", () => {
+  it("matches the frozen Python viewer-index output", async () => {
+    const [article, mineruText, expected] = await Promise.all([
+      readFile(join(repositoryRoot, "test", "mineru-package", "paper.md"), "utf8"),
+      readFile(join(repositoryRoot, "test", "mineru-package", "paper_content_list.json"), "utf8"),
+      readJson(join(repositoryRoot, "test", "fixtures", "reader-contract-golden", "viewer-index.json"))
+    ]);
+    const actual = buildMineruViewerIndex(
+      JSON.parse(mineruText) as unknown,
+      extractMarkdownImageOccurrences(article),
+      { article: sha256(article), mineru_result: sha256(mineruText) },
+      { packagedSourcePdf: true, sourceAvailableAtGeneration: true }
+    );
+    expect(actual).toEqual(expected);
+  });
+});
 
 describe.skipIf(!pythonAvailable)("Python reader-contract golden baseline", () => {
   it("keeps the current deterministic contract output frozen during the TypeScript migration", async () => {
