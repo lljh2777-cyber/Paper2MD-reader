@@ -44,9 +44,27 @@ under Electron `userData`. It is not written to the library, application databas
 logs, or command-line arguments. The renderer receives only configured/not-configured
 state and a four-character mask. Removing the Token deletes only that credential file.
 
-This phase implements secure local onboarding and storage. The existing direct
-`paper2md convert` task has not yet been changed to consume this Token or call the
-remote MinerU API. Reading, local package import, and Clipper packages remain Token-free.
+`New extraction` can now use the official remote MinerU API. Before every upload,
+the main process shows a separate warning dialog whose safe default is Cancel. After
+confirmation it decrypts the Token only in request memory, obtains a signed upload
+URL from the fixed MinerU endpoint, uploads the selected PDF without forwarding the
+Token to the storage host, and polls the opaque MinerU task ID. At most two remote
+extractions run concurrently.
+
+Downloaded results are untrusted input. Paper2MD applies public-HTTPS and DNS checks,
+redirect/MIME/timeout/byte limits, then accepts only a bounded ZIP containing one
+Markdown file, one content-list JSON file, and supported raster images. Files are
+written into an isolated job directory, deterministically validated, and atomically
+published to the selected library. A failed or cancelled task never publishes a
+partial package; once the final atomic publication begins it is no longer cancellable.
+Remote MinerU processing may still finish after an earlier local cancellation.
+Successful tasks refresh the library and open the package by opaque `package_id`.
+Reading, local package import, and Clipper packages remain Token-free.
+
+The deterministic contract builder currently requires Python. Packaged builds copy
+the required scripts into `dist/processing-scripts`; set `PAPER2MD_PYTHON_PATH` in
+the Electron main-process environment only when the default `python` executable is
+not available. This value is never accepted from renderer content.
 
 ## Reviewed layout workflow
 
@@ -86,6 +104,10 @@ On startup the desktop app checks disk evidence before restoring a state:
 - a readable final `article.md` restores a successful result;
 - a complete page review package returns to the layout review gate;
 - a complete ROI proposal returns to the ROI review gate;
+- a completed remote task is reopened only when its opaque package ID still resolves
+  to a catalog-validated local package;
+- an interrupted remote task becomes locally cancelled, while a package that crossed
+  the atomic commit boundary before shutdown is recovered as succeeded;
 - an interrupted process with no complete gate becomes failed and may be retried;
 - a partial output directory is never overwritten and must be inspected and removed
   manually before retrying.

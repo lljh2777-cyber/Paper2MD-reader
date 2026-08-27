@@ -48,8 +48,10 @@ main 对每个包内路径执行相对路径、根目录逃逸和符号链接检
 7. 显示 queued/running/succeeded/failed/cancelled 任务状态；
 8. 取消运行中的任务并在成功后直接打开结果；
 9. 引导用户打开 MinerU 官方 Token 管理页，并用操作系统保护的加密存储保存自有 Token；
-10. 使用与 Web/Obsidian 相同的 Reader v0.1、锚点、Figure/图注和联动逻辑；
-11. 接受 Paper2MD manifest v0.8、v0.9 和文本复核派生包 v0.10 的 Reader 绑定。
+10. 每次远程提取都单独确认 PDF 离开设备，使用固定 MinerU API 上传、轮询和下载；
+11. 对远程 ZIP 执行网络、路径、类型、数量、解压大小与语义边界检查，隔离暂存后确定性校验并原子发布；
+12. 使用与 Web/Obsidian 相同的 Reader v0.1、锚点、Figure/图注和联动逻辑；
+13. 接受 Paper2MD manifest v0.8、v0.9 和文本复核派生包 v0.10 的 Reader 绑定。
 
 论文库使用既有 processing-service 的发布布局，根目录下为固定的
 `packages/`、`jobs/`、`staging/`、`sidecars/` 和 `state/`。选择整个盘符会被拒绝；
@@ -57,10 +59,21 @@ main 对每个包内路径执行相对路径、根目录逃逸和符号链接检
 内容包均 fail closed。收藏只写论文库的用户状态，不写入源 PDF、Markdown、MinerU
 JSON、原图或内容包 manifest。
 
-Token 不下发 Reader，不进入论文库、日志或命令行参数；Renderer 只获得配置状态和
-末四位掩码。本阶段完成的是桌面安全引导与凭据落盘，现有 `paper2md convert` 任务尚未
-接入远程 MinerU 调用。后续接入时由 main/本地 Processing Service 解密并在请求内存中
-使用，仍不得把明文持久化到应用数据库。
+Token 不下发 Reader，不进入论文库、日志、环境变量或命令行参数；Renderer 只获得
+配置状态和末四位掩码。远程提取由 main 在请求内存中短暂解密 Token，只向固定 MinerU
+API 发送 Bearer 凭据；上传和下载所用签名 URL 不携带该 Token。PDF 上传具有独立确认门，
+默认选择取消。远程任务最多并发两个；在最终原子发布开始前取消可阻止本地发布，进入提交
+边界后不再接受取消。取消不能保证已经提交的 MinerU 任务在远端停止。
+
+MinerU 下载结果始终视为不可信数据：仅允许公开 HTTPS 默认端口，逐跳校验 DNS 和重定向，
+限制 MIME、下载大小、超时、ZIP 条目数、路径深度、单文件与总解压大小，并且只接受唯一
+Markdown、唯一 content-list JSON 和受支持位图。结果先写入隔离 job/staging，源 PDF、
+Markdown、MinerU JSON 和原图保持不可变；只有确定性契约与清单校验通过才原子发布到
+`packages/`，既有完整包不覆盖，失败或歧义一律 fail closed。
+
+当前确定性 Viewer 契约生成仍需要本地 Python 运行时；桌面构建会携带所需脚本，但尚未
+把 Python 解释器本身打入安装包。开发者可在 main 进程设置受信任的
+`PAPER2MD_PYTHON_PATH`，Renderer 无权提供可执行路径。
 
 直接转换目前不会替代 Paper2MD 的视觉复核流程。未来桌面任务层可在独立步骤中
 加入 ROI 确认、`layout-prepare`、视觉 Agent 结果导入、`layout-apply` 和

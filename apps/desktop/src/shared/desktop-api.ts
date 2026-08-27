@@ -41,9 +41,14 @@ export interface MineruCredentialStatus {
 }
 
 export type ConversionTaskState = "queued" | "running" | "awaiting-review" | "succeeded" | "failed" | "cancelled";
-export type ConversionWorkflow = "direct" | "reviewed-layout";
+export type ConversionWorkflow = "direct" | "reviewed-layout" | "mineru-remote";
 export type ConversionStage =
   | "direct-convert"
+  | "remote-upload"
+  | "remote-extract"
+  | "remote-download"
+  | "remote-validate"
+  | "remote-publish"
   | "roi-proposal"
   | "roi-review"
   | "layout-prepare"
@@ -66,6 +71,7 @@ export interface ConversionTask {
   artifactRootId?: string;
   artifactLabel?: string;
   recovered?: boolean;
+  packageId?: string;
 }
 
 export interface StartConversionRequest {
@@ -73,6 +79,13 @@ export interface StartConversionRequest {
   outputParentId: string;
   backend: "pdfium";
   regionRenderMode: "off" | "auto";
+}
+
+export interface StartRemoteMineruRequest {
+  pdfId: string;
+  model: "pipeline" | "vlm";
+  language: "en" | "ch";
+  ocr: boolean;
 }
 
 export type ExtractionProfile = "fast" | "standard" | "forensic";
@@ -111,6 +124,7 @@ export interface Paper2MDDesktopApi {
   listFiles(rootId: string, relativeDirectory: string): Promise<string[]>;
   readPackagePdf(rootId: string, relativePath: string): Promise<Uint8Array>;
   readPdf(pdfId: string): Promise<Uint8Array>;
+  startRemoteMineru(request: StartRemoteMineruRequest): Promise<ConversionTask | undefined>;
   startConversion(request: StartConversionRequest): Promise<ConversionTask>;
   startReviewedLayout(request: StartReviewedLayoutRequest): Promise<ConversionTask>;
   importConfirmedRoi(taskId: string): Promise<ConversionTask | undefined>;
@@ -143,6 +157,7 @@ export const DESKTOP_CHANNELS = {
   listFiles: "paper2md:list-files",
   readPackagePdf: "paper2md:read-package-pdf",
   readPdf: "paper2md:read-pdf",
+  startRemoteMineru: "paper2md:start-remote-mineru",
   startConversion: "paper2md:start-conversion",
   startReviewedLayout: "paper2md:start-reviewed-layout",
   importConfirmedRoi: "paper2md:import-confirmed-roi",

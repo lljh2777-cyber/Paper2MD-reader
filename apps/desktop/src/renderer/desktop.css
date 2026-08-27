@@ -181,6 +181,9 @@ body { color: var(--text-normal); overflow: hidden; }
 
 .p2md-desktop-task-header h1 { font-size: 17px; letter-spacing: -0.02em; margin: 0 0 5px; }
 .p2md-desktop-task-header p { color: var(--text-muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 16px; }
+.p2md-desktop-task-header .p2md-desktop-privacy-notice { background: color-mix(in srgb, var(--p2md-desktop-accent) 7%, transparent); border-left: 2px solid color-mix(in srgb, var(--p2md-desktop-accent) 55%, transparent); margin-bottom: 10px; padding: 7px 8px; }
+.p2md-desktop-mineru-options { margin-bottom: 8px; }
+.p2md-desktop-local-options { border-top: 1px solid var(--p2md-desktop-border); margin-top: 14px; padding-top: 14px; }
 .p2md-desktop-process-button,
 .p2md-desktop-task-action {
   background: #184f91;

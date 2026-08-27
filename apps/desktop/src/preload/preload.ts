@@ -4,6 +4,7 @@ import {
   DESKTOP_CHANNELS,
   Paper2MDDesktopApi,
   StartConversionRequest,
+  StartRemoteMineruRequest,
   StartReviewedLayoutRequest
 } from "../shared/desktop-api";
 
@@ -27,6 +28,7 @@ const api: Paper2MDDesktopApi = {
   listFiles: (rootId, directory) => ipcRenderer.invoke(DESKTOP_CHANNELS.listFiles, rootId, directory),
   readPackagePdf: async (rootId, path) => new Uint8Array(await ipcRenderer.invoke(DESKTOP_CHANNELS.readPackagePdf, rootId, path)),
   readPdf: async (pdfId) => new Uint8Array(await ipcRenderer.invoke(DESKTOP_CHANNELS.readPdf, pdfId)),
+  startRemoteMineru: (request: StartRemoteMineruRequest) => ipcRenderer.invoke(DESKTOP_CHANNELS.startRemoteMineru, request),
   startConversion: (request: StartConversionRequest) => ipcRenderer.invoke(DESKTOP_CHANNELS.startConversion, request),
   startReviewedLayout: (request: StartReviewedLayoutRequest) => ipcRenderer.invoke(DESKTOP_CHANNELS.startReviewedLayout, request),
   importConfirmedRoi: (taskId) => ipcRenderer.invoke(DESKTOP_CHANNELS.importConfirmedRoi, taskId),

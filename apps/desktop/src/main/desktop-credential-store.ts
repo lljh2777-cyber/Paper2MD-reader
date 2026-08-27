@@ -71,6 +71,12 @@ export class DesktopCredentialStore {
       : { configured: false, storage: "os-protected" };
   }
 
+  async requireToken(): Promise<string> {
+    const token = await this.readToken();
+    if (!token) throw new Error("Configure a MinerU API Token in Settings before remote extraction");
+    return token;
+  }
+
   async save(value: unknown): Promise<MineruCredentialStatus> {
     this.requireProtection();
     const token = validateMineruToken(value);

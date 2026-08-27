@@ -5,6 +5,11 @@ export const DESKTOP_TASK_STORE_VERSION = "paper2md-desktop-task-store-v0.1";
 const TASK_STATES = new Set(["queued", "running", "awaiting-review", "succeeded", "failed", "cancelled"]);
 const TASK_STAGES = new Set([
   "direct-convert",
+  "remote-upload",
+  "remote-extract",
+  "remote-download",
+  "remote-validate",
+  "remote-publish",
   "roi-proposal",
   "roi-review",
   "layout-prepare",
@@ -16,7 +21,7 @@ const TASK_STAGES = new Set([
 
 export type PersistentConversionTask = Omit<
   ConversionTask,
-  "packageRootId" | "artifactRootId" | "recovered"
+  "packageRootId" | "artifactRootId" | "packageId" | "recovered"
 >;
 
 export interface PersistedDirectJob {
@@ -33,7 +38,12 @@ export interface PersistedReviewedJob {
   options: ReviewedLayoutOptions;
 }
 
-export type PersistedDesktopJob = PersistedDirectJob | PersistedReviewedJob;
+export interface PersistedRemoteMineruJob {
+  kind: "mineru-remote";
+  packageId: string;
+}
+
+export type PersistedDesktopJob = PersistedDirectJob | PersistedReviewedJob | PersistedRemoteMineruJob;
 
 export interface PersistedTaskEntry {
   task: PersistentConversionTask;
@@ -87,7 +97,7 @@ function parseTask(value: unknown): PersistentConversionTask | undefined {
     !boundedString(candidate.id, 128) ||
     !boundedString(candidate.pdfName, 1024) ||
     !boundedString(candidate.outputName, 4096) ||
-    !["direct", "reviewed-layout"].includes(String(candidate.workflow)) ||
+    !["direct", "reviewed-layout", "mineru-remote"].includes(String(candidate.workflow)) ||
     !TASK_STAGES.has(String(candidate.stage)) ||
     !TASK_STATES.has(String(candidate.state)) ||
     !boundedString(candidate.createdAt, 128) ||
@@ -143,7 +153,15 @@ function parseReviewedPaths(value: unknown): ReviewedWorkflowPaths | undefined {
 
 function parseJob(value: unknown): PersistedDesktopJob | undefined {
   const candidate = record(value);
-  if (!candidate || !boundedString(candidate.pdfPath, 32768)) return undefined;
+  if (!candidate) return undefined;
+  if (candidate.kind === "mineru-remote") {
+    if (!boundedString(candidate.packageId, 128)
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate.packageId)) {
+      return undefined;
+    }
+    return { kind: "mineru-remote", packageId: candidate.packageId };
+  }
+  if (!boundedString(candidate.pdfPath, 32768)) return undefined;
   if (candidate.kind === "direct") {
     const request = record(candidate.request);
     if (
@@ -198,6 +216,12 @@ export function taskStoreJson(entries: PersistedTaskEntry[]): string {
 }
 
 export function persistentTask(task: ConversionTask): PersistentConversionTask {
-  const { packageRootId: _packageRootId, artifactRootId: _artifactRootId, recovered: _recovered, ...value } = task;
+  const {
+    packageRootId: _packageRootId,
+    artifactRootId: _artifactRootId,
+    packageId: _packageId,
+    recovered: _recovered,
+    ...value
+  } = task;
   return value;
 }

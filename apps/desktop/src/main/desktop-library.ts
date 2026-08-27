@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, parse, relative, sep } from "node:
 import { assertOpaqueId } from "../../../../packages/agent-contracts/src/index";
 import { PublishedPackageCatalog } from "../../../processing-service/src/published-package-catalog";
 import type { DesktopLibraryDocument, DesktopLibrarySnapshot } from "../shared/desktop-api";
+import type { RemoteMineruPaths } from "../../../processing-service/src/remote-mineru-workflow";
 
 export const DESKTOP_LIBRARY_MARKER_VERSION = "paper2md-library-v1";
 export const DESKTOP_LIBRARY_SELECTION_VERSION = "paper2md-library-selection-v1";
@@ -234,6 +235,31 @@ export class DesktopLibraryManager {
     const articlePath = await this.catalog.packageFilePath(id, "article.md");
     if (!articlePath) throw new Error("The selected library document is unavailable or failed validation");
     return dirname(articlePath);
+  }
+
+  async allocateMineruPaths(packageId: string): Promise<RemoteMineruPaths> {
+    if (!this.root) throw new Error("Choose a Paper2MD library before starting remote extraction");
+    if (!UUID_PATTERN.test(packageId)) throw new Error("Remote extraction requires a UUID package ID");
+    await Promise.all([
+      ensureLibraryDirectory(this.root, "jobs"),
+      ensureLibraryDirectory(this.root, "staging"),
+      ensureLibraryDirectory(this.root, "packages")
+    ]);
+    const jobRoot = join(this.root, "jobs", packageId);
+    const packageStage = join(this.root, "staging", packageId);
+    const publishedRoot = join(this.root, "packages", packageId);
+    for (const path of [jobRoot, packageStage, publishedRoot]) {
+      if (await lstat(path).catch(() => undefined)) {
+        throw new Error("A processing workspace or complete package already exists for this package ID");
+      }
+    }
+    return {
+      jobRoot,
+      sourcePath: join(jobRoot, "source.pdf"),
+      extractRoot: join(jobRoot, "extract"),
+      packageStage,
+      publishedRoot
+    };
   }
 
   async setFavorite(packageId: string, favorite: boolean): Promise<DesktopLibrarySnapshot> {

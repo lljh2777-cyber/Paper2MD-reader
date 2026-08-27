@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
@@ -34,9 +33,10 @@ export async function buildReaderContracts(input: {
   packageRoot: string;
   timeoutSeconds: number;
   pythonCommand?: string;
+  scriptPath: string;
 }): Promise<ReaderContractSummary> {
   const python = pythonCommand(input.pythonCommand);
-  const script = resolve(import.meta.dirname, "../scripts/build_reader_contracts.py");
+  const script = input.scriptPath;
   return await new Promise<ReaderContractSummary>((resolvePromise, reject) => {
     const child = spawn(python, [script, "--package-root", input.packageRoot], {
       cwd: input.packageRoot,

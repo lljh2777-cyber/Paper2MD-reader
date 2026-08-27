@@ -12,7 +12,8 @@ The active standalone paths share one contract-driven reading core:
 - A public/browser Reader that opens one local Paper2MD/MinerU output directory without uploading it.
 - A desktop library rail that lists only validated, atomically published local packages by opaque ID.
 - A browser-extension clipping path based on Defuddle, plus standalone Markdown/HTML import.
-- An optional PDF upload path backed by the isolated MinerU processing service.
+- An optional desktop PDF upload path that calls the fixed MinerU API only after explicit consent,
+  then validates untrusted output in isolation before atomic local publication.
 
 Both hosts consume explicit Paper2MD contract data. They can also adapt official MinerU
 Markdown and structured content-list output at load time without rewriting the source files.
@@ -27,6 +28,8 @@ so the browser can resolve those assets inside the same read-only boundary.
 
 - Local Paper2MD/MinerU folder import, standalone Markdown/HTML import, and bounded `.paper2md.zip` clipping import.
 - Optional PDF processing through an isolated MinerU precision-extract service.
+- Desktop MinerU extraction with OS-protected user credentials, bounded remote I/O,
+  fail-closed ZIP inspection, deterministic validation, and automatic library opening.
 - Continuous Markdown rendering in the main column.
 - Contract-backed Figure rail with full rendered captions and thumbnails.
 - Figure-rail **Follow reading** switch: automatic stage changes when enabled; separate reading-target highlight and manual selection when disabled.

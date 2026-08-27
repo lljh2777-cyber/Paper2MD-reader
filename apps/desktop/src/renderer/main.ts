@@ -125,9 +125,31 @@ const taskHeader = element("header", "p2md-desktop-task-header");
 const taskTitle = element("h1");
 taskTitle.textContent = "Paper2MD tasks";
 const taskCopy = element("p");
-taskCopy.textContent = "Use direct conversion, or pause at ROI and layout review gates for an auditable visual workflow.";
+taskCopy.textContent = "Use your MinerU account for remote precision extraction, or run a local reviewed workflow.";
 
-const optionsPanel = element("div", "p2md-desktop-options");
+const mineruNotice = element("p", "p2md-desktop-privacy-notice");
+mineruNotice.textContent = "Starting MinerU extraction uploads the selected PDF only after a separate confirmation.";
+const mineruOptions = element("div", "p2md-desktop-options p2md-desktop-mineru-options");
+const mineruModelControl = optionSelect<"pipeline" | "vlm">("MinerU model", [
+  { value: "pipeline", label: "Pipeline (standard documents)" },
+  { value: "vlm", label: "VLM (complex layouts)" }
+]);
+const mineruLanguageControl = optionSelect<"en" | "ch">("Document language", [
+  { value: "en", label: "English" },
+  { value: "ch", label: "Chinese + English" }
+]);
+const mineruOcrControl = element("label", "p2md-desktop-check");
+const mineruOcrInput = element("input");
+mineruOcrInput.type = "checkbox";
+const mineruOcrText = element("span");
+mineruOcrText.textContent = "Enable OCR for scanned PDFs";
+mineruOcrControl.append(mineruOcrInput, mineruOcrText);
+mineruOptions.append(mineruModelControl.wrapper, mineruLanguageControl.wrapper, mineruOcrControl);
+const remoteMineruButton = element("button", "p2md-desktop-process-button");
+remoteMineruButton.type = "button";
+remoteMineruButton.textContent = "Extract with MinerU";
+
+const optionsPanel = element("div", "p2md-desktop-options p2md-desktop-local-options");
 const profileControl = optionSelect<ExtractionProfile>("Extraction", [
   { value: "standard", label: "Standard" },
   { value: "fast", label: "Fast" },
@@ -169,7 +191,7 @@ processButton.type = "button";
 processButton.dataset.tone = "secondary";
 processButton.textContent = "Process PDF (direct)";
 const taskList = element("div", "p2md-desktop-task-list");
-taskHeader.append(taskTitle, taskCopy, optionsPanel, reviewedButton, processButton);
+taskHeader.append(taskTitle, taskCopy, mineruNotice, mineruOptions, remoteMineruButton, optionsPanel, reviewedButton, processButton);
 taskPanel.append(taskHeader, taskList);
 
 const settingsPanel = element("section", "p2md-desktop-rail-panel p2md-desktop-settings-panel");
@@ -579,6 +601,14 @@ function applyDesktopLocale(nextLocale: ReaderLocale): void {
   });
   taskTitle.textContent = desktopText(locale, "tasks");
   taskCopy.textContent = desktopText(locale, "taskCopy");
+  mineruNotice.textContent = desktopText(locale, "remotePrivacy");
+  updateOptionControl(mineruModelControl, desktopText(locale, "remoteModel"), [
+    desktopText(locale, "pipelineModel"), desktopText(locale, "vlmModel")
+  ]);
+  updateOptionControl(mineruLanguageControl, desktopText(locale, "documentLanguage"), [
+    desktopText(locale, "englishLanguage"), desktopText(locale, "chineseLanguage")
+  ]);
+  mineruOcrText.textContent = desktopText(locale, "enableOcr");
   updateOptionControl(profileControl, desktopText(locale, "extraction"), [
     desktopText(locale, "standard"), desktopText(locale, "fast"), desktopText(locale, "forensic")
   ]);
@@ -648,7 +678,9 @@ function renderTasks(): void {
     const recoveryLabel = task.recovered ? ` · ${desktopText(locale, "recovered")}` : "";
     workflow.textContent = task.workflow === "reviewed-layout"
       ? `${desktopText(locale, "reviewed")} · ${task.stage}${recoveryLabel}`
-      : `${desktopText(locale, "directConversion")}${recoveryLabel}`;
+      : task.workflow === "mineru-remote"
+        ? `${desktopText(locale, "remoteConversion")} · ${task.stage}`
+        : `${desktopText(locale, "directConversion")}${recoveryLabel}`;
     const state = element("span");
     state.textContent = `${localizedTaskState(task, locale)} · ${localizedTaskMessage(task, locale)}`;
     item.append(name, workflow, state);
@@ -659,12 +691,13 @@ function renderTasks(): void {
       item.appendChild(error);
     }
     const actions = element("div", "p2md-desktop-task-actions");
-    if (task.state === "succeeded" && task.packageRootId) {
+    if (task.state === "succeeded" && (task.packageRootId || task.packageId)) {
       actions.appendChild(actionButton(desktopText(locale, "openResult"), async () => {
-        await workspace.attachFileSystem(new ElectronReaderFileSystem(api, {
-          id: task.packageRootId!,
-          label: task.outputName
-        }));
+        const selected = task.packageId
+          ? await api.openLibraryDocument(task.packageId)
+          : { id: task.packageRootId!, label: task.outputName };
+        await workspace.attachFileSystem(new ElectronReaderFileSystem(api, selected));
+        await showPackagePdf(selected);
       }));
     }
     if (task.artifactRootId) {
@@ -692,12 +725,13 @@ function renderTasks(): void {
         renderTasks();
       }));
     }
-    if (task.state === "running" || task.state === "queued") {
+    if ((task.state === "running" || task.state === "queued")
+      && !(task.workflow === "mineru-remote" && task.stage === "remote-publish")) {
       actions.appendChild(actionButton(desktopText(locale, "cancel"), async () => {
         await api.cancelTask(task.id);
       }, "quiet"));
     }
-    if (managedTask && (task.state === "failed" || task.state === "cancelled")) {
+    if (managedTask && task.workflow !== "mineru-remote" && (task.state === "failed" || task.state === "cancelled")) {
       actions.appendChild(actionButton(desktopText(locale, "retry"), async () => {
         const updated = await api.resumeTask(task.id);
         taskErrors.delete(task.id);
@@ -809,6 +843,29 @@ async function startDirectConversion(): Promise<void> {
   }
 }
 
+async function startRemoteMineru(): Promise<void> {
+  setStartButtonsDisabled(true, desktopText(locale, "selecting"));
+  try {
+    const pdf = await api.choosePdf();
+    if (!pdf) return;
+    await showPdf(pdf);
+    const task = await api.startRemoteMineru({
+      pdfId: pdf.id,
+      model: mineruModelControl.select.value as "pipeline" | "vlm",
+      language: mineruLanguageControl.select.value as "en" | "ch",
+      ocr: mineruOcrInput.checked
+    });
+    if (task) {
+      tasks.set(task.id, task);
+      renderTasks();
+    }
+  } catch (error) {
+    addRequestError(error instanceof Error ? error.message : "Could not start MinerU extraction");
+  } finally {
+    setStartButtonsDisabled(false);
+  }
+}
+
 async function startReviewedLayout(): Promise<void> {
   setStartButtonsDisabled(true, desktopText(locale, "selecting"));
   try {
@@ -837,22 +894,40 @@ function setStartButtonsDisabled(disabled: boolean, temporaryLabel?: string): vo
   startButtonsBusy = disabled;
   reviewedButton.disabled = disabled;
   processButton.disabled = disabled;
+  remoteMineruButton.disabled = disabled;
   newExtractionButton.disabled = disabled;
   const busyLabel = disabled ? desktopText(locale, "selecting") : undefined;
   reviewedButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "startReviewed");
   processButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "processDirect");
+  remoteMineruButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "startRemote");
 }
 
 processButton.addEventListener("click", () => void startDirectConversion());
 reviewedButton.addEventListener("click", () => void startReviewedLayout());
+remoteMineruButton.addEventListener("click", () => void startRemoteMineru());
 newExtractionButton.addEventListener("click", () => {
   activateRailView("tasks");
-  void startDirectConversion();
+  void startRemoteMineru();
 });
+const automaticallyOpenedPackages = new Set<string>();
 const stopTaskUpdates = api.onTaskUpdate((task) => {
   taskErrors.delete(task.id);
   tasks.set(task.id, task);
   renderTasks();
+  if (task.workflow === "mineru-remote" && task.state === "succeeded" && task.packageId
+    && !automaticallyOpenedPackages.has(task.packageId)) {
+    automaticallyOpenedPackages.add(task.packageId);
+    void api.openLibraryDocument(task.packageId).then(async (selected) => {
+      await workspace.attachFileSystem(new ElectronReaderFileSystem(api, selected));
+      await showPackagePdf(selected);
+      librarySnapshot = await api.getLibrarySnapshot();
+      renderDocuments();
+      renderSettings();
+    }).catch((error) => {
+      taskErrors.set(task.id, error instanceof Error ? error.message : "Could not open the published paper");
+      renderTasks();
+    });
+  }
 });
 const stopDesktopLocale = subscribeReaderLocale((nextLocale) => applyDesktopLocale(nextLocale));
 void api.listTasks().then((existing) => {

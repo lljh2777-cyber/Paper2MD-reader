@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
-import { access, copyFile, lstat, mkdir, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { access, copyFile, lstat, mkdir, open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { app, BrowserWindow, dialog, IpcMainInvokeEvent, ipcMain, safeStorage, shell } from "electron";
 import {
@@ -10,6 +10,7 @@ import {
   DesktopPackagePdf,
   DesktopRootSelection,
   StartConversionRequest,
+  StartRemoteMineruRequest,
   StartReviewedLayoutRequest
 } from "../shared/desktop-api";
 import { normalizeDesktopRelativePath, resolvePackagePath } from "./path-security";
@@ -29,23 +30,35 @@ import {
   DesktopTaskStore,
   DirectJob,
   readableFile,
+  RemoteMineruJob,
   reviewPageCount,
   ReviewedJob
 } from "./desktop-task-store";
 import { DesktopLibraryManager } from "./desktop-library";
 import { DesktopCredentialStore } from "./desktop-credential-store";
+import { MineruRemoteError, type MineruRemoteOptions } from "../../../processing-service/src/mineru-api-client";
+import {
+  RemoteMineruCancelledError,
+  runRemoteMineruWorkflow,
+  type RemoteMineruPaths,
+  type RemoteMineruStage
+} from "../../../processing-service/src/remote-mineru-workflow";
 
 const MAX_PDF_BYTES = 256 * 1024 * 1024;
 const MAX_IPC_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ROI_BYTES = 2 * 1024 * 1024;
 const MAX_LOG_CHARS = 64 * 1024;
+const MAX_CONCURRENT_REMOTE_TASKS = 2;
 const roots = new Map<string, string>();
 const pdfs = new Map<string, string>();
 const tasks = new Map<string, ConversionTask>();
 const processes = new Map<string, ChildProcessWithoutNullStreams>();
+const remoteCancellations = new Set<string>();
+const activeRemoteTasks = new Set<string>();
 
 const directJobs = new Map<string, DirectJob>();
 const reviewedJobs = new Map<string, ReviewedJob>();
+const remoteMineruJobs = new Map<string, RemoteMineruJob>();
 const MINERU_TOKEN_PAGE = "https://mineru.net/apiManage/token";
 let libraryManager: DesktopLibraryManager | undefined;
 let credentialStore: DesktopCredentialStore | undefined;
@@ -85,7 +98,22 @@ async function registerRoot(path: string, includeSourcePdf = false): Promise<Des
   };
 }
 
-const taskStore = new DesktopTaskStore(tasks, directJobs, reviewedJobs, registerRoot, MAX_PDF_BYTES);
+const taskStore = new DesktopTaskStore(
+  tasks,
+  directJobs,
+  reviewedJobs,
+  remoteMineruJobs,
+  registerRoot,
+  async (packageId) => {
+    try {
+      await requireLibraryManager().packageRoot(packageId);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  MAX_PDF_BYTES
+);
 
 function requireLibraryManager(): DesktopLibraryManager {
   if (!libraryManager) throw new Error("Paper2MD library manager is not ready");
@@ -191,6 +219,67 @@ function failTask(taskId: string, error: unknown): void {
     state: "failed",
     message: error instanceof Error ? error.message : "Paper2MD workflow failed"
   });
+}
+
+function remoteStage(stage: RemoteMineruStage): ConversionTask["stage"] {
+  return {
+    upload: "remote-upload",
+    extract: "remote-extract",
+    download: "remote-download",
+    validate: "remote-validate",
+    publish: "remote-publish"
+  }[stage] as ConversionTask["stage"];
+}
+
+async function runRemoteExtraction(
+  taskId: string,
+  pdfPath: string,
+  paths: RemoteMineruPaths,
+  options: MineruRemoteOptions
+): Promise<void> {
+  activeRemoteTasks.add(taskId);
+  try {
+    const token = await requireCredentialStore().requireToken();
+    await runRemoteMineruWorkflow({
+      packageId: taskId,
+      filename: basename(pdfPath),
+      originalPdfPath: pdfPath,
+      token,
+      options,
+      paths,
+      pythonCommand: process.env.PAPER2MD_PYTHON_PATH,
+      contractScriptPath: join(__dirname, "processing-scripts", "build_reader_contracts.py"),
+      timeoutSeconds: 900
+    }, {
+      isCancelled: () => remoteCancellations.has(taskId),
+      onStage: (stage, message) => {
+        if (tasks.get(taskId)?.state === "running") updateTask(taskId, { stage: remoteStage(stage), message });
+      }
+    });
+    if (remoteCancellations.has(taskId)) throw new RemoteMineruCancelledError();
+    const publishedRoot = await requireLibraryManager().packageRoot(taskId);
+    const root = await registerRoot(publishedRoot, true);
+    updateTask(taskId, {
+      stage: "complete",
+      state: "succeeded",
+      message: "MinerU extraction passed validation and was published to the local library",
+      packageId: taskId,
+      packageRootId: root.id,
+      artifactRootId: root.id,
+      artifactLabel: "Published library package"
+    });
+  } catch (error) {
+    if (error instanceof RemoteMineruCancelledError || remoteCancellations.has(taskId)) return;
+    updateTask(taskId, {
+      state: "failed",
+      message: error instanceof MineruRemoteError
+        ? error.message
+        : "Remote extraction or deterministic package validation failed; no incomplete package was published"
+    });
+  } finally {
+    activeRemoteTasks.delete(taskId);
+    remoteCancellations.delete(taskId);
+  }
 }
 
 async function runDirectConversion(
@@ -468,6 +557,18 @@ function installIpcHandlers(): void {
   });
   ipcMain.handle(DESKTOP_CHANNELS.cancelTask, (event, taskId: string) => {
     assertTrusted(event);
+    const task = requireTask(taskId);
+    if (task.workflow === "mineru-remote" && task.state === "running") {
+      if (task.stage === "remote-publish") {
+        throw new Error("Atomic publication has started and can no longer be cancelled");
+      }
+      remoteCancellations.add(taskId);
+      updateTask(taskId, {
+        state: "cancelled",
+        message: "Cancelled locally; MinerU may finish its already submitted remote task, but Paper2MD will not publish it"
+      });
+      return true;
+    }
     const child = processes.get(taskId);
     if (!child || child.exitCode !== null) return false;
     child.kill();
@@ -485,6 +586,8 @@ function installIpcHandlers(): void {
     tasks.delete(taskId);
     directJobs.delete(taskId);
     reviewedJobs.delete(taskId);
+    remoteMineruJobs.delete(taskId);
+    if (!activeRemoteTasks.has(taskId)) remoteCancellations.delete(taskId);
     taskStore.schedulePersist();
     return true;
   });
@@ -577,6 +680,66 @@ function installIpcHandlers(): void {
     });
     emitTask(task);
     void runDirectConversion(task.id, pdfPath, outputPath, request);
+    return task;
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.startRemoteMineru, async (event, request: StartRemoteMineruRequest) => {
+    assertTrusted(event);
+    if (activeRemoteTasks.size >= MAX_CONCURRENT_REMOTE_TASKS) {
+      throw new Error("At most two remote MinerU extractions can run at the same time");
+    }
+    if (
+      !request || !["pipeline", "vlm"].includes(request.model) ||
+      !["en", "ch"].includes(request.language) || typeof request.ocr !== "boolean"
+    ) throw new Error("Unsupported MinerU extraction options");
+    const pdfPath = requirePdf(request.pdfId);
+    const info = await lstat(pdfPath);
+    const signature = Buffer.alloc(5);
+    const pdfHandle = await open(pdfPath, "r");
+    try {
+      await pdfHandle.read(signature, 0, signature.byteLength, 0);
+    } finally {
+      await pdfHandle.close();
+    }
+    if (!info.isFile() || info.isSymbolicLink() || info.size < 5 || info.size > MAX_PDF_BYTES
+      || signature.toString("ascii") !== "%PDF-") {
+      throw new Error("The selected file is not a safe PDF within the desktop size limit");
+    }
+    await requireCredentialStore().requireToken();
+    await requireLibraryManager().revealPath();
+    const confirmation = await dialog.showMessageBox({
+      type: "warning",
+      title: "Send PDF to MinerU?",
+      message: `Upload ${basename(pdfPath)} to the remote MinerU service?`,
+      detail: "The PDF will leave this device. MinerU usage and fees belong to your account. Paper2MD will only publish the result after deterministic local validation.",
+      buttons: ["Upload and extract", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    });
+    if (confirmation.response !== 0) return undefined;
+    const id = randomUUID();
+    const paths = await requireLibraryManager().allocateMineruPaths(id);
+    const now = new Date().toISOString();
+    const task: ConversionTask = {
+      id,
+      pdfName: basename(pdfPath),
+      outputName: safePaperStem(pdfPath),
+      workflow: "mineru-remote",
+      stage: "remote-upload",
+      state: "running",
+      createdAt: now,
+      updatedAt: now,
+      message: "Preparing the authorized PDF for remote MinerU extraction"
+    };
+    remoteMineruJobs.set(id, { packageId: id });
+    emitTask(task);
+    void runRemoteExtraction(id, pdfPath, paths, {
+      model: request.model,
+      language: request.language,
+      ocr: request.ocr,
+      formula: true,
+      table: true
+    });
     return task;
   });
   ipcMain.handle(DESKTOP_CHANNELS.startReviewedLayout, async (event, request: StartReviewedLayoutRequest) => {
@@ -695,10 +858,8 @@ app.whenReady().then(async () => {
     encrypt: (value) => new Uint8Array(safeStorage.encryptString(value)),
     decrypt: (value) => safeStorage.decryptString(Buffer.from(value))
   });
-  await Promise.all([
-    taskStore.restore(userDataPath),
-    libraryManager.restore()
-  ]);
+  await libraryManager.restore();
+  await taskStore.restore(userDataPath);
   installIpcHandlers();
   createWindow();
   app.on("activate", () => {
@@ -716,6 +877,16 @@ app.on("before-quit", (event) => {
       updateTask(taskId, {
         state: "cancelled",
         message: "Interrupted when the desktop app closed; retry from the recorded stage"
+      });
+    }
+  });
+  activeRemoteTasks.forEach((taskId) => {
+    if (tasks.get(taskId)?.stage === "remote-publish") return;
+    remoteCancellations.add(taskId);
+    if (tasks.get(taskId)?.state === "running") {
+      updateTask(taskId, {
+        state: "cancelled",
+        message: "Interrupted when the desktop app closed; no incomplete remote package was published"
       });
     }
   });

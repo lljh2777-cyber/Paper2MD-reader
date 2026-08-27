@@ -212,6 +212,7 @@ export async function publishMineruPackage(input: {
   publishedRoot: string;
   mineruOptions: Record<string, unknown>;
   pythonCommand?: string;
+  contractScriptPath: string;
   contractTimeoutSeconds: number;
   onValidated?: () => void;
 }): Promise<PublishedPackageDescriptor> {
@@ -232,7 +233,8 @@ export async function publishMineruPackage(input: {
   const viewerContracts = await buildReaderContracts({
     packageRoot: input.packageStage,
     timeoutSeconds: input.contractTimeoutSeconds,
-    pythonCommand: input.pythonCommand
+    pythonCommand: input.pythonCommand,
+    scriptPath: input.contractScriptPath
   });
   const [sourceBytes, packagedSourceBytes] = await Promise.all([
     readFile(input.sourcePath),

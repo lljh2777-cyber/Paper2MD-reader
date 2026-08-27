@@ -6,6 +6,7 @@ import {
   parseTaskStoreJson,
   PersistedDesktopJob,
   PersistedDirectJob,
+  PersistedRemoteMineruJob,
   persistentTask,
   PersistedReviewedJob,
   PersistedTaskEntry,
@@ -25,6 +26,10 @@ export interface ReviewedJob {
   pdfPath: string;
   paths: ReviewedWorkflowPaths;
   options: ReviewedLayoutOptions;
+}
+
+export interface RemoteMineruJob {
+  packageId: string;
 }
 
 export async function pathExists(path: string): Promise<boolean> {
@@ -91,7 +96,9 @@ export class DesktopTaskStore {
     private readonly tasks: Map<string, ConversionTask>,
     private readonly directJobs: Map<string, DirectJob>,
     private readonly reviewedJobs: Map<string, ReviewedJob>,
+    private readonly remoteMineruJobs: Map<string, RemoteMineruJob>,
     private readonly registerRoot: (path: string) => Promise<DesktopRootSelection>,
+    private readonly remotePackageAvailable: (packageId: string) => Promise<boolean>,
     private readonly maximumPdfBytes: number
   ) {}
 
@@ -125,7 +132,8 @@ export class DesktopTaskStore {
         seen.add(entry.task.id);
         try {
           if (entry.job.kind === "direct") await this.restoreDirectTask(entry, entry.job);
-          else await this.restoreReviewedTask(entry, entry.job);
+          else if (entry.job.kind === "reviewed-layout") await this.restoreReviewedTask(entry, entry.job);
+          else await this.restoreRemoteMineruTask(entry, entry.job);
         } catch (error) {
           console.warn(`Ignored task ${entry.task.id} during recovery`, error);
         }
@@ -143,6 +151,8 @@ export class DesktopTaskStore {
     if (direct) return { kind: "direct", ...direct };
     const reviewed = this.reviewedJobs.get(taskId);
     if (reviewed) return { kind: "reviewed-layout", ...reviewed };
+    const remote = this.remoteMineruJobs.get(taskId);
+    if (remote) return { kind: "mineru-remote", ...remote };
     return undefined;
   }
 
@@ -230,6 +240,33 @@ export class DesktopTaskStore {
       };
     } else {
       task = { ...task, stage: "roi-proposal", state: "failed", message: sourceReady ? "ROI preparation was interrupted; remove any partial 01-roi-proposal folder, then retry" : "Reviewed task cannot resume because the source PDF is unavailable" };
+    }
+    this.tasks.set(task.id, task);
+  }
+
+  private async restoreRemoteMineruTask(entry: PersistedTaskEntry, job: PersistedRemoteMineruJob): Promise<void> {
+    this.remoteMineruJobs.set(entry.task.id, { packageId: job.packageId });
+    let task: ConversionTask = { ...entry.task, packageId: job.packageId, recovered: true };
+    const packageReady = await this.remotePackageAvailable(job.packageId);
+    if (packageReady) {
+      task = {
+        ...task,
+        stage: "complete",
+        state: "succeeded",
+        message: "Recovered a validated MinerU package from the local library"
+      };
+    } else if (["running", "queued"].includes(task.state)) {
+      task = {
+        ...task,
+        state: "cancelled",
+        message: "Remote MinerU extraction was interrupted locally; no incomplete package was published"
+      };
+    } else if (task.state === "succeeded") {
+      task = {
+        ...task,
+        state: "failed",
+        message: "The published library package is unavailable or failed validation"
+      };
     }
     this.tasks.set(task.id, task);
   }

@@ -1,3 +1,6 @@
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   DESKTOP_LIBRARY_MARKER_VERSION,
@@ -9,6 +12,7 @@ import {
   assertContainedLibraryDirectory
 } from "../apps/desktop/src/main/desktop-library";
 import {
+  DesktopCredentialStore,
   MINERU_CREDENTIAL_VERSION,
   parseCredentialEnvelope,
   validateMineruToken
@@ -91,5 +95,19 @@ describe("desktop MinerU credential boundary", () => {
       contract_version: MINERU_CREDENTIAL_VERSION,
       cipher_text: "not base64!"
     }))).toThrow("ciphertext");
+  });
+
+  it("keeps the plaintext token behind the main-process credential store", async () => {
+    const path = join(tmpdir(), `paper2md-credential-${randomUUID()}.json`);
+    const protector = {
+      available: () => true,
+      encrypt: (value: string) => new TextEncoder().encode(value.split("").reverse().join("")),
+      decrypt: (value: Uint8Array) => new TextDecoder().decode(value).split("").reverse().join("")
+    };
+    const store = new DesktopCredentialStore(path, protector);
+    await expect(store.requireToken()).rejects.toThrow("Configure a MinerU API Token");
+    await store.save("mineru_token_1234567890.jwt-part");
+    await expect(store.requireToken()).resolves.toBe("mineru_token_1234567890.jwt-part");
+    await store.clear();
   });
 });

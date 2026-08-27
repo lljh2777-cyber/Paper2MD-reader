@@ -56,6 +56,25 @@ describe("desktop task persistence", () => {
     expect(parsed.diagnostics).toEqual(["Ignored invalid task entry 2"]);
   });
 
+  it("persists a remote task by opaque package ID without remote credentials or URLs", () => {
+    const remoteTask: ConversionTask = {
+      ...task,
+      workflow: "mineru-remote",
+      stage: "remote-extract",
+      state: "running",
+      packageId: task.id,
+      message: "MinerU accepted the PDF and is extracting its contents"
+    };
+    const remoteJob = { kind: "mineru-remote" as const, packageId: task.id };
+    const text = taskStoreJson([{ task: persistentTask(remoteTask), job: remoteJob }]);
+    expect(JSON.parse(text).entries[0].task).not.toHaveProperty("packageId");
+    expect(text).not.toContain("Bearer");
+    expect(text).not.toContain("file_urls");
+    const parsed = parseTaskStoreJson(text);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.entries[0].job).toEqual(remoteJob);
+  });
+
   it("rejects an unknown store contract", () => {
     expect(() => parseTaskStoreJson('{"contract_version":"unknown","entries":[]}')).toThrow("contract");
   });

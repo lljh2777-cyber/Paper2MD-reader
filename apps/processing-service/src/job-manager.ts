@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ChildProcess } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { MineruJobOptions, ProcessingJob } from "./contracts";
 import { ProcessingServiceConfig } from "./config";
 import { mineruExtractArgs, runMineru } from "./mineru-runner";
@@ -191,6 +191,7 @@ export class JobManager {
           timeout_seconds: job.options.timeoutSeconds
         },
         pythonCommand: this.config.pythonCommand,
+        contractScriptPath: resolve(import.meta.dirname, "../scripts/build_reader_contracts.py"),
         contractTimeoutSeconds: Math.min(180, job.options.timeoutSeconds),
         onValidated: () => {
           this.update(job, { stage: "publish", message: "校验通过，正在原子发布阅读包…" });
