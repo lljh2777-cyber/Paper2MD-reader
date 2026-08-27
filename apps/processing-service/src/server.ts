@@ -13,6 +13,9 @@ import { normalizePackagePath } from "./package-publisher";
 import { PaperResolver } from "./paper-resolver";
 import { PublishedPackageCatalog } from "./published-package-catalog";
 import { publishClippingSubmission } from "./clipping-submission";
+import { ClipperCredentialStore } from "./clipper-credentials";
+import { VisualCorrectionManager } from "./visual-correction-manager";
+import { createPaper2MdMcpHttpHandler } from "./mcp-http-handler";
 
 const config = loadProcessingServiceConfig();
 const jobs = new JobManager(config);
@@ -20,9 +23,23 @@ const resolver = new PaperResolver({
   contactEmail: config.contactEmail,
   timeoutMilliseconds: config.resolverTimeoutMilliseconds
 });
-const ingests = new IngestManager(config, resolver);
+const ingests = new IngestManager(config, resolver, {
+  processPdf: async (bytes, filename) => {
+    const task = await jobs.submitAcquiredPdf(filename, bytes, {
+      model: "vlm",
+      language: "en",
+      timeoutSeconds: config.timeoutSeconds
+    });
+    const completed = await jobs.waitForTerminal(task.id, (config.timeoutSeconds + 120) * 1000);
+    if (completed.state !== "succeeded" || !completed.package) throw new Error(completed.message || "MinerU extraction failed");
+    return completed.package;
+  }
+});
 const packages = new PublishedPackageCatalog(config.dataRoot, config.readerBaseUrl);
-const agentCommands = new AgentCommandHandler(resolver, ingests, packages);
+const visualCorrections = new VisualCorrectionManager(config.dataRoot, packages);
+const agentCommands = new AgentCommandHandler(resolver, ingests, packages, visualCorrections, config.enableMcpHttp);
+const mcpHttp = config.enableMcpHttp ? createPaper2MdMcpHttpHandler(agentCommands) : undefined;
+const clipperCredentials = new ClipperCredentialStore(config.dataRoot);
 const requestBuckets = new Map<string, { startedAt: number; count: number }>();
 
 function json(response: ServerResponse, status: number, body: unknown): void {
@@ -142,6 +159,41 @@ async function receiveJson(request: IncomingMessage, maximumBytes = 16 * 1024): 
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
 }
 
+async function receiveBytes(request: IncomingMessage, maximumBytes: number): Promise<Uint8Array> {
+  const declared = Number(request.headers["content-length"] ?? 0);
+  if (declared && (!Number.isSafeInteger(declared) || declared < 1 || declared > maximumBytes)) throw new Error("Request body exceeds the safe size limit");
+  const chunks: Buffer[] = [];
+  let received = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    received += bytes.byteLength;
+    if (received > maximumBytes) throw new Error("Request body exceeds the safe size limit");
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function handleMcpHttp(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
+  if (!mcpHttp) return json(response, 404, { error: "Streamable HTTP MCP is disabled" });
+  if (!withinRateLimit(request)) return json(response, 429, { error: "Too many MCP requests" });
+  const headers = new Headers();
+  Object.entries(request.headers).forEach(([name, value]) => {
+    if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
+    else if (value !== undefined) headers.set(name, value);
+  });
+  const received = request.method === "POST" ? await receiveBytes(request, 1024 * 1024) : undefined;
+  const body = received
+    ? received.buffer.slice(received.byteOffset, received.byteOffset + received.byteLength) as ArrayBuffer
+    : undefined;
+  const webRequest = new Request(url, { method: request.method, headers, body });
+  const result = await mcpHttp.fetch(webRequest);
+  const responseHeaders: Record<string, string> = {};
+  result.headers.forEach((value, name) => { responseHeaders[name] = value; });
+  const bytes = new Uint8Array(await result.arrayBuffer());
+  response.writeHead(result.status, { ...responseHeaders, "Content-Length": bytes.byteLength, "Cache-Control": "no-store" });
+  response.end(bytes);
+}
+
 function contentType(path: string): string {
   const extension = path.split(".").pop()?.toLowerCase();
   return ({
@@ -170,10 +222,45 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     response.end();
     return;
   }
-  if (!authorized(request)) return json(response, 401, { error: "Unauthorized" });
+  const origin = request.headers.origin ?? "";
+  const clippingSubmission = url.pathname === "/api/v1/clippings";
+  const pairingRedemption = url.pathname === "/api/v1/clipper/pairings/redeem";
+  if (clippingSubmission) {
+    const token = request.headers.authorization?.replace(/^Bearer\s+/i, "") || "";
+    if (!await clipperCredentials.authorize(token, origin)) return json(response, 401, { error: "Clipper pairing is required" });
+  } else if (!pairingRedemption && !authorized(request)) return json(response, 401, { error: "Unauthorized" });
+
+  if (request.method === "POST" && url.pathname === "/api/v1/clipper/pairings") {
+    return json(response, 201, clipperCredentials.createPairing());
+  }
+  if (request.method === "POST" && pairingRedemption) {
+    try {
+      const body = await receiveJson(request, 4 * 1024) as Record<string, unknown>;
+      if (typeof body.pairing_id !== "string" || !/^[0-9a-f-]{36}$/.test(body.pairing_id)
+        || typeof body.code !== "string" || !/^\d{8}$/.test(body.code)
+        || Object.keys(body).some((key) => key !== "pairing_id" && key !== "code")) throw new Error("Invalid pairing request");
+      return json(response, 201, await clipperCredentials.redeem(body.pairing_id, body.code, origin));
+    } catch (error) {
+      return json(response, 400, { error: error instanceof Error ? error.message : "Pairing failed" });
+    }
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/clipper/credentials/revoke") {
+    return json(response, 200, await clipperCredentials.revokeAll());
+  }
+  const visualSidecarMatch = /^\/api\/v1\/packages\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})\/sidecars\/visual-review$/.exec(url.pathname);
+  if (request.method === "GET" && visualSidecarMatch) {
+    try {
+      return json(response, 200, await visualCorrections.readSidecar(visualSidecarMatch[1]));
+    } catch (error) {
+      return json(response, 404, { error: error instanceof Error ? error.message : "Visual review sidecar unavailable" });
+    }
+  }
 
   if (request.method === "GET" && url.pathname === "/api/v1/health") {
     return json(response, 200, await agentCommands.execute({ command: "get_service_status", input: {} }));
+  }
+  if ((request.method === "POST" || request.method === "GET" || request.method === "DELETE") && url.pathname === "/api/v1/mcp") {
+    return handleMcpHttp(request, response, url);
   }
   if (request.method === "POST" && url.pathname === "/api/v1/commands") {
     if (!withinRateLimit(request)) return json(response, 429, { error: "Too many agent command requests" });

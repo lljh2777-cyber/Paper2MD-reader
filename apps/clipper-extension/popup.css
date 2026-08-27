@@ -47,6 +47,9 @@ header span,
   margin: 0;
 }
 
+.pairing { display: grid; gap: 8px; }
+.pairing input { min-height: 36px; padding: 0 9px; border: 1px solid #46505d; border-radius: 7px; background: #111419; color: #eef1f5; font: inherit; font-size: 12px; }
+
 button {
   min-height: 42px;
   border: 0;

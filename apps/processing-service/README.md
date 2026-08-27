@@ -51,8 +51,10 @@ Origin 都会被拒绝。仓库 manifest 使用稳定本地扩展 ID，默认白
 `PAPER2MD_MAX_CLIPPING_BYTES` 控制，默认 84 MiB。扩展只在点击发布后请求固定
 `http://127.0.0.1/*` 权限，不会默认取得所有本地网络权限。
 
-扩展不会存储或发送 `PAPER2MD_SERVICE_TOKEN`。若本地服务显式启用了该 token，当前
-直连发布会按统一认证边界返回 `401`；在加入一次性配对/OAuth 桥之前，可使用 ZIP 备份导入。
+扩展不会存储或发送 `PAPER2MD_SERVICE_TOKEN`。Reader 先创建 10 分钟有效的一次性配对码，
+扩展从精确允许的 Origin 兑换后，只保存作用域为 `clippings:publish` 的随机凭证。
+`POST /api/v1/clipper/credentials/revoke` 可撤销全部扩展凭证；主服务 token 与 MinerU token
+始终不进入扩展。
 
 ## 本地 MCP stdio sidecar
 
@@ -70,16 +72,28 @@ npm run processing:start
 标准输出完全保留给 JSON-RPC；诊断信息只写标准错误。
 
 当前注册 `get_service_status`、`resolve_paper`、`ingest_paper`、`get_ingest_job`，以及
-只读的 `list_packages`、`read_package_manifest`、`read_article_section`、`list_figures`。
+只读的包查询与视觉候选查询。视觉写入必须先调用 `validate_visual_correction`，再用返回的
+短时 token、完全相同的 correction 和 `confirm=true` 调用 `apply_visual_correction`；服务端
+只原子更新包外 sidecar，并重新校验当前候选哈希。
 `ingest_paper` 会产生网络与发布副作用，工具说明和 MCP annotations 均将其标为非只读、
-非幂等，只有用户明确要求获取并发布时才应调用。高风险视觉修复仍不会由 MCP 直接写入。
+非幂等，只有用户明确要求获取并发布时才应调用。高风险视觉修复不能单步直写，必须经过
+候选查询、无写验证、短时 token 和 `confirm=true`，且只写用户 sidecar。
 
 sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
 `PAPER2MD_MCP_SERVICE_URL` 改为另一个精确的 loopback HTTP origin，用
 `PAPER2MD_MCP_TIMEOUT_MS` 设置 1000–120000 毫秒的命令超时。如果 processing service
 启用了 `PAPER2MD_SERVICE_TOKEN`，sidecar 从同名环境变量读取并通过 Bearer header
 传递；token 不写入命令行参数、工具结果或网页。sidecar 拒绝远程地址、凭据 URL、
-路径、查询和 fragment。Streamable HTTP 与 Reader WebMCP 不属于本阶段。
+路径、查询和 fragment。Reader WebMCP 是独立的浏览器渐进增强层。
+
+### 可选本地 Streamable HTTP MCP
+
+设置 `PAPER2MD_ENABLE_MCP_HTTP=true` 后，同一 processing service 会在
+`POST /api/v1/mcp` 提供无状态 Streamable HTTP MCP，并复用 stdio sidecar 的同一组
+窄工具与 command 校验。该入口默认关闭，只允许服务绑定在 loopback；Host、Origin、
+Bearer token（若配置）和请求速率仍先由 processing service 校验。当前版本会明确拒绝在
+非 loopback 绑定上启用它，因为远程多用户必须先接入真实 OAuth issuer、租户身份和独立
+data root，不能把一个共享 service token 冒充成多用户隔离。
 
 ## 对外部署边界
 
@@ -94,8 +108,8 @@ sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
 ## 论文身份解析命令
 
 服务端提供受限的 `POST /api/v1/commands` 命令入口。当前实现
-`get_service_status`、`resolve_paper`、`ingest_paper`、`get_ingest_job` 和四个只读包查询；
-其他共享契约中的命令会明确返回 `501`，不会退化为任意路径、命令或 `eval`。例如：
+`get_service_status`、`resolve_paper`、`ingest_paper`、`get_ingest_job`、四个只读包查询和
+视觉修复三步命令；不会退化为任意路径、命令或 `eval`。例如：
 
 ```json
 {
@@ -135,10 +149,11 @@ Crossref 的题名或年份明显冲突时返回 `AMBIGUOUS_MATCH`；没有可�
 时返回 `FULL_TEXT_NOT_AVAILABLE` 及可行下一步。任意出版商 URL 仍不会在身份解析
 阶段被抓取；这类页面应由用户打开后交给 Clipper，或改用其 DOI/PMID/PMCID。
 
-## 自动导入开放 PMC 全文
+## 自动导入合法开放全文
 
-`ingest_paper` 是有副作用的显式命令。它复用同一身份解析结果，目前只自动获取
-Europe PMC 已确认开放、并可通过 `pmc.ncbi.nlm.nih.gov` 无会话读取的 HTML：
+`ingest_paper` 是有副作用的显式命令。它复用同一身份解析结果，按 PMC JATS XML/HTML、
+无需会话的开放 HTML、合法开放 PDF 的顺序选择来源。前两者确定性转换为 clipping 包；
+PDF 回退复用 MinerU precision extract、完整校验和原子发布：
 
 ```json
 {
@@ -159,10 +174,10 @@ Europe PMC 已确认开放、并可通过 `pmc.ncbi.nlm.nih.gov` 无会话读取
 才通过同卷重命名原子发布。完整包目录已存在时拒绝覆盖。正文与网页内容只作为
 不可信数据处理，不进入命令、路径或 Agent 指令解析。
 
-当前自动获取不会跟随重定向，不会携带浏览器 cookie，也不会请求出版商登录页、
-付费墙或任意 Unpaywall URL。不能满足上述 PMC 条件时，任务以结构化
-`CLIPPER_UNSUPPORTED`/其他错误码进入 `needs_attention` 或 `failed`，并建议使用
-扩展或上传合法 PDF。`PAPER2MD_READER_BASE_URL` 控制返回的 Reader 基址；仅允许
+通用获取层只接受无凭据 HTTPS；DNS 的全部结果必须是公网地址，连接固定到已验证地址，
+最多三次重定向且每跳重新校验，并限制 MIME、正文/图片/PDF 大小和超时。请求不带 cookie，
+不会绕过登录、付费墙、验证码或反机器人机制。需要浏览器会话/域名权限时任务返回结构化
+`LOGIN_REQUIRED`/`DOMAIN_PERMISSION_REQUIRED` handoff。`PAPER2MD_READER_BASE_URL` 控制返回的 Reader 基址；仅允许
 HTTPS，回环开发地址允许 HTTP。
 
 相关配置：

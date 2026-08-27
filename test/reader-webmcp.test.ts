@@ -111,6 +111,22 @@ describe("Reader WebMCP progressive adapter", () => {
     }))).toMatchObject({ ok: false });
   });
 
+  it("adds two-step sidecar writes only when a service writer is available", async () => {
+    const writer = {
+      validate: vi.fn(async () => ({ valid: true, validation_token: "token-123" })),
+      apply: vi.fn(async () => ({ applied: true, sidecar_only: true }))
+    };
+    const tools = createReaderWebMcpTools(controller(), writer);
+    expect(tools.slice(-2).map((tool) => tool.name)).toEqual(["validate_visual_correction", "apply_visual_correction"]);
+    const correction = { kind: "full_page_visual", visual_block_id: "block-a", member_block_ids: ["block-a", "block-b"] };
+    const validate = tools.find((tool) => tool.name === "validate_visual_correction")!;
+    expect(parsedResult(await validate.execute({ candidate_id: "fragment-123", correction }))).toMatchObject({ ok: true });
+    const apply = tools.find((tool) => tool.name === "apply_visual_correction")!;
+    expect(parsedResult(await apply.execute({ candidate_id: "fragment-123", correction, validation_token: "token-123", confirm: false }))).toMatchObject({ ok: false });
+    expect(parsedResult(await apply.execute({ candidate_id: "fragment-123", correction, validation_token: "token-123", confirm: true }))).toMatchObject({ ok: true });
+    expect(writer.apply).toHaveBeenCalledOnce();
+  });
+
   it("prefers document.modelContext and unregisters every tool through one abort signal", async () => {
     const registered: Array<{ name: string; signal?: AbortSignal }> = [];
     const documentContext = {

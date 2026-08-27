@@ -1,5 +1,5 @@
 import type { ReaderProcessingProgress } from "../../../packages/reader-core/src/index";
-import type { ProcessingJob } from "../../../packages/agent-contracts/src/index";
+import type { IngestJob, PaperResolution, ProcessingJob, VisualCorrectionInput } from "../../../packages/agent-contracts/src/index";
 import { assertOpaqueId } from "../../../packages/agent-contracts/src/index";
 import {
   RemotePackageDescriptor,
@@ -40,7 +40,82 @@ export function configuredProcessingApiBaseUrl(): string | undefined {
 }
 
 export class ProcessingClient {
-  constructor(private readonly apiBaseUrl: string) {}
+  constructor(private readonly apiBaseUrl: string, private readonly fetchImplementation: typeof fetch = fetch) {}
+
+  async resolvePaper(query: string): Promise<PaperResolution> {
+    return this.command<PaperResolution>("resolve_paper", { query });
+  }
+
+  async ingestPaper(query: string): Promise<IngestJob> {
+    return this.command<IngestJob>("ingest_paper", { query });
+  }
+
+  async getIngestJob(jobId: string): Promise<IngestJob> {
+    return this.command<IngestJob>("get_ingest_job", { job_id: assertOpaqueId(jobId, "job_id") });
+  }
+
+  async waitForIngest(jobId: string, onUpdate: (job: IngestJob) => void): Promise<IngestJob> {
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    let job = await this.getIngestJob(jobId);
+    onUpdate(job);
+    while (!["ready", "needs_attention", "failed", "cancelled"].includes(job.state)) {
+      if (Date.now() >= deadline) throw new Error("Paper ingest timed out.");
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      job = await this.getIngestJob(jobId);
+      onUpdate(job);
+    }
+    return job;
+  }
+
+  async createClipperPairing(): Promise<{ pairing_id: string; code: string; expires_at: string }> {
+    const response = await this.fetchService(`${this.apiBaseUrl}/clipper/pairings`, {
+      method: "POST", credentials: "include", headers: { Accept: "application/json" }
+    });
+    if (!response.ok) throw new Error(await this.errorMessage(response));
+    const value = await response.json() as Record<string, unknown>;
+    if (typeof value.pairing_id !== "string" || !/^[0-9a-f-]{36}$/.test(value.pairing_id)
+      || typeof value.code !== "string" || !/^\d{8}$/.test(value.code)
+      || typeof value.expires_at !== "string") throw new Error("Processing service returned an invalid pairing response.");
+    return value as { pairing_id: string; code: string; expires_at: string };
+  }
+
+  async revokeClipperCredentials(): Promise<number> {
+    const response = await this.fetchService(`${this.apiBaseUrl}/clipper/credentials/revoke`, {
+      method: "POST", credentials: "include", headers: { Accept: "application/json" }
+    });
+    if (!response.ok) throw new Error(await this.errorMessage(response));
+    const value = await response.json() as { revoked?: unknown };
+    if (!Number.isSafeInteger(value.revoked) || Number(value.revoked) < 0) throw new Error("Processing service returned an invalid revocation response.");
+    return Number(value.revoked);
+  }
+
+  async readVisualReviewSidecar(packageId: string): Promise<unknown | undefined> {
+    const safeId = assertOpaqueId(packageId, "package_id");
+    const response = await this.fetchService(`${this.apiBaseUrl}/packages/${encodeURIComponent(safeId)}/sidecars/visual-review`, {
+      credentials: "include", headers: { Accept: "application/json" }
+    });
+    if (response.status === 404) return undefined;
+    if (!response.ok) throw new Error(await this.errorMessage(response));
+    return response.json() as Promise<unknown>;
+  }
+
+  validateVisualCorrection(packageId: string, candidateId: string, correction: VisualCorrectionInput): Promise<Record<string, unknown>> {
+    return this.command("validate_visual_correction", {
+      package_id: assertOpaqueId(packageId, "package_id"),
+      candidate_id: assertOpaqueId(candidateId, "candidate_id"),
+      correction
+    });
+  }
+
+  applyVisualCorrection(packageId: string, candidateId: string, correction: VisualCorrectionInput, validationToken: string): Promise<Record<string, unknown>> {
+    return this.command("apply_visual_correction", {
+      package_id: assertOpaqueId(packageId, "package_id"),
+      candidate_id: assertOpaqueId(candidateId, "candidate_id"),
+      correction,
+      validation_token: assertOpaqueId(validationToken, "validation_token"),
+      confirm: true
+    });
+  }
 
   async openPackage(packageId: string): Promise<RemotePackageReaderFileSystem> {
     const safeId = assertOpaqueId(packageId, "package_id");
@@ -121,9 +196,22 @@ export class ProcessingClient {
     return `PDF processing request failed (${response.status}).`;
   }
 
+  private async command<Result>(command: string, input: Record<string, unknown>): Promise<Result> {
+    const response = await this.fetchService(`${this.apiBaseUrl}/commands`, {
+      method: "POST",
+      credentials: "include",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ command, input })
+    });
+    if (!response.ok) throw new Error(await this.errorMessage(response));
+    const envelope = await response.json() as { command?: unknown; result?: unknown };
+    if (envelope.command !== command || envelope.result === undefined) throw new Error("Processing service returned an invalid command response.");
+    return envelope.result as Result;
+  }
+
   private async fetchService(input: string, init: RequestInit): Promise<Response> {
     try {
-      return await fetch(input, init);
+      return await this.fetchImplementation(input, init);
     } catch (error) {
       if (!(error instanceof TypeError)) throw error;
       const endpoint = new URL(this.apiBaseUrl);

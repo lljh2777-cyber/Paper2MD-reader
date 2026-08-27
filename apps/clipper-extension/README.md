@@ -22,13 +22,14 @@ Load `apps/clipper-extension/dist/` as an unpacked extension from
 
 ## Workflow
 
-1. Open a paper full-text page.
-2. Click the extension and select **提取、校验并在 Reader 打开**.
-3. Approve the fixed loopback service origin and only the image origins needed for this page.
-4. The extension submits metadata, extracted Markdown, the source HTML snapshot and localized
+1. In Reader, choose **连接浏览器 Clipper** and create a 10-minute pairing ID/code.
+2. Open the extension, approve only the fixed loopback origin, and redeem that one-time code.
+3. Open a paper full-text page and select **提取、校验并在 Reader 打开**.
+4. Approve only the image origins needed for this page.
+5. The extension submits metadata, extracted Markdown, the source HTML snapshot and localized
    images as bounded multipart fields. The service rebuilds the package with `clipper-core`,
    validates it in staging, atomically publishes it and returns an opaque `package_id`.
-5. The extension opens the returned `/reader/{package_id}` URL. No ZIP selection is required.
+6. The extension opens the returned `/reader/{package_id}` URL. No ZIP selection is required.
 
 Use **导出 ZIP 备份** only when an offline export is desired.
 
@@ -45,7 +46,8 @@ joined into one adjacent Markdown caption. The live page is not modified.
 
 - Page access is granted by `activeTab` only after the user clicks the extension.
 - The manifest pins a stable unpacked-extension identity. The processing service accepts
-  `/api/v1/clippings` only from that exact `chrome-extension://` origin by default.
+  `/api/v1/clippings` only from that exact `chrome-extension://` origin by default and also
+  requires an origin-bound, revocable `clippings:publish` credential.
 - No persistent content script is installed on arbitrary pages.
 - Image access uses optional per-origin host permissions.
 - Image requests omit credentials and referrers, reject redirects, and do not target literal private/local network addresses.

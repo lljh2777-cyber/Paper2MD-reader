@@ -39,11 +39,11 @@
 
 连续 PDF 页流已迁入共享 Reader：网页右栏可在“原始 PDF”和“图片与图注”之间切换，并按可视区懒渲染页面、控制页码与缩放。正文可视区顶部是 PDF 自动跟随的唯一权威；用户操作 PDF 时跟随会暂时暂停，回到正文交互后恢复。无法唯一落到可见正文的页面不会被猜测映射。PDF 版面框、唯一 Figure 点击定位和 PDF.js 空白大图兼容补绘也已迁入；这些能力只消费哈希绑定 ViewerIndex 和通过包内路径/大小校验的 MinerU 资产。分栏比例、正文位置、参考模式、PDF 页码/缩放/跟随和当前 Figure 以 article SHA-256 为键保存在宿主 sidecar state，不写回内容包。超出当前唯一空白栏协议的整段 PDF 文本层补全，以及人工/可选 AI 审核界面尚待迁移。这里所说的参考实现是独立的 Research Agent Reader Obsidian 插件及其配套转换规则；本仓库早期的 Paper2MD Reader 旧代码只是待替换实现，二者不是同一个项目。
 
-## 网页全文边界
+## 网页全文边界（已接通安全 acquisition router）
 
 后续分成两种适配器：
 
-- 公共页面：服务端抓取，但必须防 SSRF、限制重定向/响应大小/内容类型，并下载允许的图片为包内资源。
+- 公共页面：服务端只抓取解析器验证的 OA 候选；无凭据 HTTPS、公网 DNS、固定已验证 IP、每跳重定向复核、MIME/大小/超时/图片数限制已在统一获取层执行。
 - 登录态或客户端渲染页面：由轻量浏览器扩展在当前页面运行 Defuddle/Web Clipper 提取，将版本化元数据、Markdown、源 HTML 快照和本地化图片提交到 processing service；服务端重新构包、暂存校验、原子发布并返回 Reader 深链。
 
 网页导入产物与 MinerU 包使用同一个 Reader 模型，但保留来源类型和诊断信息；显示层 Figure 编号不写回原始 Markdown。
@@ -53,17 +53,20 @@
 Crossref 对同一标识候选形成高置信共识并明显领先其他候选，才会自动进入精确标识复核；
 否则返回有限候选和 `AMBIGUOUS_MATCH`。这不改变“公共网页抓取仍须经过独立安全获取层”的边界。
 
-扩展桥接已移除正常流程中的 ZIP 中转。发布动作必须由用户点击触发，并按需请求固定回环服务与图片域名权限；服务端 `/api/v1/clippings` 只接受默认稳定扩展 ID（或显式配置 ID）的精确 `chrome-extension://` Origin。普通网页、未知扩展及无 Origin 请求均 fail closed。ZIP 只保留为显式导出/备份。
+扩展桥接已移除正常流程中的 ZIP 中转。发布动作必须由用户点击触发，并按需请求固定回环服务与图片域名权限；服务端 `/api/v1/clippings` 只接受默认稳定扩展 ID（或显式配置 ID）的精确 `chrome-extension://` Origin，并要求 Reader 一次性配对后签发的 `clippings:publish` 凭证。普通网页、未知扩展、无 Origin、未配对及已撤销凭证均 fail closed。ZIP 只保留为显式导出/备份。
+
+Web Reader 空状态现提供单一输入框：先解析身份与来源，歧义时列出有限候选，用户明确点击“获取并发布”后才创建任务；状态实时轮询，`ready` 后直接挂载 `/reader/{package_id}`。正常流程不再出现 ZIP。
 
 ## WebMCP 渐进增强边界
 
 网页 Reader 已在浏览器提供当前 `document.modelContext` API 时注册窄型 WebMCP 工具，并对旧版
 `navigator.modelContext` 做兼容回退。不支持 WebMCP 的浏览器不会加载 polyfill，也不影响打开论文、
 大纲、图片、PDF 和双栏跟随。当前工具仅覆盖 Reader 状态、分页大纲/视觉列表、精确导航、参考模式、
-跟随模式、分页视觉候选和只读修复预览；不会返回图片字节、文件路径、DOM 或 HTML。论文标题、图注和
+跟随模式、分页视觉候选和只读修复预览；配置本地 service 时还注册 validate/apply 两步 sidecar 写入。不会返回图片字节、文件路径、DOM 或 HTML。论文标题、图注和
 正文片段均标记为不可信内容。
 
 `preview_visual_correction` 只在内存中使用当前哈希绑定候选、ViewerIndex、MinerU 结果与 Markdown
-重新执行确定性校验，并固定返回 `writesSidecar: false`。网页没有注册
-`apply_visual_correction`；后续写入能力必须先增加明确用户确认，且只能写用户 sidecar，不能覆盖
-Markdown、MinerU JSON、原图或 PDF。WebMCP 仍是草案能力，核心 Reader 不依赖其可用性。
+重新执行确定性校验，并固定返回 `writesSidecar: false`。`validate_visual_correction` 返回绑定当前
+候选包哈希与 correction 的短时 token；`apply_visual_correction` 必须携带相同 correction、token 和
+`confirm=true`，只原子写入包外用户 sidecar。Markdown、MinerU JSON、原图或 PDF 从不进入写路径。
+WebMCP 仍是草案能力，核心 Reader 不依赖其可用性。

@@ -23,6 +23,7 @@ export interface ProcessingServiceConfig {
   maximumClippingBytes: number;
   maximumActiveJobs: number;
   timeoutSeconds: number;
+  enableMcpHttp: boolean;
 }
 
 const LOCAL_CLIPPER_EXTENSION_ID = "fkngpgapepiflkncpicajbmgafebgbip";
@@ -74,6 +75,13 @@ function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
+function boolean(value: string | undefined, fallback = false): boolean {
+  if (value === undefined || !value.trim()) return fallback;
+  if (value === "1" || value.toLowerCase() === "true") return true;
+  if (value === "0" || value.toLowerCase() === "false") return false;
+  throw new Error("Expected a boolean configuration value");
+}
+
 function validReaderBaseUrl(value: string): string {
   const url = new URL(value);
   const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
@@ -90,6 +98,10 @@ export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env
   const serviceToken = env.PAPER2MD_SERVICE_TOKEN?.trim() || undefined;
   if (!isLoopbackHost(host) && !serviceToken) {
     throw new Error("PAPER2MD_SERVICE_TOKEN is required when the processing service binds beyond loopback");
+  }
+  const enableMcpHttp = boolean(env.PAPER2MD_ENABLE_MCP_HTTP);
+  if (enableMcpHttp && !isLoopbackHost(host)) {
+    throw new Error("Streamable HTTP MCP is limited to loopback until an OAuth tenant gateway is configured");
   }
   const explicitOrigins = (env.PAPER2MD_ALLOWED_ORIGINS ?? "")
     .split(",")
@@ -136,7 +148,8 @@ export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env
     maximumPdfBytes: integer(env.PAPER2MD_MAX_PDF_BYTES, 64 * 1024 * 1024, 1024, 256 * 1024 * 1024),
     maximumClippingBytes: integer(env.PAPER2MD_MAX_CLIPPING_BYTES, 84 * 1024 * 1024, 1024, 192 * 1024 * 1024),
     maximumActiveJobs: integer(env.PAPER2MD_MAX_ACTIVE_JOBS, 2, 1, 8),
-    timeoutSeconds: integer(env.PAPER2MD_MINERU_TIMEOUT, 900, 60, 1800)
+    timeoutSeconds: integer(env.PAPER2MD_MINERU_TIMEOUT, 900, 60, 1800),
+    enableMcpHttp
   };
 }
 
@@ -145,7 +158,9 @@ export function isProcessingRequestOriginAllowed(
   pathname: string,
   origin: string | undefined
 ): boolean {
-  if (pathname === "/api/v1/clippings") return Boolean(origin && config.allowedClipperOrigins.has(origin));
+  if (pathname === "/api/v1/clippings" || pathname === "/api/v1/clipper/pairings/redeem") {
+    return Boolean(origin && config.allowedClipperOrigins.has(origin));
+  }
   return !origin || config.allowedOrigins.has(origin);
 }
 

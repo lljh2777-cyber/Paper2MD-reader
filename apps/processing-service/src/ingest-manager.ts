@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { Defuddle } from "defuddle/node";
+import { DOMParser } from "linkedom";
 import {
   MAX_CLIPPED_IMAGES,
   MAX_CLIPPED_IMAGE_BYTES,
@@ -16,6 +17,7 @@ import {
 } from "../../../packages/clipper-core/src/index";
 import {
   assertIngestStateTransition,
+  planFullTextAcquisition,
   parsePaperQuery,
   type AttemptedSource,
   type FullTextSource,
@@ -27,9 +29,11 @@ import {
 } from "../../../packages/agent-contracts/src/index";
 import type { ProcessingServiceConfig } from "./config";
 import { publishClippingPackage } from "./clipping-package-publisher";
+import { safeAcquire, type SafeAcquisitionResponse } from "./safe-acquisition-fetch";
 
 const MAX_FULL_TEXT_BYTES = 16 * 1024 * 1024;
-const ALLOWED_FULL_TEXT_HOST = "pmc.ncbi.nlm.nih.gov";
+const HTML_MIME = ["text/html", "application/xhtml+xml"] as const;
+const XML_MIME = ["application/xml", "text/xml", "application/jats+xml"] as const;
 
 interface InternalIngestJob {
   task: IngestJob;
@@ -44,7 +48,9 @@ export interface PaperResolverLike {
 
 export interface IngestManagerOptions {
   fetch?: typeof fetch;
+  acquire?: typeof safeAcquire;
   publish?: typeof publishClippingPackage;
+  processPdf?: (bytes: Uint8Array, filename: string) => Promise<PublishedPackageDescriptor>;
   prepareStorage?: (jobRoot: string, packagesRoot: string) => Promise<void>;
 }
 
@@ -63,24 +69,6 @@ function boundedProblem(code: IngestErrorCode, message: string, attempts: readon
     attempted_sources: structuredClone(attempts.slice(-32)),
     next_steps: nextSteps.slice(0, 8)
   };
-}
-
-function supportedHtmlSource(resolution: PaperResolution): FullTextSource | undefined {
-  return resolution.full_text_sources.find((source) => {
-    if (source.provider !== "europe_pmc" || source.format !== "html" || source.acquisition_route !== "clipper_core") return false;
-    if (source.requires_browser_session || source.requires_domain_permission) return false;
-    try {
-      const url = new URL(source.url);
-      return url.protocol === "https:"
-        && !url.username
-        && !url.password
-        && url.hostname.toLowerCase() === ALLOWED_FULL_TEXT_HOST
-        && /^\/articles\/PMC\d+\/$/i.test(url.pathname)
-        && !url.search;
-    } catch {
-      return false;
-    }
-  });
 }
 
 async function responseBytes(response: Response, maximumBytes: number, label: string): Promise<Uint8Array> {
@@ -125,6 +113,8 @@ export class IngestManager {
   private running = 0;
   private readonly fetchImplementation: typeof fetch;
   private readonly publisher: typeof publishClippingPackage;
+  private readonly acquire: typeof safeAcquire;
+  private readonly processPdf?: (bytes: Uint8Array, filename: string) => Promise<PublishedPackageDescriptor>;
   private readonly prepareStorage: (jobRoot: string, packagesRoot: string) => Promise<void>;
 
   constructor(
@@ -133,7 +123,9 @@ export class IngestManager {
     options: IngestManagerOptions = {}
   ) {
     this.fetchImplementation = options.fetch ?? fetch;
+    this.acquire = options.acquire ?? safeAcquire;
     this.publisher = options.publish ?? publishClippingPackage;
+    this.processPdf = options.processPdf;
     this.prepareStorage = options.prepareStorage ?? (async (jobRoot, packagesRoot) => {
       await mkdir(jobRoot, { recursive: true });
       await mkdir(packagesRoot, { recursive: true });
@@ -197,23 +189,13 @@ export class IngestManager {
     }
   }
 
-  private async fetchHtml(source: FullTextSource): Promise<Uint8Array> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.resolverTimeoutMilliseconds);
-    try {
-      const response = await this.fetchImplementation(source.url, {
-        method: "GET",
-        headers: { Accept: "text/html", "User-Agent": "Paper2MD-Reader/0.1" },
-        redirect: "error",
-        signal: controller.signal
-      });
-      if (!response.ok) throw new Error(`Full-text provider returned HTTP ${response.status}`);
-      const mime = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
-      if (mime !== "text/html" && mime !== "application/xhtml+xml") throw new Error("Full-text provider did not return HTML");
-      return responseBytes(response, MAX_FULL_TEXT_BYTES, "Full-text HTML");
-    } finally {
-      clearTimeout(timeout);
-    }
+  private fetchDocument(source: FullTextSource): Promise<SafeAcquisitionResponse> {
+    const accept = source.format === "xml" ? XML_MIME : source.format === "pdf" ? ["application/pdf"] : HTML_MIME;
+    return this.acquire(source.url, {
+      accept,
+      maximumBytes: source.format === "pdf" ? this.config.maximumPdfBytes : MAX_FULL_TEXT_BYTES,
+      timeoutMilliseconds: this.config.resolverTimeoutMilliseconds
+    });
   }
 
   private async localizeImages(markdown: string, sourceUrl: string): Promise<Map<string, LocalizedImage>> {
@@ -224,11 +206,12 @@ export class IngestManager {
     let totalBytes = 0;
     for (const urlText of urls) {
       const url = new URL(urlText);
-      if (!fetchablePmcImage(url)) continue;
+      if (!isFetchableImageUrl(url)) continue;
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), this.config.resolverTimeoutMilliseconds);
-        try {
+        if (fetchablePmcImage(url)) {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), this.config.resolverTimeoutMilliseconds);
+          try {
           const response = await this.fetchImplementation(url, {
             method: "GET",
             headers: { Accept: "image/png,image/jpeg,image/webp,image/gif,image/bmp" },
@@ -248,14 +231,64 @@ export class IngestManager {
             mime: mime.split(";", 1)[0].trim().toLowerCase(),
             bytes
           });
-        } finally {
-          clearTimeout(timeout);
+          } finally {
+            clearTimeout(timeout);
+          }
+        } else {
+          const response = await this.acquire(url.href, {
+            accept: ["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"],
+            maximumBytes: MAX_CLIPPED_IMAGE_BYTES,
+            timeoutMilliseconds: this.config.resolverTimeoutMilliseconds
+          });
+          const extension = extensionForMime(response.mime);
+          if (!extension || totalBytes + response.bytes.byteLength > MAX_CLIPPED_TOTAL_IMAGE_BYTES) continue;
+          totalBytes += response.bytes.byteLength;
+          localized.set(url.href, {
+            url: response.finalUrl,
+            path: `images/figure-${String(localized.size + 1).padStart(4, "0")}.${extension}`,
+            mime: response.mime,
+            bytes: response.bytes
+          });
         }
       } catch {
         // Image failure is recorded by the clipping manifest as an omission.
       }
     }
     return localized;
+  }
+
+  private jatsMarkdown(xml: string, sourceUrl: string): { markdown: string; description: string; language: string } {
+    const document = new DOMParser().parseFromString(xml, "text/xml");
+    const article = document?.querySelector("article");
+    if (!article || document.querySelector("parsererror")) throw new Error("PMC XML is not a valid JATS article");
+    const clean = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+    const lines: string[] = [];
+    const title = clean(article.querySelector("article-title")?.textContent);
+    if (title) lines.push(`# ${title}`, "");
+    const abstract = article.querySelector("abstract");
+    const abstractText = clean(abstract?.textContent);
+    if (abstractText) lines.push("## Abstract", "", abstractText, "");
+    article.querySelectorAll("body > sec").forEach((section: Element) => {
+      const heading = clean(section.querySelector(":scope > title")?.textContent);
+      if (heading) lines.push(`## ${heading}`, "");
+      section.querySelectorAll(":scope > p, :scope > sec > p").forEach((paragraph: Element) => {
+        const value = clean(paragraph.textContent);
+        if (value) lines.push(value, "");
+      });
+      section.querySelectorAll("fig").forEach((figure: Element) => {
+        const graphic = figure.querySelector("graphic");
+        const href = graphic?.getAttribute("xlink:href") ?? graphic?.getAttribute("href");
+        const label = clean(figure.querySelector("label")?.textContent) || "Figure";
+        const caption = clean(figure.querySelector("caption")?.textContent);
+        if (href) lines.push(`![${label}](${new URL(href, sourceUrl).href})`, "");
+        if (caption) lines.push(`**${label}.** ${caption}`, "");
+      });
+    });
+    return {
+      markdown: lines.join("\n").trim(),
+      description: abstractText,
+      language: article.getAttribute("xml:lang") ?? ""
+    };
   }
 
   private attention(job: InternalIngestJob, problem: IngestProblem): void {
@@ -276,36 +309,62 @@ export class IngestManager {
         ));
       }
       this.transition(job, "matched", `Matched ${resolution.match.identity.title}`);
-      const source = supportedHtmlSource(resolution);
-      if (!source) {
+      const plan = planFullTextAcquisition(resolution.full_text_sources);
+      if (plan.kind === "clipper_extension") {
         return this.attention(job, boundedProblem(
-          "CLIPPER_UNSUPPORTED",
-          "No supported session-free PMC HTML source is available for automatic ingest",
+          plan.source?.requires_browser_session ? "LOGIN_REQUIRED" : "DOMAIN_PERMISSION_REQUIRED",
+          plan.reason,
           job.attemptedSources,
-          ["Open a supported full-text page with the Clipper extension", "Upload a legally obtained PDF for MinerU extraction"]
+          ["Open the full-text page and explicitly authorize the Clipper extension for this domain"]
         ));
       }
+      if (!plan.source || plan.kind === "unavailable") return this.attention(job, boundedProblem(
+        "FULL_TEXT_NOT_AVAILABLE", plan.reason, job.attemptedSources,
+        ["Open a supported full-text page with the Clipper extension", "Upload a legally obtained PDF for MinerU extraction"]
+      ));
 
-      this.transition(job, "acquiring", "Acquiring verified open full-text HTML from PMC");
-      const sourceHtml = await this.fetchHtml(source);
-      job.attemptedSources.push({ provider: "pmc", locator: source.url, outcome: "available" });
+      const source = plan.source;
+      this.transition(job, "acquiring", `Acquiring verified open full text from ${source.provider}`);
+      const acquired = await this.fetchDocument(source);
+      job.attemptedSources.push({ provider: source.provider, locator: acquired.finalUrl, outcome: "available" });
+      if (plan.kind === "public_pdf") {
+        if (!this.processPdf) throw new Error("Automatic open-PDF extraction is not configured");
+        if (new TextDecoder("ascii").decode(acquired.bytes.subarray(0, 5)) !== "%PDF-") throw new Error("Open PDF source has an invalid signature");
+        this.transition(job, "extracting", "Running deterministic MinerU precision extraction on the staged open PDF");
+        const filename = `${resolution.match.identity.identifiers.doi ?? resolution.match.identity.title.slice(0, 80)}.pdf`
+          .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-");
+        const descriptor = await this.processPdf(acquired.bytes, filename);
+        job.package = descriptor;
+        this.transition(job, "validating", "MinerU package validation completed in the isolated processing job");
+        this.transition(job, "publishing", "Validated MinerU package was atomically published");
+        return this.transition(job, "ready", "Paper package is ready", {
+          package_id: descriptor.packageId,
+          reader_url: new URL(`/reader/${encodeURIComponent(descriptor.packageId)}`, this.config.readerBaseUrl).href
+        });
+      }
+
       this.transition(job, "clipping", "Extracting article structure and localizing permitted images deterministically");
-      const html = new TextDecoder().decode(sourceHtml);
-      const result = await Defuddle(html, source.url, { markdown: true, useAsync: false });
-      const markdown = typeof result.content === "string" ? result.content.trim() : "";
+      const sourceHtml = acquired.bytes;
+      const documentText = new TextDecoder().decode(sourceHtml);
+      const extracted = plan.kind === "pmc_xml"
+        ? this.jatsMarkdown(documentText, acquired.finalUrl)
+        : await Defuddle(documentText, acquired.finalUrl, { markdown: true, useAsync: false });
+      const markdown = "markdown" in extracted
+        ? extracted.markdown.trim()
+        : typeof extracted.content === "string" ? extracted.content.trim() : "";
       if (markdown.length < 200) throw new Error("PMC HTML did not contain enough readable article content");
       const identity = resolution.match.identity;
       const page: ExtractedPaperPage = {
         title: identity.title,
         author: identity.authors.join(", "),
         published: identity.year ? String(identity.year) : "",
-        description: typeof result.description === "string" ? result.description.trim() : "",
-        sourceUrl: source.url,
-        language: typeof result.language === "string" ? result.language.trim() : "",
-        wordCount: Number.isFinite(result.wordCount) ? Number(result.wordCount) : 0,
+        description: typeof extracted.description === "string" ? extracted.description.trim() : "",
+        sourceUrl: acquired.finalUrl,
+        language: typeof extracted.language === "string" ? extracted.language.trim() : "",
+        wordCount: "wordCount" in extracted && Number.isFinite(extracted.wordCount) ? Number(extracted.wordCount) : 0,
         markdown
       };
-      const localizedImages = await this.localizeImages(markdown, source.url);
+      const localizedImages = await this.localizeImages(markdown, acquired.finalUrl);
       const clipping = await buildClippingPackageFiles({
         page,
         localizedImages,

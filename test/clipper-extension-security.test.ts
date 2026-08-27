@@ -16,7 +16,7 @@ describe("Paper2MD Web Clipper extension boundary", () => {
   ) as ExtensionManifest;
 
   it("uses user-initiated activeTab access without persistent page scripts", () => {
-    expect(manifest.permissions).toEqual(["activeTab", "downloads", "scripting"]);
+    expect(manifest.permissions).toEqual(["activeTab", "downloads", "scripting", "storage"]);
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.content_scripts).toBeUndefined();
   });
@@ -37,6 +37,7 @@ describe("Paper2MD Web Clipper extension boundary", () => {
     expect(bridge).toContain('DEFAULT_PROCESSING_SERVICE_ORIGIN = "http://127.0.0.1:8787"');
     expect(bridge).toContain('credentials: "omit"');
     expect(bridge).toContain('redirect: "error"');
+    expect(bridge).toContain("Authorization: `Bearer ${token}`");
     expect(bridge).not.toContain("zipSync");
     expect(bridge).not.toContain('from "fflate"');
   });

@@ -192,16 +192,16 @@ most five deterministic candidates and `AMBIGUOUS_MATCH`. Exact matches rank ver
 open XML/HTML ahead of legal PDFs. Unpaywall OA discovery is enabled only when the
 operator configures `PAPER2MD_CONTACT_EMAIL`.
 
-`ingest_paper` and `get_ingest_job` now provide the first complete automatic path for
-session-free open PMC articles. The service resolves an exact identifier, acquires only
-allowlisted PMC HTML without redirects or browser credentials, uses the same deterministic
-`clipper-core` package projection as the browser extension, preserves the acquired HTML,
-validates an isolated staging package, and atomically publishes it. Ready jobs return an
+`ingest_paper` and `get_ingest_job` provide the complete automatic path for session-free
+open full text. The deterministic acquisition router prefers PMC JATS XML/HTML, then guarded
+public OA HTML, then a legal OA PDF. Every generic network hop requires credential-free HTTPS,
+public-only DNS answers, a pinned validated address, bounded redirects with per-hop revalidation,
+declared MIME, timeout and byte limits. HTML/XML uses `clipper-core`; PDF reuses the existing
+MinerU staging, validation and atomic publisher. Ready jobs return an
 opaque `package_id` plus `/reader/{package_id}`; the Web Reader opens that package directly
 through the service package API, so ZIP remains an export/backup format instead of an
-internal handoff. Publisher-session pages can use the extension-to-service bridge. Arbitrary
-publisher URL fetching and legal-PDF acquisition/MinerU fallback remain later stages; a title
-or supported URL can resolve today, but automatic ingest still requires session-free open PMC HTML.
+internal handoff. Publisher-session pages return a structured Clipper handoff rather than receiving
+cookies or login automation.
 
 An optional local MCP stdio sidecar exposes the four processing commands
 (`get_service_status`, `resolve_paper`, `ingest_paper`, and `get_ingest_job`) plus four
@@ -209,24 +209,38 @@ deterministic read tools (`list_packages`, `read_package_manifest`, `read_articl
 and `list_figures`). It forwards already validated command envelopes to the running loopback
 processing service, so HTTP clients, MCP clients, package publication, and Reader deep links
 share one authoritative job state. The sidecar does not accept arbitrary paths, commands,
-URLs, or evaluation input; visual-write commands remain unregistered. The persistent package
+URLs, or evaluation input. Visual corrections add three narrow tools: list candidates, validate
+against current immutable hashes, then apply only with the short-lived token and `confirm=true`.
+Application atomically writes a separate user sidecar and never edits package files. The persistent package
 catalog discovers only atomically published packages in fixed storage roots, revalidates their
 manifest-bound files, and continues to work after a service restart. Article reads are bounded
 by line and byte limits, and figure reads return metadata rather than file contents. MCP remains
 an external control surface and is not required by Reader or Clipper.
 
 The Web Reader also adds an optional WebMCP progressive adapter. On browsers exposing the current
-`document.modelContext` API (or the deprecated `navigator.modelContext` API), it registers nine
+`document.modelContext` API (or the deprecated `navigator.modelContext` API), it registers the nine
 bounded tools: Reader state, paged headings/visuals, exact heading/visual navigation, reference and
 follow modes, paged visual-repair candidates, and no-write correction preview. Registrations share
 one abort signal and are removed when the Reader unmounts. Unsupported browsers keep the complete
 Reader behavior with no error or polyfill. Tool results never contain image bytes, source paths, DOM
 or HTML; paper-derived labels, captions and text are marked as untrusted content. Correction preview
 replays the existing hash/geometry/Markdown validator in memory and reports `writesSidecar: false`.
-`apply_visual_correction` is deliberately not registered: a future write path must add explicit user
-confirmation and may write only the hash-bound user sidecar. WebMCP remains a draft enhancement, not
+When the local processing service is configured, WebMCP also exposes the two-step validate/apply pair;
+apply requires `confirm=true`, consumes a short-lived token and refreshes the Reader from the service
+sidecar. WebMCP remains a draft enhancement, not
 a Reader dependency. See the [Chrome imperative API documentation](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
 and the [WebMCP Community Group draft](https://webmachinelearning.github.io/webmcp/).
+
+The Web empty state now contains one paper input. It resolves title/PMID/PMCID/DOI/supported URL,
+shows bounded ambiguous candidates, requires an explicit **获取并发布** click, renders ingest state,
+and opens the ready package in place. It also creates 10-minute Clipper pairing codes and revokes
+scoped credentials. The extension stores only the resulting `clippings:publish` token; it never sees
+the main service or MinerU token.
+
+`PAPER2MD_ENABLE_MCP_HTTP=true` enables a stateless local Streamable HTTP MCP endpoint at
+`/api/v1/mcp`, backed by exactly the same tools. It is off by default and configuration rejects
+non-loopback enablement. A remote multi-user deployment still requires a real OAuth issuer and
+tenant-isolated data roots; the project deliberately refuses to represent a shared bearer token as OAuth.
 
 The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
 implementations and receive no new functionality. The separate Research Agent Reader

@@ -6,10 +6,27 @@ import {
   assertOpaqueId,
   canTransitionIngestState,
   parseAgentCommand,
-  parsePaperQuery
+  parsePaperQuery,
+  planFullTextAcquisition
 } from "../packages/agent-contracts/src/index";
 
 describe("shared agent and ingest contracts", () => {
+  it("selects session-free XML/HTML/PDF before an extension handoff", () => {
+    const pdf = {
+      source_id: "oa-pdf", provider: "repository" as const, format: "pdf" as const,
+      url: "https://repository.example/paper.pdf", access: "open_access" as const,
+      acquisition_route: "mineru" as const, priority: 50,
+      requires_domain_permission: false, requires_browser_session: false
+    };
+    const xml = {
+      ...pdf, source_id: "pmc-xml", provider: "europe_pmc" as const, format: "xml" as const,
+      url: "https://www.ebi.ac.uk/fullTextXML", acquisition_route: "clipper_core" as const, priority: 10
+    };
+    expect(planFullTextAcquisition([pdf, xml])).toMatchObject({ kind: "pmc_xml", source: { source_id: "pmc-xml" }, requires_confirmation: false });
+    expect(planFullTextAcquisition([pdf])).toMatchObject({ kind: "public_pdf", requires_confirmation: true });
+    expect(planFullTextAcquisition([{ ...pdf, acquisition_route: "clipper_extension", requires_domain_permission: true }]))
+      .toMatchObject({ kind: "clipper_extension", requires_confirmation: true });
+  });
   it("normalizes exact identifiers before falling back to title matching", () => {
     expect(parsePaperQuery("PMID: 12345678")).toMatchObject({ kind: "pmid", value: "12345678" });
     expect(parsePaperQuery("pmcid: pmc1234567")).toMatchObject({ kind: "pmcid", value: "PMC1234567" });

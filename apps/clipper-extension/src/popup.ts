@@ -19,8 +19,10 @@ import {
 } from "./messages";
 import {
   buildClippingSubmissionFormData,
+  pairProcessingService,
   publishClippingSubmission,
-  requestProcessingServicePermission
+  requestProcessingServicePermission,
+  storedClipperCredential
 } from "./processing-bridge";
 
 function requiredElement<T extends Element>(selector: string): T {
@@ -33,6 +35,10 @@ const titleElement = requiredElement<HTMLElement>("#page-title");
 const clipButton = requiredElement<HTMLButtonElement>("#clip-button");
 const exportButton = requiredElement<HTMLButtonElement>("#export-button");
 const statusElement = requiredElement<HTMLElement>("#status");
+const pairingElement = requiredElement<HTMLElement>("#pairing");
+const pairingIdInput = requiredElement<HTMLInputElement>("#pairing-id");
+const pairingCodeInput = requiredElement<HTMLInputElement>("#pairing-code");
+const pairButton = requiredElement<HTMLButtonElement>("#pair-button");
 
 let activeTab: chrome.tabs.Tab | undefined;
 
@@ -170,9 +176,28 @@ async function initialize(): Promise<void> {
     return;
   }
   titleElement.textContent = activeTab.title || url;
-  setActionsDisabled(false);
-  setStatus("准备就绪");
+  const paired = Boolean(await storedClipperCredential());
+  pairingElement.hidden = paired;
+  setActionsDisabled(!paired);
+  setStatus(paired ? "准备就绪" : "请先在 Reader 创建配对码，再在此完成本机配对。", paired ? "working" : "error");
 }
+
+pairButton.addEventListener("click", () => {
+  void (async () => {
+    pairButton.disabled = true;
+    try {
+      if (!await requestProcessingServicePermission()) throw new Error("你没有授权访问本地 Paper2MD processing service。");
+      await pairProcessingService(pairingIdInput.value.trim(), pairingCodeInput.value.trim());
+      pairingElement.hidden = true;
+      setActionsDisabled(false);
+      setStatus("本机配对完成。", "success");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "配对失败。", "error");
+    } finally {
+      pairButton.disabled = false;
+    }
+  })();
+});
 
 clipButton.addEventListener("click", () => {
   void (async () => {

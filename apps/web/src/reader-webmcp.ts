@@ -7,6 +7,7 @@ import type {
   MinerUVisualReviewDecision
 } from "../../../src/model/mineru-visual-review";
 import type { ReferenceMode } from "../../../src/render/reference-sidebar";
+import type { VisualCorrectionInput } from "../../../packages/agent-contracts/src/index";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -31,6 +32,11 @@ export interface ReaderWebMcpRegistration {
   toolNames: string[];
   ready: Promise<boolean>;
   dispose(): void;
+}
+
+export interface ReaderWebMcpVisualWriter {
+  validate(candidateId: string, correction: VisualCorrectionInput): Promise<unknown>;
+  apply(candidateId: string, correction: VisualCorrectionInput, validationToken: string): Promise<unknown>;
 }
 
 const SAFE_TOOL_ID = /^[A-Za-z0-9_.:\-]{1,200}$/;
@@ -123,6 +129,37 @@ function correctionDecision(input: unknown): MinerUVisualReviewDecision {
   };
 }
 
+function serviceCorrection(value: unknown): VisualCorrectionInput {
+  const correction = exactRecord(value, ["kind", "visual_block_id", "member_block_ids", "caption_block_ids"], ["kind", "visual_block_id"]);
+  const kind = enumValue(correction.kind, ["full_page_visual", "cross_page_caption"] as const, "correction.kind");
+  const visualBlockId = safeId(correction.visual_block_id);
+  if (kind === "full_page_visual") {
+    exactRecord(value, ["kind", "visual_block_id", "member_block_ids"], ["kind", "visual_block_id", "member_block_ids"]);
+    return { kind, visual_block_id: visualBlockId, member_block_ids: idArray(correction.member_block_ids, 2, 64) };
+  }
+  exactRecord(value, ["kind", "visual_block_id", "caption_block_ids"], ["kind", "visual_block_id", "caption_block_ids"]);
+  return { kind, visual_block_id: visualBlockId, caption_block_ids: idArray(correction.caption_block_ids, 1, 2) };
+}
+
+const SERVICE_CORRECTION_SCHEMA = {
+  oneOf: [
+    {
+      type: "object", properties: {
+        kind: { const: "full_page_visual" },
+        visual_block_id: { type: "string", pattern: "^[A-Za-z0-9_.:\\-]{1,200}$" },
+        member_block_ids: { type: "array", minItems: 2, maxItems: 64, uniqueItems: true, items: { type: "string", pattern: "^[A-Za-z0-9_.:\\-]{1,200}$" } }
+      }, required: ["kind", "visual_block_id", "member_block_ids"], additionalProperties: false
+    },
+    {
+      type: "object", properties: {
+        kind: { const: "cross_page_caption" },
+        visual_block_id: { type: "string", pattern: "^[A-Za-z0-9_.:\\-]{1,200}$" },
+        caption_block_ids: { type: "array", minItems: 1, maxItems: 2, uniqueItems: true, items: { type: "string", pattern: "^[A-Za-z0-9_.:\\-]{1,200}$" } }
+      }, required: ["kind", "visual_block_id", "caption_block_ids"], additionalProperties: false
+    }
+  ]
+};
+
 function jsonResult(action: () => unknown | Promise<unknown>): Promise<string> {
   return Promise.resolve().then(action).then(
     (data) => JSON.stringify({ ok: true, data }),
@@ -154,8 +191,8 @@ function tool(
   };
 }
 
-export function createReaderWebMcpTools(controller: ReaderAgentController): WebMcpTool[] {
-  return [
+export function createReaderWebMcpTools(controller: ReaderAgentController, writer?: ReaderWebMcpVisualWriter): WebMcpTool[] {
+  const tools: WebMcpTool[] = [
     tool("get_reader_state", "Get Reader state", "Return bounded state for the current Paper2MD Reader view.", EMPTY_SCHEMA, true, (input) => {
       emptyInput(input);
       return controller.getReaderState();
@@ -250,6 +287,31 @@ export function createReaderWebMcpTools(controller: ReaderAgentController): WebM
       additionalProperties: false
     }, true, (input) => controller.previewVisualCorrection(correctionDecision(input)))
   ];
+  if (writer) {
+    tools.push(
+      tool("validate_visual_correction", "Validate visual correction", "Validate a proposed sidecar-only visual correction against the current immutable package and return a short-lived token. This performs no write.", {
+        type: "object", properties: {
+          candidate_id: { type: "string", pattern: "^[A-Za-z0-9_.:\\-]{1,200}$" }, correction: SERVICE_CORRECTION_SCHEMA
+        }, required: ["candidate_id", "correction"], additionalProperties: false
+      }, true, (input) => {
+        const parsed = exactRecord(input, ["candidate_id", "correction"], ["candidate_id", "correction"]);
+        return writer.validate(safeId(parsed.candidate_id), serviceCorrection(parsed.correction));
+      }),
+      tool("apply_visual_correction", "Apply confirmed visual correction", "Consume the validation token only after explicit confirmation. Writes a user sidecar; immutable source files are never changed.", {
+        type: "object", properties: {
+          candidate_id: { type: "string", pattern: "^[A-Za-z0-9_.:\\-]{1,200}$" },
+          correction: SERVICE_CORRECTION_SCHEMA,
+          validation_token: { type: "string", pattern: "^[A-Za-z0-9_-]{1,128}$" },
+          confirm: { const: true }
+        }, required: ["candidate_id", "correction", "validation_token", "confirm"], additionalProperties: false
+      }, false, (input) => {
+        const parsed = exactRecord(input, ["candidate_id", "correction", "validation_token", "confirm"], ["candidate_id", "correction", "validation_token", "confirm"]);
+        if (parsed.confirm !== true) throw new Error("Explicit confirmation is required");
+        return writer.apply(safeId(parsed.candidate_id), serviceCorrection(parsed.correction), safeId(parsed.validation_token));
+      })
+    );
+  }
+  return tools;
 }
 
 function browserModelContext(
@@ -269,10 +331,11 @@ function browserModelContext(
 export function registerReaderWebMcp(
   controller: ReaderAgentController,
   documentLike = document as Document & { modelContext?: WebMcpModelContext },
-  navigatorLike = navigator as Navigator & { modelContext?: WebMcpModelContext }
+  navigatorLike = navigator as Navigator & { modelContext?: WebMcpModelContext },
+  writer?: ReaderWebMcpVisualWriter
 ): ReaderWebMcpRegistration {
   const modelContext = browserModelContext(documentLike, navigatorLike);
-  const tools = createReaderWebMcpTools(controller);
+  const tools = createReaderWebMcpTools(controller, writer);
   if (!modelContext) {
     return { supported: false, toolNames: [], ready: Promise.resolve(false), dispose() {} };
   }

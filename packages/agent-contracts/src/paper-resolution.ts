@@ -3,6 +3,7 @@ import type { AttemptedSource, IngestProblem, PaperQuery } from "./index";
 export type PaperMatchConfidence = "exact_identifier" | "high_metadata";
 export type FullTextFormat = "xml" | "html" | "pdf";
 export type AcquisitionRoute = "clipper_core" | "mineru" | "clipper_extension";
+export type AcquisitionPlanKind = "pmc_xml" | "public_html" | "public_pdf" | "clipper_extension" | "unavailable";
 
 export interface ResolvedPaperIdentity {
   title: string;
@@ -59,6 +60,14 @@ export interface PaperResolution {
   problem?: IngestProblem;
 }
 
+export interface AcquisitionPlan {
+  kind: AcquisitionPlanKind;
+  source?: FullTextSource;
+  alternatives: FullTextSource[];
+  requires_confirmation: boolean;
+  reason: string;
+}
+
 export function normalizeTitle(value: string): string {
   return value
     .normalize("NFKC")
@@ -97,4 +106,43 @@ export function rankFullTextSources(sources: readonly FullTextSource[]): FullTex
     || left.format.localeCompare(right.format)
     || left.url.localeCompare(right.url)
   );
+}
+
+/** Selects a deterministic acquisition route without performing network or browser actions. */
+export function planFullTextAcquisition(sources: readonly FullTextSource[]): AcquisitionPlan {
+  const ranked = rankFullTextSources(sources);
+  const automatic = ranked.find((source) => !source.requires_browser_session
+    && !source.requires_domain_permission
+    && (source.acquisition_route === "clipper_core" || source.acquisition_route === "mineru"));
+  if (automatic) {
+    const kind: AcquisitionPlanKind = automatic.format === "xml"
+      ? "pmc_xml"
+      : automatic.format === "pdf" ? "public_pdf" : "public_html";
+    return {
+      kind,
+      source: { ...automatic },
+      alternatives: ranked.filter((source) => source.source_id !== automatic.source_id),
+      requires_confirmation: kind === "public_pdf",
+      reason: kind === "public_pdf"
+        ? "A verified open PDF can be staged for deterministic MinerU extraction after user-authorized ingest"
+        : "A session-free open full-text source can be clipped deterministically"
+    };
+  }
+  const extension = ranked.find((source) => source.acquisition_route === "clipper_extension"
+    || source.requires_browser_session || source.requires_domain_permission);
+  if (extension) {
+    return {
+      kind: "clipper_extension",
+      source: { ...extension },
+      alternatives: ranked.filter((source) => source.source_id !== extension.source_id),
+      requires_confirmation: true,
+      reason: "The full text requires an explicitly authorized browser-session handoff"
+    };
+  }
+  return {
+    kind: "unavailable",
+    alternatives: ranked,
+    requires_confirmation: false,
+    reason: "No supported legal full-text acquisition route is available"
+  };
 }

@@ -35,7 +35,10 @@ describe("Paper2MD MCP command adapter", () => {
       "list_packages",
       "read_package_manifest",
       "read_article_section",
-      "list_figures"
+      "list_figures",
+      "get_visual_repair_candidates",
+      "validate_visual_correction",
+      "apply_visual_correction"
     ]);
     expect(tools.find((tool) => tool.name === "get_service_status")?.annotations).toMatchObject({
       readOnlyHint: true,
@@ -52,6 +55,12 @@ describe("Paper2MD MCP command adapter", () => {
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
+      openWorldHint: false
+    });
+    expect(tools.find((tool) => tool.name === "apply_visual_correction")?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
       openWorldHint: false
     });
   });
@@ -117,6 +126,13 @@ describe("Paper2MD MCP command adapter", () => {
     await expect(client.callTool({
       name: "resolve_paper",
       arguments: { query: "PMCID: PMC3531190", arbitrary_path: "C:/secrets" }
+    })).resolves.toMatchObject({ isError: true });
+    await expect(client.callTool({
+      name: "apply_visual_correction",
+      arguments: {
+        package_id: "package-1", candidate_id: "candidate-1", validation_token: "token-1", confirm: false,
+        correction: { kind: "full_page_visual", visual_block_id: "visual-1", member_block_ids: ["block-1", "block-2"] }
+      }
     })).resolves.toMatchObject({ isError: true });
   });
 

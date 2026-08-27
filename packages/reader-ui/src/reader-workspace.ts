@@ -54,6 +54,9 @@ import type { ReferenceMode } from "../../../src/render/reference-sidebar";
 
 export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
+  visualReviewStore?: {
+    read(candidatePackageSha256: string): Promise<unknown | undefined>;
+  };
   visualResolver?: {
     resolve(asset: LoadedAsset, fileSystem: ReaderFileSystem): Promise<string>;
     recoverText?(
@@ -216,6 +219,10 @@ export class ReaderWorkspace implements ReaderAgentController {
     this.fileSystem = fileSystem;
     this.fileLabel.textContent = fileSystem.rootLabel;
     this.reloadButton.disabled = false;
+    await this.loadPackage();
+  }
+
+  async refreshPackage(): Promise<void> {
     await this.loadPackage();
   }
 
@@ -482,7 +489,10 @@ export class ReaderWorkspace implements ReaderAgentController {
     try {
       const loader = new PackageLoader(this.fileSystem);
       let loaded = await loader.loadDetected();
-      const storedSidecar = this.readVisualReviewSidecar(loaded);
+      let storedSidecar = this.readVisualReviewSidecar(loaded);
+      if (loaded.visualReview && this.options.visualReviewStore) {
+        storedSidecar = await this.options.visualReviewStore.read(loaded.visualReview.packageHash) ?? storedSidecar;
+      }
       if (storedSidecar !== undefined) loaded = await loader.loadDetected(storedSidecar);
       this.loaded = loaded;
       this.stateKey = loaded.articleHash ? readerViewStateKey(loaded.articleHash) : undefined;

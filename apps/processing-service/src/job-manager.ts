@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ChildProcess } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MineruJobOptions, ProcessingJob } from "./contracts";
 import { ProcessingServiceConfig } from "./config";
@@ -74,6 +74,32 @@ export class JobManager {
     await mkdir(jobRoot, { recursive: true });
     this.jobs.set(id, internal);
     return { job: publicTask(internal), sourcePath };
+  }
+
+  async submitAcquiredPdf(filename: string, bytes: Uint8Array, options: MineruJobOptions): Promise<ProcessingJob> {
+    if (bytes.byteLength < 5 || bytes.byteLength > this.config.maximumPdfBytes
+      || new TextDecoder("ascii").decode(bytes.subarray(0, 5)) !== "%PDF-") {
+      throw new Error("Acquired content is not a valid PDF within the configured size limit");
+    }
+    const allocation = await this.allocateUpload(filename, options);
+    try {
+      await writeFile(allocation.sourcePath, bytes, { flag: "wx", mode: 0o600 });
+      return this.enqueue(allocation.job.id);
+    } catch (error) {
+      this.failUpload(allocation.job.id);
+      throw error;
+    }
+  }
+
+  async waitForTerminal(id: string, timeoutMilliseconds: number): Promise<ProcessingJob> {
+    const deadline = Date.now() + timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      const task = this.get(id);
+      if (!task) throw new Error("Unknown processing job");
+      if (task.state !== "queued" && task.state !== "running") return task;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error("MinerU processing did not reach a terminal state before the ingest deadline");
   }
 
   enqueue(id: string): ProcessingJob {

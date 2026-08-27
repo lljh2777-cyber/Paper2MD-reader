@@ -106,17 +106,19 @@ describe("direct Clipper to processing-service bridge", () => {
       expect(init?.body).toBeInstanceOf(FormData);
       expect(init?.credentials).toBe("omit");
       expect(init?.redirect).toBe("error");
+      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${"a".repeat(48)}`);
       return Response.json({
         package_id: "package-123",
         reader_url: "http://127.0.0.1:4174/reader/package-123"
       });
     });
-    await expect(publishFromExtension(submission(), { fetch: fetchMock })).resolves.toEqual({
+    await expect(publishFromExtension(submission(), { fetch: fetchMock, token: "a".repeat(48) })).resolves.toEqual({
       packageId: "package-123",
       readerUrl: "http://127.0.0.1:4174/reader/package-123"
     });
     await expect(publishFromExtension(submission(), {
-      fetch: async () => Response.json({ package_id: "package-123", reader_url: "http://evil.example/reader/package-123" })
+      fetch: async () => Response.json({ package_id: "package-123", reader_url: "http://evil.example/reader/package-123" }),
+      token: "a".repeat(48)
     })).rejects.toThrow("unsafe Reader URL");
   });
 });
