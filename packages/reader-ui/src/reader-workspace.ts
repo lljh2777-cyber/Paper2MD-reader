@@ -15,6 +15,7 @@ import {
 } from "../../../src/model/mineru-visual-review";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
 import type { RenderedArticle } from "../../../src/render/contract-renderer";
+import { ArticleOutline } from "../../../src/render/article-outline";
 import { FigurePresentation, FigureSidebar, FigureSidebarOptions } from "../../../src/render/figure-sidebar";
 import type { PdfReferenceRuntime } from "../../../src/render/pdf-reference-pane";
 import { ReferenceSidebar } from "../../../src/render/reference-sidebar";
@@ -105,6 +106,7 @@ export class ReaderWorkspace {
   private loaded?: LoadedPaperPackage;
   private articleScroll!: HTMLElement;
   private articleContent!: HTMLElement;
+  private articleOutline?: ArticleOutline;
   private fileLabel!: HTMLElement;
   private statusButton!: HTMLButtonElement;
   private statusLabel!: HTMLElement;
@@ -131,6 +133,7 @@ export class ReaderWorkspace {
     this.saveViewState();
     if (this.stateSaveTimer) window.clearTimeout(this.stateSaveTimer);
     this.scrollController.disconnect();
+    this.articleOutline?.destroy();
     this.referenceSidebar?.destroy();
     this.options.visualResolver?.dispose();
     this.fileSystem?.dispose();
@@ -177,6 +180,8 @@ export class ReaderWorkspace {
   }
 
   private renderShell(): void {
+    this.articleOutline?.destroy();
+    this.articleOutline = undefined;
     this.root.className = `p2md-reader-view p2md-local-reader-view${this.options.figureHost ? " p2md-external-figures" : ""}`;
     const reader = element("div", "p2md-reader");
     const toolbar = element("header", "p2md-toolbar");
@@ -223,9 +228,12 @@ export class ReaderWorkspace {
     );
     this.workspaceElement = workspace;
     this.applySplitRatio(this.splitRatio);
+    const readingPane = element("div", "p2md-reading-pane");
+    const outlineHost = element("aside", "p2md-outline");
     this.articleScroll = element("main", "p2md-article-scroll");
     this.articleContent = element("article", "p2md-article markdown-rendered");
     this.articleScroll.appendChild(this.articleContent);
+    readingPane.append(outlineHost, this.articleScroll);
     const activateMarkdownFollowing = () => this.referenceSidebar?.activateMarkdownFollowing();
     const resumeReadingAuthority = () => {
       activateMarkdownFollowing();
@@ -237,7 +245,7 @@ export class ReaderWorkspace {
     this.articleScroll.addEventListener("focusin", resumeReadingAuthority);
     this.articleScroll.addEventListener("scroll", () => this.scheduleViewStateSave(), { passive: true });
     const figureHost = this.options.figureHost ?? element("aside", "p2md-figures-host");
-    workspace.appendChild(this.articleScroll);
+    workspace.appendChild(readingPane);
     if (!this.options.figureHost) {
       workspace.append(this.createSplitter(), figureHost);
     }
@@ -264,6 +272,9 @@ export class ReaderWorkspace {
       );
       this.figureSidebar = this.referenceSidebar;
     }
+    this.articleOutline = new ArticleOutline(outlineHost, this.articleScroll, this.locale, {
+      onNavigate: resumeReadingAuthority
+    });
   }
 
   private async choosePackage(): Promise<void> {
@@ -280,6 +291,7 @@ export class ReaderWorkspace {
     if (!this.fileSystem) return;
     if (this.loaded) this.saveViewState();
     this.scrollController.disconnect();
+    this.articleOutline?.clear();
     this.articleContent.setAttribute("aria-busy", "true");
     this.statusButton.disabled = true;
     this.statusLabel.textContent = readerText(this.locale, "loading");
@@ -319,6 +331,7 @@ export class ReaderWorkspace {
       articleText = injectMinerUPageAnchors(articleText, loaded.pageMap);
       this.updateStatus(loaded);
       const rendered = await renderLocalArticle(articleText, this.articleContent, this.fileSystem, contractUsable);
+      this.articleOutline?.setArticle(this.articleContent);
       const pageBlocks = loaded.pageMap ? materializeReaderPageOwnership(this.articleContent) : [];
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
       this.figureSidebar.setFigures(await this.createFigurePresentations(loaded, rendered, contractUsable));
@@ -337,6 +350,7 @@ export class ReaderWorkspace {
       this.connectScrollSync(loaded, rendered, pageBlocks, contractUsable);
       this.root.dataset.state = contractUsable ? "ready" : "degraded";
       this.articleScroll.scrollTop = restoredState.articleScrollTop;
+      this.articleOutline?.refreshActive();
     } catch (error) {
       console.error("Paper2MD Reader failed to load", error);
       this.loaded = undefined;
@@ -499,6 +513,7 @@ export class ReaderWorkspace {
 
   private renderWelcome(): void {
     this.root.dataset.state = "idle";
+    this.articleOutline?.clear();
     this.articleContent.replaceChildren();
     const empty = element("div", "p2md-reader-empty p2md-local-welcome");
     const title = element("h1");
@@ -581,6 +596,7 @@ export class ReaderWorkspace {
   private renderFailure(message: string): void {
     this.root.dataset.state = "error";
     this.root.classList.remove("p2md-contract-mode");
+    this.articleOutline?.clear();
     this.articleContent.replaceChildren();
     const empty = element("div", "p2md-reader-empty p2md-local-error");
     const title = element("h2");
