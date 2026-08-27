@@ -16,6 +16,30 @@ export interface DesktopPdfSelection {
   size: number;
 }
 
+export interface DesktopLibraryDocument {
+  packageId: string;
+  label: string;
+  kind: "mineru" | "clipping";
+  integrity: "hash-bound" | "legacy-size-bound";
+  createdAt?: string;
+  fileCount: number;
+  totalSizeBytes: number;
+  favorite: boolean;
+}
+
+export interface DesktopLibrarySnapshot {
+  configured: boolean;
+  label?: string;
+  documents: DesktopLibraryDocument[];
+  truncated?: boolean;
+}
+
+export interface MineruCredentialStatus {
+  configured: boolean;
+  storage: "os-protected";
+  maskedToken?: string;
+}
+
 export type ConversionTaskState = "queued" | "running" | "awaiting-review" | "succeeded" | "failed" | "cancelled";
 export type ConversionWorkflow = "direct" | "reviewed-layout";
 export type ConversionStage =
@@ -68,6 +92,15 @@ export interface StartReviewedLayoutRequest {
 }
 
 export interface Paper2MDDesktopApi {
+  getLibrarySnapshot(): Promise<DesktopLibrarySnapshot>;
+  chooseLibrary(): Promise<DesktopLibrarySnapshot | undefined>;
+  openLibraryDocument(packageId: string): Promise<DesktopRootSelection>;
+  setLibraryFavorite(packageId: string, favorite: boolean): Promise<DesktopLibrarySnapshot>;
+  revealLibrary(): Promise<void>;
+  getMineruCredentialStatus(): Promise<MineruCredentialStatus>;
+  saveMineruCredential(token: string): Promise<MineruCredentialStatus>;
+  clearMineruCredential(): Promise<MineruCredentialStatus>;
+  openMineruTokenPage(): Promise<void>;
   choosePackage(): Promise<DesktopRootSelection | undefined>;
   choosePdf(): Promise<DesktopPdfSelection | undefined>;
   chooseOutputParent(): Promise<DesktopRootSelection | undefined>;
@@ -91,6 +124,15 @@ export interface Paper2MDDesktopApi {
 }
 
 export const DESKTOP_CHANNELS = {
+  getLibrarySnapshot: "paper2md:get-library-snapshot",
+  chooseLibrary: "paper2md:choose-library",
+  openLibraryDocument: "paper2md:open-library-document",
+  setLibraryFavorite: "paper2md:set-library-favorite",
+  revealLibrary: "paper2md:reveal-library",
+  getMineruCredentialStatus: "paper2md:get-mineru-credential-status",
+  saveMineruCredential: "paper2md:save-mineru-credential",
+  clearMineruCredential: "paper2md:clear-mineru-credential",
+  openMineruTokenPage: "paper2md:open-mineru-token-page",
   choosePackage: "paper2md:choose-package",
   choosePdf: "paper2md:choose-pdf",
   chooseOutputParent: "paper2md:choose-output-parent",

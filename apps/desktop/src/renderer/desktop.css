@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --p2md-desktop-accent: #276ab7;
   --p2md-desktop-rail: #f7f8fa;
   --p2md-desktop-border: #dfe3e8;
 }
@@ -8,11 +9,11 @@ html,
 body,
 #desktop-app { height: 100%; margin: 0; }
 
-body { overflow: hidden; }
+body { color: var(--text-normal); overflow: hidden; }
 
 .p2md-desktop-shell {
   display: grid;
-  grid-template-columns: 248px minmax(560px, 1fr) minmax(320px, 38vw);
+  grid-template-columns: 272px minmax(560px, 1fr) minmax(320px, 38vw);
   height: 100%;
   min-width: 0;
 }
@@ -24,10 +25,159 @@ body { overflow: hidden; }
   min-width: 0;
 }
 
-.p2md-desktop-task-rail { overflow: auto; padding: 18px 14px; }
+.p2md-desktop-task-rail { display: flex; flex-direction: column; overflow: hidden; padding: 16px 14px 12px; }
 .p2md-desktop-right-pane { border-left: 1px solid var(--p2md-desktop-border); border-right: 0; display: flex; flex-direction: column; }
 .p2md-desktop-reader { min-width: 0; overflow: hidden; }
 .p2md-desktop-reader > .p2md-reader-view { height: 100%; }
+
+.p2md-desktop-app-header { align-items: center; display: flex; min-height: 40px; padding: 0 4px 8px; }
+.p2md-desktop-app-title { color: var(--text-normal); font: 700 19px/1.2 system-ui, sans-serif; letter-spacing: -0.035em; }
+.p2md-desktop-new-button {
+  align-items: center;
+  background: color-mix(in srgb, var(--p2md-desktop-accent) 7%, var(--background-primary));
+  border: 1px solid color-mix(in srgb, var(--p2md-desktop-accent) 45%, var(--p2md-desktop-border));
+  border-radius: 8px;
+  color: var(--p2md-desktop-accent);
+  cursor: pointer;
+  display: flex;
+  font: 650 12px/1 system-ui, sans-serif;
+  gap: 9px;
+  justify-content: flex-start;
+  min-height: 42px;
+  padding: 0 13px;
+  width: 100%;
+}
+.p2md-desktop-new-button:hover { background: color-mix(in srgb, var(--p2md-desktop-accent) 11%, var(--background-primary)); }
+.p2md-desktop-new-button svg,
+.p2md-desktop-navigation svg,
+.p2md-desktop-search svg,
+.p2md-desktop-token-input svg,
+.p2md-desktop-external-button svg { flex: 0 0 auto; height: 18px; stroke-width: 1.8; width: 18px; }
+.p2md-desktop-navigation { border-bottom: 1px solid var(--p2md-desktop-border); display: grid; gap: 2px; margin: 12px 2px 0; padding-bottom: 12px; }
+.p2md-desktop-nav-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font: 560 12px/1.2 system-ui, sans-serif;
+  gap: 10px;
+  min-height: 35px;
+  padding: 0 9px;
+  text-align: left;
+}
+.p2md-desktop-nav-button svg { height: 17px; stroke-width: 1.7; width: 17px; }
+.p2md-desktop-nav-button:hover { background: color-mix(in srgb, var(--text-normal) 5%, transparent); color: var(--text-normal); }
+.p2md-desktop-nav-button[data-selected="true"] { background: var(--background-primary); color: var(--text-normal); font-weight: 650; }
+.p2md-desktop-rail-content { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 2px 0; }
+.p2md-desktop-rail-panel[hidden] { display: none; }
+.p2md-desktop-panel-header { align-items: center; display: flex; justify-content: space-between; margin: 0 2px 10px; }
+.p2md-desktop-panel-header h2,
+.p2md-desktop-settings-heading { font: 650 12px/1.3 system-ui, sans-serif; margin: 0; }
+.p2md-desktop-library-count { color: var(--text-faint); font: 500 10px/1 system-ui, sans-serif; }
+.p2md-desktop-search,
+.p2md-desktop-token-input {
+  align-items: center;
+  background: var(--background-primary);
+  border: 1px solid var(--p2md-desktop-border);
+  border-radius: 6px;
+  color: var(--text-faint);
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+}
+.p2md-desktop-search:focus-within,
+.p2md-desktop-token-input:focus-within { border-color: color-mix(in srgb, var(--p2md-desktop-accent) 70%, var(--p2md-desktop-border)); outline: 2px solid color-mix(in srgb, var(--p2md-desktop-accent) 18%, transparent); }
+.p2md-desktop-search input,
+.p2md-desktop-token-input input {
+  background: transparent;
+  border: 0;
+  color: var(--text-normal);
+  font: 500 11px/1.2 system-ui, sans-serif;
+  min-height: 32px;
+  min-width: 0;
+  outline: 0;
+  padding: 0;
+  width: 100%;
+}
+.p2md-desktop-library-message,
+.p2md-desktop-library-limit { color: var(--text-muted); font: 500 10.5px/1.5 system-ui, sans-serif; margin: 14px 4px; }
+.p2md-desktop-library-message[data-tone="error"],
+.p2md-desktop-settings-feedback[data-tone="error"] { color: var(--text-error); }
+.p2md-desktop-document-list { display: grid; gap: 3px; margin-top: 10px; }
+.p2md-desktop-document { align-items: center; display: grid; grid-template-columns: minmax(0, 1fr) 28px; }
+.p2md-desktop-document-open {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-normal);
+  cursor: pointer;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 31px minmax(0, 1fr);
+  min-width: 0;
+  padding: 8px 5px;
+  text-align: left;
+}
+.p2md-desktop-document-open:hover { background: color-mix(in srgb, var(--text-normal) 5%, transparent); }
+.p2md-desktop-document-open:disabled { cursor: wait; opacity: 0.6; }
+.p2md-desktop-document-icon {
+  align-items: center;
+  background: var(--background-primary);
+  border: 1px solid var(--p2md-desktop-border);
+  border-radius: 50%;
+  color: #d14b4b;
+  display: flex;
+  height: 29px;
+  justify-content: center;
+  width: 29px;
+}
+.p2md-desktop-document-icon svg { height: 15px; stroke-width: 1.8; width: 15px; }
+.p2md-desktop-document-copy { display: block; min-width: 0; }
+.p2md-desktop-document-copy strong { display: block; font: 570 11.5px/1.35 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p2md-desktop-document-copy small { color: var(--text-muted); display: block; font: 500 9.5px/1.35 system-ui, sans-serif; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p2md-desktop-favorite-button,
+.p2md-desktop-icon-action {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+.p2md-desktop-favorite-button:hover,
+.p2md-desktop-icon-action:hover { background: var(--background-primary); color: var(--text-normal); }
+.p2md-desktop-favorite-button[data-selected="true"] { color: #a86b00; }
+.p2md-desktop-favorite-button[data-selected="true"] svg { fill: currentColor; }
+.p2md-desktop-favorite-button svg,
+.p2md-desktop-icon-action svg { height: 15px; stroke-width: 1.7; width: 15px; }
+.p2md-desktop-library-footer { align-items: center; border-top: 1px solid var(--p2md-desktop-border); display: flex; gap: 4px; justify-content: space-between; margin-top: 14px; padding-top: 10px; }
+.p2md-desktop-quiet-button,
+.p2md-desktop-external-button {
+  background: transparent;
+  border: 0;
+  color: var(--p2md-desktop-accent);
+  cursor: pointer;
+  font: 600 10.5px/1.3 system-ui, sans-serif;
+  padding: 4px 2px;
+}
+.p2md-desktop-external-button { align-items: center; display: inline-flex; gap: 6px; margin: 2px 0 10px; }
+.p2md-desktop-settings-heading { margin: 0 2px 12px; }
+.p2md-desktop-settings-section { border-top: 1px solid var(--p2md-desktop-border); padding: 12px 2px; }
+.p2md-desktop-settings-section h3 { font: 650 11.5px/1.35 system-ui, sans-serif; margin: 0 0 5px; }
+.p2md-desktop-settings-section p { color: var(--text-muted); font: 500 10px/1.5 system-ui, sans-serif; margin: 0 0 8px; }
+.p2md-desktop-settings-section .p2md-desktop-privacy-notice { background: color-mix(in srgb, var(--p2md-desktop-accent) 6%, transparent); border-left: 2px solid color-mix(in srgb, var(--p2md-desktop-accent) 55%, transparent); padding: 7px 8px; }
+.p2md-desktop-settings-status { display: block; font: 600 10.5px/1.45 system-ui, sans-serif; margin: 5px 0 8px; overflow-wrap: anywhere; }
+.p2md-desktop-settings-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.p2md-desktop-settings-feedback { min-height: 15px; margin-top: 8px !important; }
 
 .p2md-desktop-task-header h1 { font-size: 17px; letter-spacing: -0.02em; margin: 0 0 5px; }
 .p2md-desktop-task-header p { color: var(--text-muted); font-size: 11.5px; line-height: 1.5; margin: 0 0 16px; }
@@ -79,7 +229,7 @@ body { overflow: hidden; }
   padding: 10px;
 }
 .p2md-desktop-task strong { display: block; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.p2md-desktop-task small { color: var(--text-accent); display: block; font-size: 9.5px; margin-top: 3px; }
+.p2md-desktop-task small { color: var(--p2md-desktop-accent); display: block; font-size: 9.5px; margin-top: 3px; }
 .p2md-desktop-task span { color: var(--text-muted); display: block; font-size: 10.5px; line-height: 1.45; margin-top: 4px; overflow-wrap: anywhere; }
 .p2md-desktop-task[data-state="failed"] { border-color: color-mix(in srgb, var(--text-error) 45%, transparent); }
 .p2md-desktop-task[data-state="awaiting-review"] { border-color: color-mix(in srgb, #a86b00 55%, transparent); }
@@ -109,8 +259,8 @@ body { overflow: hidden; }
   padding: 0 10px;
 }
 .p2md-desktop-right-tab:hover { color: var(--text-normal); }
-.p2md-desktop-right-tab:focus-visible { outline: 2px solid var(--text-accent); outline-offset: -3px; }
-.p2md-desktop-right-tab[data-selected="true"] { border-bottom-color: var(--text-accent); color: var(--text-normal); }
+.p2md-desktop-right-tab:focus-visible { outline: 2px solid var(--p2md-desktop-accent); outline-offset: -3px; }
+.p2md-desktop-right-tab[data-selected="true"] { border-bottom-color: var(--p2md-desktop-accent); color: var(--text-normal); }
 .p2md-desktop-right-view { flex: 1 1 auto; min-height: 0; }
 .p2md-desktop-pdf-view { display: flex; flex-direction: column; }
 .p2md-desktop-visuals-view.p2md-figures-host { border-left: 0; display: flex; height: 100%; }
@@ -121,10 +271,10 @@ body { overflow: hidden; }
 .p2md-desktop-pdf-frame { border: 0; flex: 1; min-height: 0; width: 100%; }
 
 @media (max-width: 1180px) {
-  .p2md-desktop-shell { grid-template-columns: 220px minmax(520px, 1fr); }
+  .p2md-desktop-shell { grid-template-columns: 238px minmax(520px, 1fr); }
   .p2md-desktop-right-pane { display: none; }
 }
 
 @media (prefers-color-scheme: dark) {
-  :root { --p2md-desktop-rail: #20242a; --p2md-desktop-border: #353b44; }
+  :root { --p2md-desktop-accent: #61a4f2; --p2md-desktop-rail: #20242a; --p2md-desktop-border: #353b44; }
 }

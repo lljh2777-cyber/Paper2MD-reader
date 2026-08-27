@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import type { PublishedPackageDescriptor, PublishedPackageFile } from "./contracts";
-import { normalizePackagePath } from "./package-publisher";
+import { normalizePackagePath } from "./package-path";
 
 const MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\)/g;
 const MAX_FILES = 300;

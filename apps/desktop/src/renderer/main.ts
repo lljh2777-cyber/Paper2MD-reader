@@ -5,12 +5,14 @@ import "./desktop.css";
 import { mountReaderWorkspace } from "../../../../packages/reader-ui/src/index";
 import {
   ConversionTask,
+  DesktopLibrarySnapshot,
   DesktopPdfSelection,
   DesktopRootSelection,
   EvidenceLevel,
   ExtractionProfile,
   LayoutReviewMode,
-  ReferencePolicy
+  ReferencePolicy,
+  MineruCredentialStatus
 } from "../shared/desktop-api";
 import { DesktopPackagePicker } from "./desktop-package-picker";
 import { ElectronReaderFileSystem } from "./electron-reader-file-system";
@@ -21,6 +23,7 @@ import {
   subscribeReaderLocale
 } from "../../../../src/ui/locale";
 import { desktopText, localizedTaskMessage, localizedTaskState } from "./desktop-copy";
+import { setReaderIcon } from "../../../../src/render/icons";
 
 const api = window.paper2mdDesktop;
 const root = document.querySelector<HTMLElement>("#desktop-app");
@@ -56,6 +59,68 @@ function optionSelect<T extends string>(labelText: string, values: Array<{ value
 
 const shell = element("div", "p2md-desktop-shell");
 const taskRail = element("aside", "p2md-desktop-task-rail");
+const appHeader = element("header", "p2md-desktop-app-header");
+const appTitle = element("strong", "p2md-desktop-app-title");
+appTitle.textContent = "Paper2MD";
+appHeader.appendChild(appTitle);
+
+const newExtractionButton = element("button", "p2md-desktop-new-button");
+newExtractionButton.type = "button";
+setReaderIcon(newExtractionButton, "plus");
+const newExtractionLabel = element("span");
+newExtractionLabel.textContent = "New extraction";
+newExtractionButton.appendChild(newExtractionLabel);
+
+type RailView = "library" | "tasks" | "favorites" | "settings";
+const navigation = element("nav", "p2md-desktop-navigation");
+navigation.ariaLabel = "Paper2MD";
+const navButtons = new Map<RailView, HTMLButtonElement>();
+function navigationButton(view: RailView, icon: string, label: string): HTMLButtonElement {
+  const button = element("button", "p2md-desktop-nav-button");
+  button.type = "button";
+  button.dataset.view = view;
+  setReaderIcon(button, icon);
+  const text = element("span");
+  text.textContent = label;
+  button.appendChild(text);
+  navButtons.set(view, button);
+  navigation.appendChild(button);
+  return button;
+}
+navigationButton("library", "library", "Library");
+navigationButton("tasks", "tasks", "Tasks");
+navigationButton("favorites", "star", "Favorites");
+navigationButton("settings", "settings", "Settings");
+
+const railContent = element("div", "p2md-desktop-rail-content");
+const libraryPanel = element("section", "p2md-desktop-rail-panel p2md-desktop-library-panel");
+const libraryHeader = element("div", "p2md-desktop-panel-header");
+const libraryTitle = element("h2");
+libraryTitle.textContent = "All documents";
+const libraryCount = element("span", "p2md-desktop-library-count");
+libraryHeader.append(libraryTitle, libraryCount);
+const librarySearchLabel = element("label", "p2md-desktop-search");
+setReaderIcon(librarySearchLabel, "search");
+const librarySearch = element("input");
+librarySearch.type = "search";
+librarySearch.autocomplete = "off";
+librarySearch.placeholder = "Search papers";
+librarySearchLabel.appendChild(librarySearch);
+const libraryMessage = element("p", "p2md-desktop-library-message");
+const documentList = element("div", "p2md-desktop-document-list");
+const libraryFooter = element("div", "p2md-desktop-library-footer");
+const chooseLibraryButton = element("button", "p2md-desktop-quiet-button");
+chooseLibraryButton.type = "button";
+chooseLibraryButton.textContent = "Choose library";
+const revealLibraryButton = element("button", "p2md-desktop-icon-action");
+revealLibraryButton.type = "button";
+revealLibraryButton.ariaLabel = "Show library in Explorer";
+revealLibraryButton.title = revealLibraryButton.ariaLabel;
+setReaderIcon(revealLibraryButton, "folder");
+libraryFooter.append(chooseLibraryButton, revealLibraryButton);
+libraryPanel.append(libraryHeader, librarySearchLabel, libraryMessage, documentList, libraryFooter);
+
+const taskPanel = element("section", "p2md-desktop-rail-panel p2md-desktop-tasks-panel");
 const taskHeader = element("header", "p2md-desktop-task-header");
 const taskTitle = element("h1");
 taskTitle.textContent = "Paper2MD tasks";
@@ -105,7 +170,66 @@ processButton.dataset.tone = "secondary";
 processButton.textContent = "Process PDF (direct)";
 const taskList = element("div", "p2md-desktop-task-list");
 taskHeader.append(taskTitle, taskCopy, optionsPanel, reviewedButton, processButton);
-taskRail.append(taskHeader, taskList);
+taskPanel.append(taskHeader, taskList);
+
+const settingsPanel = element("section", "p2md-desktop-rail-panel p2md-desktop-settings-panel");
+const settingsHeading = element("h2", "p2md-desktop-settings-heading");
+settingsHeading.textContent = "Settings";
+const librarySettings = element("section", "p2md-desktop-settings-section");
+const librarySettingsTitle = element("h3");
+librarySettingsTitle.textContent = "Local library";
+const librarySettingsCopy = element("p");
+const librarySettingsStatus = element("strong", "p2md-desktop-settings-status");
+const librarySettingsActions = element("div", "p2md-desktop-settings-actions");
+const settingsChooseLibraryButton = element("button", "p2md-desktop-task-action");
+settingsChooseLibraryButton.type = "button";
+const settingsRevealLibraryButton = element("button", "p2md-desktop-task-action");
+settingsRevealLibraryButton.type = "button";
+settingsRevealLibraryButton.dataset.tone = "quiet";
+librarySettingsActions.append(settingsChooseLibraryButton, settingsRevealLibraryButton);
+librarySettings.append(librarySettingsTitle, librarySettingsCopy, librarySettingsStatus, librarySettingsActions);
+
+const mineruSettings = element("section", "p2md-desktop-settings-section");
+const mineruSettingsTitle = element("h3");
+mineruSettingsTitle.textContent = "MinerU API Token";
+const mineruSettingsCopy = element("p");
+const mineruRemoteNotice = element("p", "p2md-desktop-privacy-notice");
+const mineruStatus = element("strong", "p2md-desktop-settings-status");
+const createMineruTokenButton = element("button", "p2md-desktop-external-button");
+createMineruTokenButton.type = "button";
+setReaderIcon(createMineruTokenButton, "external");
+const createMineruTokenLabel = element("span");
+createMineruTokenButton.appendChild(createMineruTokenLabel);
+const tokenInputLabel = element("label", "p2md-desktop-token-input");
+setReaderIcon(tokenInputLabel, "key");
+const tokenInput = element("input");
+tokenInput.type = "password";
+tokenInput.autocomplete = "new-password";
+tokenInput.spellcheck = false;
+tokenInput.ariaLabel = "MinerU API Token";
+tokenInputLabel.appendChild(tokenInput);
+const tokenActions = element("div", "p2md-desktop-settings-actions");
+const saveTokenButton = element("button", "p2md-desktop-task-action");
+saveTokenButton.type = "button";
+const removeTokenButton = element("button", "p2md-desktop-task-action");
+removeTokenButton.type = "button";
+removeTokenButton.dataset.tone = "quiet";
+tokenActions.append(saveTokenButton, removeTokenButton);
+const settingsFeedback = element("p", "p2md-desktop-settings-feedback");
+mineruSettings.append(
+  mineruSettingsTitle,
+  mineruSettingsCopy,
+  mineruRemoteNotice,
+  mineruStatus,
+  createMineruTokenButton,
+  tokenInputLabel,
+  tokenActions,
+  settingsFeedback
+);
+settingsPanel.append(settingsHeading, librarySettings, mineruSettings);
+
+railContent.append(libraryPanel, taskPanel, settingsPanel);
+taskRail.append(appHeader, newExtractionButton, navigation, railContent);
 
 const readerHost = element("section", "p2md-desktop-reader");
 const rightPane = element("aside", "p2md-desktop-right-pane");
@@ -177,6 +301,11 @@ let pdfUrl: string | undefined;
 let selectedPdfName: string | undefined;
 let pdfEmptyCopyKey: "previewEmpty" | "previewNoSource" | "previewLoadFailed" = "previewEmpty";
 let startButtonsBusy = false;
+let currentRailView: RailView = "library";
+let librarySnapshot: DesktopLibrarySnapshot = { configured: false, documents: [] };
+let libraryBusy = true;
+let libraryError: string | undefined;
+let credentialStatus: MineruCredentialStatus = { configured: false, storage: "os-protected" };
 type RightPaneMode = "pdf" | "visuals";
 let rightPaneMode: RightPaneMode = "visuals";
 
@@ -204,6 +333,224 @@ rightTabs.addEventListener("keydown", (event) => {
 });
 setRightPaneMode(rightPaneMode);
 
+function activateRailView(view: RailView): void {
+  currentRailView = view;
+  navButtons.forEach((button, name) => {
+    const selected = name === view;
+    button.dataset.selected = String(selected);
+    button.setAttribute("aria-current", selected ? "page" : "false");
+  });
+  libraryPanel.hidden = view !== "library" && view !== "favorites";
+  taskPanel.hidden = view !== "tasks";
+  settingsPanel.hidden = view !== "settings";
+  renderDocuments();
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatDocumentDate(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return new Intl.DateTimeFormat(locale === "zh-CN" ? "zh-CN" : "en", {
+    year: "numeric", month: "short", day: "numeric"
+  }).format(new Date(value));
+}
+
+function renderDocuments(): void {
+  const favoritesOnly = currentRailView === "favorites";
+  libraryTitle.textContent = desktopText(locale, favoritesOnly ? "favoriteDocuments" : "allDocuments");
+  librarySearch.placeholder = desktopText(locale, "searchLibrary");
+  chooseLibraryButton.textContent = desktopText(locale, librarySnapshot.configured ? "changeLibrary" : "chooseLibrary");
+  revealLibraryButton.ariaLabel = desktopText(locale, "revealLibrary");
+  revealLibraryButton.title = revealLibraryButton.ariaLabel;
+  revealLibraryButton.disabled = !librarySnapshot.configured;
+  documentList.replaceChildren();
+  libraryMessage.hidden = false;
+  libraryMessage.dataset.tone = libraryError ? "error" : "quiet";
+
+  if (libraryBusy) {
+    libraryCount.textContent = "";
+    libraryMessage.textContent = desktopText(locale, "loadingLibrary");
+    return;
+  }
+  if (libraryError) {
+    libraryCount.textContent = "";
+    libraryMessage.textContent = libraryError;
+    return;
+  }
+  if (!librarySnapshot.configured) {
+    libraryCount.textContent = "";
+    libraryMessage.textContent = desktopText(locale, "noLibrary");
+    return;
+  }
+
+  const query = librarySearch.value.trim().toLocaleLowerCase(locale === "zh-CN" ? "zh-CN" : "en");
+  const documents = librarySnapshot.documents.filter((document) =>
+    (!favoritesOnly || document.favorite) && (!query || document.label.toLocaleLowerCase().includes(query))
+  );
+  libraryCount.textContent = String(documents.length);
+  if (!documents.length) {
+    libraryMessage.textContent = query
+      ? desktopText(locale, "noSearchResults")
+      : desktopText(locale, favoritesOnly ? "emptyFavorites" : "emptyLibrary");
+    return;
+  }
+
+  libraryMessage.hidden = true;
+  documents.forEach((document) => {
+    const row = element("article", "p2md-desktop-document");
+    row.dataset.packageId = document.packageId;
+    const open = element("button", "p2md-desktop-document-open");
+    open.type = "button";
+    open.title = `${desktopText(locale, "openDocument")}: ${document.label}`;
+    const icon = element("span", "p2md-desktop-document-icon");
+    setReaderIcon(icon, "document");
+    const copy = element("span", "p2md-desktop-document-copy");
+    const title = element("strong");
+    title.textContent = document.label;
+    const metadata = element("small");
+    const parts = [
+      desktopText(locale, document.kind === "mineru" ? "mineruDocument" : "clippingDocument"),
+      formatDocumentDate(document.createdAt),
+      formatBytes(document.totalSizeBytes),
+      document.integrity === "legacy-size-bound" ? desktopText(locale, "legacyIntegrity") : undefined
+    ].filter(Boolean);
+    metadata.textContent = parts.join(" · ");
+    copy.append(title, metadata);
+    open.append(icon, copy);
+    open.addEventListener("click", () => {
+      open.disabled = true;
+      libraryError = undefined;
+      void api.openLibraryDocument(document.packageId).then(async (selected) => {
+        await showPackagePdf(selected);
+        await workspace.attachFileSystem(new ElectronReaderFileSystem(api, selected));
+        setRightPaneMode("visuals");
+      }).catch((error) => {
+        libraryError = error instanceof Error ? error.message : "Could not open the selected paper";
+        renderDocuments();
+      }).finally(() => { open.disabled = false; });
+    });
+    const favorite = element("button", "p2md-desktop-favorite-button");
+    favorite.type = "button";
+    favorite.dataset.selected = String(document.favorite);
+    favorite.ariaLabel = desktopText(locale, document.favorite ? "removeFavorite" : "addFavorite");
+    favorite.title = favorite.ariaLabel;
+    setReaderIcon(favorite, "star");
+    favorite.addEventListener("click", () => {
+      favorite.disabled = true;
+      void api.setLibraryFavorite(document.packageId, !document.favorite).then((snapshot) => {
+        librarySnapshot = snapshot;
+        libraryError = undefined;
+        renderDocuments();
+      }).catch((error) => {
+        libraryError = error instanceof Error ? error.message : "Could not update favorites";
+        renderDocuments();
+      }).finally(() => { favorite.disabled = false; });
+    });
+    row.append(open, favorite);
+    documentList.appendChild(row);
+  });
+  if (librarySnapshot.truncated) {
+    const note = element("p", "p2md-desktop-library-limit");
+    note.textContent = desktopText(locale, "libraryTruncated");
+    documentList.appendChild(note);
+  }
+}
+
+async function chooseLibrary(): Promise<void> {
+  chooseLibraryButton.disabled = true;
+  settingsChooseLibraryButton.disabled = true;
+  try {
+    const snapshot = await api.chooseLibrary();
+    if (snapshot) {
+      librarySnapshot = snapshot;
+      libraryError = undefined;
+      libraryBusy = false;
+      renderDocuments();
+      renderSettings();
+    }
+  } catch (error) {
+    libraryError = error instanceof Error ? error.message : "Could not choose the Paper2MD library";
+    renderDocuments();
+  } finally {
+    chooseLibraryButton.disabled = false;
+    settingsChooseLibraryButton.disabled = false;
+  }
+}
+
+async function revealLibrary(): Promise<void> {
+  try {
+    await api.revealLibrary();
+  } catch (error) {
+    libraryError = error instanceof Error ? error.message : "Could not reveal the Paper2MD library";
+    renderDocuments();
+  }
+}
+
+function renderSettings(): void {
+  settingsHeading.textContent = desktopText(locale, "settings");
+  librarySettingsTitle.textContent = desktopText(locale, "librarySettings");
+  librarySettingsCopy.textContent = desktopText(locale, "librarySettingsCopy");
+  librarySettingsStatus.textContent = librarySnapshot.configured
+    ? librarySnapshot.label ?? desktopText(locale, "library")
+    : desktopText(locale, "noLibrary");
+  settingsChooseLibraryButton.textContent = desktopText(locale, librarySnapshot.configured ? "changeLibrary" : "chooseLibrary");
+  settingsRevealLibraryButton.textContent = desktopText(locale, "revealLibrary");
+  settingsRevealLibraryButton.disabled = !librarySnapshot.configured;
+  mineruSettingsTitle.textContent = desktopText(locale, "mineruSettings");
+  mineruSettingsCopy.textContent = desktopText(locale, "mineruSettingsCopy");
+  mineruRemoteNotice.textContent = desktopText(locale, "mineruRemoteNotice");
+  mineruStatus.textContent = credentialStatus.configured
+    ? `${desktopText(locale, "tokenConfigured")} · ${credentialStatus.maskedToken ?? ""}`
+    : desktopText(locale, "tokenNotConfigured");
+  createMineruTokenLabel.textContent = desktopText(locale, "createMineruToken");
+  tokenInput.placeholder = desktopText(locale, "tokenPlaceholder");
+  saveTokenButton.textContent = desktopText(locale, "saveToken");
+  removeTokenButton.textContent = desktopText(locale, "removeToken");
+  removeTokenButton.disabled = !credentialStatus.configured;
+}
+
+navButtons.forEach((button, view) => button.addEventListener("click", () => activateRailView(view)));
+librarySearch.addEventListener("input", () => renderDocuments());
+chooseLibraryButton.addEventListener("click", () => void chooseLibrary());
+settingsChooseLibraryButton.addEventListener("click", () => void chooseLibrary());
+revealLibraryButton.addEventListener("click", () => void revealLibrary());
+settingsRevealLibraryButton.addEventListener("click", () => void revealLibrary());
+createMineruTokenButton.addEventListener("click", () => void api.openMineruTokenPage());
+saveTokenButton.addEventListener("click", () => {
+  const token = tokenInput.value;
+  saveTokenButton.disabled = true;
+  settingsFeedback.dataset.tone = "quiet";
+  settingsFeedback.textContent = "";
+  void api.saveMineruCredential(token).then((status) => {
+    credentialStatus = status;
+    tokenInput.value = "";
+    settingsFeedback.textContent = desktopText(locale, "tokenSaved");
+    renderSettings();
+  }).catch((error) => {
+    settingsFeedback.dataset.tone = "error";
+    settingsFeedback.textContent = error instanceof Error ? error.message : desktopText(locale, "settingsError");
+  }).finally(() => { saveTokenButton.disabled = false; });
+});
+removeTokenButton.addEventListener("click", () => {
+  removeTokenButton.disabled = true;
+  settingsFeedback.dataset.tone = "quiet";
+  void api.clearMineruCredential().then((status) => {
+    credentialStatus = status;
+    tokenInput.value = "";
+    settingsFeedback.textContent = desktopText(locale, "tokenRemoved");
+    renderSettings();
+  }).catch((error) => {
+    settingsFeedback.dataset.tone = "error";
+    settingsFeedback.textContent = error instanceof Error ? error.message : desktopText(locale, "settingsError");
+  }).finally(() => { removeTokenButton.disabled = false; });
+});
+
+activateRailView(currentRailView);
+
 function updateOptionControl(
   control: { label: HTMLSpanElement; options: HTMLOptionElement[] },
   label: string,
@@ -218,6 +565,18 @@ function updateOptionControl(
 function applyDesktopLocale(nextLocale: ReaderLocale): void {
   locale = nextLocale;
   document.title = readerText(locale, "desktopReaderTitle");
+  appTitle.textContent = desktopText(locale, "appName");
+  newExtractionLabel.textContent = desktopText(locale, "newExtraction");
+  const navigationLabels: Record<RailView, string> = {
+    library: desktopText(locale, "library"),
+    tasks: desktopText(locale, "tasks"),
+    favorites: desktopText(locale, "favorites"),
+    settings: desktopText(locale, "settings")
+  };
+  navButtons.forEach((button, view) => {
+    const label = button.querySelector("span");
+    if (label) label.textContent = navigationLabels[view];
+  });
   taskTitle.textContent = desktopText(locale, "tasks");
   taskCopy.textContent = desktopText(locale, "taskCopy");
   updateOptionControl(profileControl, desktopText(locale, "extraction"), [
@@ -244,6 +603,8 @@ function applyDesktopLocale(nextLocale: ReaderLocale): void {
       pdfContent.textContent = desktopText(locale, pdfEmptyCopyKey);
     }
   }
+  renderDocuments();
+  renderSettings();
   renderTasks();
 }
 
@@ -476,6 +837,7 @@ function setStartButtonsDisabled(disabled: boolean, temporaryLabel?: string): vo
   startButtonsBusy = disabled;
   reviewedButton.disabled = disabled;
   processButton.disabled = disabled;
+  newExtractionButton.disabled = disabled;
   const busyLabel = disabled ? desktopText(locale, "selecting") : undefined;
   reviewedButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "startReviewed");
   processButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "processDirect");
@@ -483,6 +845,10 @@ function setStartButtonsDisabled(disabled: boolean, temporaryLabel?: string): vo
 
 processButton.addEventListener("click", () => void startDirectConversion());
 reviewedButton.addEventListener("click", () => void startReviewedLayout());
+newExtractionButton.addEventListener("click", () => {
+  activateRailView("tasks");
+  void startDirectConversion();
+});
 const stopTaskUpdates = api.onTaskUpdate((task) => {
   taskErrors.delete(task.id);
   tasks.set(task.id, task);
@@ -492,6 +858,22 @@ const stopDesktopLocale = subscribeReaderLocale((nextLocale) => applyDesktopLoca
 void api.listTasks().then((existing) => {
   existing.forEach((task) => tasks.set(task.id, task));
   renderTasks();
+});
+void Promise.all([
+  api.getLibrarySnapshot(),
+  api.getMineruCredentialStatus()
+]).then(([snapshot, status]) => {
+  librarySnapshot = snapshot;
+  credentialStatus = status;
+  libraryBusy = false;
+  libraryError = undefined;
+  renderDocuments();
+  renderSettings();
+}).catch((error) => {
+  libraryBusy = false;
+  libraryError = error instanceof Error ? error.message : "Could not load desktop settings";
+  renderDocuments();
+  renderSettings();
 });
 applyDesktopLocale(locale);
 renderTasks();

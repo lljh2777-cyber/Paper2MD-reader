@@ -4,7 +4,7 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import { assertOpaqueId, type PublishedPackageDescriptor, type PublishedPackageFile } from "../../../packages/agent-contracts/src/index";
 import { adaptClippingMarkdown } from "../../../src/model/clipping-markdown";
-import { normalizePackagePath } from "./package-publisher";
+import { normalizePackagePath } from "./package-path";
 
 const MAX_FILES = 1_024;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;

@@ -12,7 +12,18 @@ Electron 43 downloads its platform binary on demand. Run `npx install-electron
 
 ## Reading an existing result
 
-Open a Paper2MD package or MinerU result folder from the Reader toolbar. The article
+The left rail now opens a user-selected local Paper2MD library. Paper2MD writes a
+versioned `.paper2md-library.json` marker and fixed `packages/`, `jobs/`, `staging/`,
+`sidecars/`, and `state/` children in that dedicated directory. Do not select an
+entire drive. The document list is rebuilt from the published-package catalog and
+contains only packages whose manifest-bound files pass validation; malformed,
+partial, ambiguous, or untrusted folders stay hidden. Favorites are user state in
+`state/preferences.json` and never modify a paper package.
+
+Selecting a document sends only its opaque `package_id` through preload. The main
+process revalidates the package before opening it, and the renderer never receives
+the library's absolute path. The existing Reader toolbar can still open a standalone
+Paper2MD package or MinerU result folder. The article
 stays in the main reading column. Use the right-side `Images & captions` and
 `Original PDF` tabs to switch between the linked visual browser and the source PDF.
 Opening an existing result defaults to images and captions; selecting a PDF for a new
@@ -22,6 +33,20 @@ are retained across tab changes.
 The app expects `paper2md` to be installed on `PATH`. Developers may set
 `PAPER2MD_EXECUTABLE` in the Electron main-process environment to a trusted
 Paper2MD executable path. This value is never accepted from renderer content.
+
+## MinerU Token onboarding
+
+Settings links to the official [MinerU Token management page](https://mineru.net/apiManage/token).
+The link target is fixed in the main process. A pasted Token is sent through one
+typed IPC method, validated, encrypted with Electron `safeStorage` (DPAPI on
+supported Windows systems), and written to one mode-restricted credential envelope
+under Electron `userData`. It is not written to the library, application database,
+logs, or command-line arguments. The renderer receives only configured/not-configured
+state and a four-character mask. Removing the Token deletes only that credential file.
+
+This phase implements secure local onboarding and storage. The existing direct
+`paper2md convert` task has not yet been changed to consume this Token or call the
+remote MinerU API. Reading, local package import, and Clipper packages remain Token-free.
 
 ## Reviewed layout workflow
 

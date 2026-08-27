@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
-import { access, copyFile, mkdir, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { access, copyFile, lstat, mkdir, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { app, BrowserWindow, dialog, IpcMainInvokeEvent, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, IpcMainInvokeEvent, ipcMain, safeStorage, shell } from "electron";
 import {
   ConversionTask,
   DESKTOP_CHANNELS,
@@ -32,6 +32,8 @@ import {
   reviewPageCount,
   ReviewedJob
 } from "./desktop-task-store";
+import { DesktopLibraryManager } from "./desktop-library";
+import { DesktopCredentialStore } from "./desktop-credential-store";
 
 const MAX_PDF_BYTES = 256 * 1024 * 1024;
 const MAX_IPC_FILE_BYTES = 64 * 1024 * 1024;
@@ -44,6 +46,9 @@ const processes = new Map<string, ChildProcessWithoutNullStreams>();
 
 const directJobs = new Map<string, DirectJob>();
 const reviewedJobs = new Map<string, ReviewedJob>();
+const MINERU_TOKEN_PAGE = "https://mineru.net/apiManage/token";
+let libraryManager: DesktopLibraryManager | undefined;
+let credentialStore: DesktopCredentialStore | undefined;
 
 class TaskCancelledError extends Error {}
 
@@ -53,6 +58,11 @@ function assertTrusted(event: IpcMainInvokeEvent): void {
 }
 
 async function discoverSourcePdf(root: string): Promise<DesktopPackagePdf | undefined> {
+  const packagedSourcePath = join(root, "_extraction", "source.pdf");
+  const packagedSource = await lstat(packagedSourcePath).catch(() => undefined);
+  if (packagedSource?.isFile() && !packagedSource.isSymbolicLink() && packagedSource.size <= MAX_PDF_BYTES) {
+    return { relativePath: "_extraction/source.pdf", name: "source.pdf", size: packagedSource.size };
+  }
   const entries = await readdir(root, { withFileTypes: true });
   const name = selectSourcePdfName(entries
     .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
@@ -76,6 +86,16 @@ async function registerRoot(path: string, includeSourcePdf = false): Promise<Des
 }
 
 const taskStore = new DesktopTaskStore(tasks, directJobs, reviewedJobs, registerRoot, MAX_PDF_BYTES);
+
+function requireLibraryManager(): DesktopLibraryManager {
+  if (!libraryManager) throw new Error("Paper2MD library manager is not ready");
+  return libraryManager;
+}
+
+function requireCredentialStore(): DesktopCredentialStore {
+  if (!credentialStore) throw new Error("Paper2MD credential store is not ready");
+  return credentialStore;
+}
 
 function requireRoot(id: string): string {
   const root = roots.get(id);
@@ -307,6 +327,50 @@ function validateReviewedOptions(request: StartReviewedLayoutRequest): ReviewedL
 }
 
 function installIpcHandlers(): void {
+  ipcMain.handle(DESKTOP_CHANNELS.getLibrarySnapshot, async (event) => {
+    assertTrusted(event);
+    return requireLibraryManager().snapshot();
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.chooseLibrary, async (event) => {
+    assertTrusted(event);
+    const result = await dialog.showOpenDialog({
+      title: "Choose or create a Paper2MD library folder",
+      properties: ["openDirectory", "createDirectory"]
+    });
+    if (result.canceled || result.filePaths.length !== 1) return undefined;
+    return requireLibraryManager().select(result.filePaths[0]);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.openLibraryDocument, async (event, packageId: string) => {
+    assertTrusted(event);
+    const root = await requireLibraryManager().packageRoot(packageId);
+    return registerRoot(root, true);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.setLibraryFavorite, async (event, packageId: string, favorite: boolean) => {
+    assertTrusted(event);
+    if (typeof favorite !== "boolean") throw new Error("favorite must be a boolean");
+    return requireLibraryManager().setFavorite(packageId, favorite);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.revealLibrary, async (event) => {
+    assertTrusted(event);
+    const error = await shell.openPath(await requireLibraryManager().revealPath());
+    if (error) throw new Error(error);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.getMineruCredentialStatus, async (event) => {
+    assertTrusted(event);
+    return requireCredentialStore().status();
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.saveMineruCredential, async (event, token: string) => {
+    assertTrusted(event);
+    return requireCredentialStore().save(token);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.clearMineruCredential, async (event) => {
+    assertTrusted(event);
+    return requireCredentialStore().clear();
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.openMineruTokenPage, async (event) => {
+    assertTrusted(event);
+    await shell.openExternal(MINERU_TOKEN_PAGE, { activate: true });
+  });
   ipcMain.handle(DESKTOP_CHANNELS.choosePackage, async (event) => {
     assertTrusted(event);
     return pickDirectory("Open Paper2MD package or MinerU result folder", true);
@@ -623,7 +687,18 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  await taskStore.restore(app.getPath("userData"));
+  const userDataPath = app.getPath("userData");
+  libraryManager = new DesktopLibraryManager(userDataPath);
+  credentialStore = new DesktopCredentialStore(join(userDataPath, "mineru-credential-v1.json"), {
+    available: () => safeStorage.isEncryptionAvailable()
+      && !(process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text"),
+    encrypt: (value) => new Uint8Array(safeStorage.encryptString(value)),
+    decrypt: (value) => safeStorage.decryptString(Buffer.from(value))
+  });
+  await Promise.all([
+    taskStore.restore(userDataPath),
+    libraryManager.restore()
+  ]);
   installIpcHandlers();
   createWindow();
   app.on("activate", () => {

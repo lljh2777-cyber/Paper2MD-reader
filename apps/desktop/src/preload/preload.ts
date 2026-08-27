@@ -8,6 +8,15 @@ import {
 } from "../shared/desktop-api";
 
 const api: Paper2MDDesktopApi = {
+  getLibrarySnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getLibrarySnapshot),
+  chooseLibrary: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseLibrary),
+  openLibraryDocument: (packageId) => ipcRenderer.invoke(DESKTOP_CHANNELS.openLibraryDocument, packageId),
+  setLibraryFavorite: (packageId, favorite) => ipcRenderer.invoke(DESKTOP_CHANNELS.setLibraryFavorite, packageId, favorite),
+  revealLibrary: () => ipcRenderer.invoke(DESKTOP_CHANNELS.revealLibrary),
+  getMineruCredentialStatus: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getMineruCredentialStatus),
+  saveMineruCredential: (token) => ipcRenderer.invoke(DESKTOP_CHANNELS.saveMineruCredential, token),
+  clearMineruCredential: () => ipcRenderer.invoke(DESKTOP_CHANNELS.clearMineruCredential),
+  openMineruTokenPage: () => ipcRenderer.invoke(DESKTOP_CHANNELS.openMineruTokenPage),
   choosePackage: () => ipcRenderer.invoke(DESKTOP_CHANNELS.choosePackage),
   choosePdf: () => ipcRenderer.invoke(DESKTOP_CHANNELS.choosePdf),
   chooseOutputParent: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseOutputParent),

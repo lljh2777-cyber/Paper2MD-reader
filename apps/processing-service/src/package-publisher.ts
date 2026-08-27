@@ -3,6 +3,8 @@ import { cp, lstat, mkdir, readFile, readdir, rename, stat, writeFile } from "no
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { PublishedPackageDescriptor, PublishedPackageFile } from "./contracts";
 import { buildReaderContracts, ReaderContractSummary } from "./reader-contract-builder";
+import { normalizePackagePath } from "./package-path";
+export { normalizePackagePath } from "./package-path";
 
 const MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\)/g;
 const HTML_IMAGE_RE = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi;
@@ -73,25 +75,6 @@ function mineruAssetPath(item: Record<string, unknown>): string | undefined {
     content?.table_img_path
   ];
   return candidates.find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim();
-}
-
-export function normalizePackagePath(rawPath: string): string {
-  let decoded = rawPath.trim().replace(/^<|>$/g, "");
-  try {
-    decoded = decodeURIComponent(decoded);
-  } catch {
-    throw new Error(`Package path contains malformed percent encoding: ${rawPath}`);
-  }
-  const normalized = decoded.replace(/\\/g, "/").replace(/^\.\//, "").split(/[?#]/, 1)[0];
-  const segments = normalized.split("/");
-  if (
-    !normalized ||
-    normalized.includes("\0") ||
-    /^[a-z][a-z0-9+.-]*:/i.test(normalized) ||
-    normalized.startsWith("/") ||
-    segments.some((segment) => !segment || segment === "." || segment === "..")
-  ) throw new Error(`Unsafe package asset path: ${rawPath}`);
-  return segments.join("/");
 }
 
 function inside(root: string, path: string): boolean {

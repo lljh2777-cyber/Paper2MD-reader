@@ -1,13 +1,16 @@
 # Paper2MD Reader
 
-The primary product track is now a standalone Web Reader plus an isolated PDF
-processing service. `sites-reader/` hosts the shared Reader UI; the processing
-service runs MinerU on a separate controlled Node host and never exposes MinerU
-credentials or arbitrary commands to the browser.
+The primary product track is local-first: an Electron desktop host combines the
+shared Reader with a local processing boundary and a user-selected Paper2MD library.
+The public `sites-reader/` build remains a lightweight Reader/demo. MinerU is an
+optional remote extraction provider configured with each user's own Token; the Token
+stays in operating-system protected desktop storage and is never exposed to browser
+content. A self-hosted cloud backend is not required for the core product.
 
 The active standalone paths share one contract-driven reading core:
 
 - A public/browser Reader that opens one local Paper2MD/MinerU output directory without uploading it.
+- A desktop library rail that lists only validated, atomically published local packages by opaque ID.
 - A browser-extension clipping path based on Defuddle, plus standalone Markdown/HTML import.
 - An optional PDF upload path backed by the isolated MinerU processing service.
 
