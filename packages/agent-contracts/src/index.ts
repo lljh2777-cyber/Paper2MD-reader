@@ -153,6 +153,47 @@ function normalizedDoi(value: string): string {
   return value.replace(/[.,;]+$/, "").toLowerCase();
 }
 
+type ExactPaperQuery = Pick<PaperQuery, "kind" | "value"> & {
+  kind: "pmid" | "pmcid" | "doi";
+};
+
+/** Recognizes identifier-bearing scholarly URLs without fetching or trusting page content. */
+export function exactPaperQueryFromSupportedUrl(url: URL): ExactPaperQuery | undefined {
+  const host = url.hostname.toLowerCase();
+  const decodedPath = (() => {
+    try {
+      return decodeURIComponent(url.pathname);
+    } catch {
+      throw new Error("Paper URL path contains invalid encoding");
+    }
+  })();
+  if (host === "doi.org" || host === "dx.doi.org") {
+    const value = decodedPath.replace(/^\/+/, "");
+    const doi = DOI.exec(value);
+    if (!doi) throw new Error("doi.org URL does not contain a valid DOI");
+    return { kind: "doi", value: normalizedDoi(doi[1]) };
+  }
+  if (host === "pubmed.ncbi.nlm.nih.gov") {
+    const match = /^\/(\d{1,9})\/?$/.exec(decodedPath);
+    return match ? { kind: "pmid", value: match[1] } : undefined;
+  }
+  if (host === "ncbi.nlm.nih.gov" || host === "www.ncbi.nlm.nih.gov") {
+    const match = /^\/pubmed\/(\d{1,9})\/?$/i.exec(decodedPath);
+    return match ? { kind: "pmid", value: match[1] } : undefined;
+  }
+  if (host === "pmc.ncbi.nlm.nih.gov") {
+    const match = /^\/articles\/(PMC\d+)\/?$/i.exec(decodedPath);
+    return match ? { kind: "pmcid", value: match[1].toUpperCase() } : undefined;
+  }
+  if (host === "europepmc.org" || host === "www.europepmc.org") {
+    const pmcid = /^\/(?:articles\/(PMC\d+)|article\/PMC\/(PMC\d+))\/?$/i.exec(decodedPath);
+    if (pmcid) return { kind: "pmcid", value: (pmcid[1] ?? pmcid[2]).toUpperCase() };
+    const pmid = /^\/article\/MED\/(\d{1,9})\/?$/i.exec(decodedPath);
+    if (pmid) return { kind: "pmid", value: pmid[1] };
+  }
+  return undefined;
+}
+
 export function parsePaperQuery(input: string): PaperQuery {
   const original = input.trim();
   if (!original || original.length > 2_048 || CONTROL_CHARACTERS.test(original)) {
@@ -179,11 +220,8 @@ export function parsePaperQuery(input: string): PaperQuery {
     if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
       throw new Error("Paper URL must use HTTP(S) and must not contain credentials");
     }
-    if (url.hostname.toLowerCase() === "doi.org" || url.hostname.toLowerCase() === "dx.doi.org") {
-      const pathDoi = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
-      if (!DOI.test(pathDoi)) throw new Error("doi.org URL does not contain a valid DOI");
-      return { kind: "doi", value: normalizedDoi(pathDoi), original };
-    }
+    const exact = exactPaperQueryFromSupportedUrl(url);
+    if (exact) return { ...exact, original };
     url.hash = "";
     return { kind: "url", value: url.href, original };
   }

@@ -120,7 +120,11 @@ sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
 新生成的剪藏 manifest 会为每张本地化图片写入 SHA-256。旧版完整剪藏包仍可发现，但若
 图片条目只有大小绑定，会明确标记为 `legacy-size-bound`；正文与原始 HTML 仍须通过哈希。
 
-解析器当前只自动接受 PMID、PMCID 和 DOI。它使用 Europe PMC 查询生物医学
+解析器接受 PMID、PMCID、DOI、完整题名，以及包含明确标识的 doi.org、PubMed、PMC
+和 Europe PMC URL。已知 URL 只在本地规范化为标识，不会抓取页面。题名查询并行使用
+Europe PMC 与 Crossref，只有两个 provider 对同一带标识候选形成共识、题名相似度达到
+严格门槛且相对其他候选有安全领先时才自动继续；否则返回最多五个确定性排序候选和
+`AMBIGUOUS_MATCH`，要求改用候选的精确标识。解析器使用 Europe PMC 查询生物医学
 元数据与开放全文，使用 Crossref 交叉验证 DOI 元数据；配置
 `PAPER2MD_CONTACT_EMAIL` 后，才会调用要求 email 参数的 Unpaywall v2 API
 补充合法开放获取位置。结果只包含结构化身份、不透明来源 ID、HTTPS 候选和
@@ -128,8 +132,8 @@ sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
 
 匹配规则为 fail closed：请求标识必须与返回记录精确一致；Europe PMC 与
 Crossref 的题名或年份明显冲突时返回 `AMBIGUOUS_MATCH`；没有可验证开放全文
-时返回 `FULL_TEXT_NOT_AVAILABLE` 及可行下一步。当前阶段不自动处理题名或
-任意论文 URL。
+时返回 `FULL_TEXT_NOT_AVAILABLE` 及可行下一步。任意出版商 URL 仍不会在身份解析
+阶段被抓取；这类页面应由用户打开后交给 Clipper，或改用其 DOI/PMID/PMCID。
 
 ## 自动导入开放 PMC 全文
 

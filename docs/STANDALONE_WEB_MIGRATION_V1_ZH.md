@@ -48,6 +48,11 @@
 
 网页导入产物与 MinerU 包使用同一个 Reader 模型，但保留来源类型和诊断信息；显示层 Figure 编号不写回原始 Markdown。
 
+身份解析现已接受完整题名及带明确标识的 doi.org、PubMed、PMC、Europe PMC URL。URL
+只在本地转换为 DOI/PMID/PMCID，不抓取用户提供的任意地址。题名必须由 Europe PMC 与
+Crossref 对同一标识候选形成高置信共识并明显领先其他候选，才会自动进入精确标识复核；
+否则返回有限候选和 `AMBIGUOUS_MATCH`。这不改变“公共网页抓取仍须经过独立安全获取层”的边界。
+
 扩展桥接已移除正常流程中的 ZIP 中转。发布动作必须由用户点击触发，并按需请求固定回环服务与图片域名权限；服务端 `/api/v1/clippings` 只接受默认稳定扩展 ID（或显式配置 ID）的精确 `chrome-extension://` Origin。普通网页、未知扩展及无 Origin 请求均 fail closed。ZIP 只保留为显式导出/备份。
 
 ## WebMCP 渐进增强边界

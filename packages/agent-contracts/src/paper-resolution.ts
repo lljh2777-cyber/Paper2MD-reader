@@ -22,6 +22,15 @@ export interface PaperMatch {
   identity: ResolvedPaperIdentity;
 }
 
+export type PaperMetadataProvider = "europe_pmc" | "crossref";
+
+export interface PaperResolutionCandidate {
+  identity: ResolvedPaperIdentity;
+  /** Sørensen–Dice similarity over normalized title tokens, rounded to four decimals. */
+  title_similarity: number;
+  providers: PaperMetadataProvider[];
+}
+
 export interface FullTextSource {
   source_id: string;
   provider: "europe_pmc" | "unpaywall" | "publisher" | "repository";
@@ -45,6 +54,8 @@ export interface PaperResolution {
   full_text_sources: FullTextSource[];
   recommended_source_id?: string;
   attempted_sources: AttemptedSource[];
+  /** Bounded, deterministically ranked candidates returned when a title cannot be selected safely. */
+  candidates?: PaperResolutionCandidate[];
   problem?: IngestProblem;
 }
 

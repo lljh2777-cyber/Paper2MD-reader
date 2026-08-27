@@ -36,18 +36,23 @@ function europe(overrides: Record<string, unknown> = {}): unknown {
   };
 }
 
-function crossref(overrides: Record<string, unknown> = {}): unknown {
+function crossrefWork(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    status: "ok",
-    message: {
-      DOI: doi,
-      title: ["GenBank"],
-      author: [{ given: "Dennis A.", family: "Benson" }],
-      issued: { "date-parts": [[2013, 1, 1]] },
-      "container-title": ["Nucleic Acids Research"],
-      ...overrides
-    }
+    DOI: doi,
+    title: ["GenBank"],
+    author: [{ given: "Dennis A.", family: "Benson" }],
+    issued: { "date-parts": [[2013, 1, 1]] },
+    "container-title": ["Nucleic Acids Research"],
+    ...overrides
   };
+}
+
+function crossref(overrides: Record<string, unknown> = {}): unknown {
+  return { status: "ok", message: crossrefWork(overrides) };
+}
+
+function crossrefSearch(...works: Record<string, unknown>[]): unknown {
+  return { status: "ok", message: { items: works } };
 }
 
 function response(value: unknown, status = 200): Response {
@@ -57,7 +62,13 @@ function response(value: unknown, status = 200): Response {
   });
 }
 
-function resolverFetch(input: { europe?: unknown; crossref?: unknown; unpaywall?: unknown; failures?: Set<string> }) {
+function resolverFetch(input: {
+  europe?: unknown;
+  crossref?: unknown;
+  crossrefSearch?: unknown;
+  unpaywall?: unknown;
+  failures?: Set<string>;
+}) {
   return vi.fn(async (request: string | URL | Request) => {
     const url = new URL(request instanceof Request ? request.url : request.toString());
     const provider = url.hostname.includes("europepmc") || url.hostname.includes("ebi.ac.uk")
@@ -66,7 +77,9 @@ function resolverFetch(input: { europe?: unknown; crossref?: unknown; unpaywall?
         ? "crossref"
         : "unpaywall";
     if (input.failures?.has(provider)) throw new Error(`${provider} unavailable`);
-    const value = input[provider];
+    const value = provider === "crossref" && url.pathname === "/works"
+      ? input.crossrefSearch
+      : input[provider];
     return value === undefined ? response({}, 404) : response(value);
   }) as unknown as typeof fetch;
 }
@@ -137,6 +150,95 @@ describe("deterministic paper identity resolution", () => {
     });
   });
 
+  it("resolves supported scholarly URLs through their embedded exact identifiers", async () => {
+    const fetchMock = resolverFetch({ europe: europe() });
+    const result = await new PaperResolver({ fetch: fetchMock }).resolve("https://pmc.ncbi.nlm.nih.gov/articles/PMC3531190/?report=reader");
+
+    expect(result.status).toBe("resolved");
+    expect(result.query).toMatchObject({ kind: "pmcid", value: "PMC3531190" });
+    expect(result.query.original).toContain("pmc.ncbi.nlm.nih.gov");
+    expect(result.match?.confidence).toBe("exact_identifier");
+  });
+
+  it("auto-selects a title only after two providers corroborate one leading identifier", async () => {
+    const fetchMock = resolverFetch({
+      europe: europe(),
+      crossref: crossref(),
+      crossrefSearch: crossrefSearch(crossrefWork())
+    });
+    const result = await new PaperResolver({ fetch: fetchMock }).resolve("GenBank");
+
+    expect(result.status).toBe("resolved");
+    expect(result.query).toMatchObject({ kind: "title", value: "GenBank" });
+    expect(result.match).toMatchObject({
+      confidence: "high_metadata",
+      identity: { identifiers: { pmcid: "PMC3531190", doi } }
+    });
+    expect(result.candidates).toEqual([
+      expect.objectContaining({ title_similarity: 1, providers: ["crossref", "europe_pmc"] })
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("returns bounded title candidates instead of guessing from one provider", async () => {
+    const fetchMock = resolverFetch({ europe: europe() });
+    const result = await new PaperResolver({ fetch: fetchMock }).resolve("GenBank");
+
+    expect(result.status).toBe("needs_attention");
+    expect(result.problem?.code).toBe("AMBIGUOUS_MATCH");
+    expect(result.match).toBeUndefined();
+    expect(result.candidates).toEqual([
+      expect.objectContaining({
+        identity: expect.objectContaining({ identifiers: expect.objectContaining({ pmcid: "PMC3531190" }) }),
+        title_similarity: 1,
+        providers: ["europe_pmc"]
+      })
+    ]);
+    expect(result.problem?.next_steps[0]).toContain("candidate");
+  });
+
+  it("does not merge provider candidates that lack a shared exact identifier", async () => {
+    const fetchMock = resolverFetch({
+      europe: europe({
+        pmid: "11111111",
+        pmcid: undefined,
+        doi: undefined,
+        title: "Shared Study",
+        pubYear: "2020",
+        authorList: { author: [{ fullName: "Consortium Study Group" }] },
+        isOpenAccess: "N",
+        fullTextUrlList: { fullTextUrl: [] }
+      }),
+      crossrefSearch: crossrefSearch(crossrefWork({
+        DOI: "10.1000/paper-b",
+        title: ["Shared Study"],
+        author: [{ given: "Different Study", family: "Group" }],
+        issued: { "date-parts": [[2020]] }
+      }))
+    });
+    const result = await new PaperResolver({ fetch: fetchMock }).resolve("Shared Study");
+
+    expect(result.status).toBe("needs_attention");
+    expect(result.problem?.code).toBe("AMBIGUOUS_MATCH");
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates?.every((candidate) => candidate.providers.length === 1)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds ambiguous title output even when a provider returns more candidates", async () => {
+    const works = Array.from({ length: 7 }, (_, index) => crossrefWork({
+      DOI: `10.1000/candidate-${index + 1}`,
+      title: [`Shared Study Candidate ${index + 1}`]
+    }));
+    const result = await new PaperResolver({
+      fetch: resolverFetch({ crossrefSearch: crossrefSearch(...works) })
+    }).resolve("Shared Study Candidate");
+
+    expect(result.problem?.code).toBe("AMBIGUOUS_MATCH");
+    expect(result.candidates).toHaveLength(5);
+    expect(result.candidates?.every((candidate) => candidate.providers.length === 1)).toBe(true);
+  });
+
   it("stops when exact-identifier providers disagree on core metadata", async () => {
     const fetchMock = resolverFetch({
       europe: europe(),
@@ -149,16 +251,18 @@ describe("deterministic paper identity resolution", () => {
     expect(result.match).toBeUndefined();
   });
 
-  it("distinguishes no match, provider outage, and unsupported query kinds", async () => {
+  it("distinguishes no match, provider outage, and unsupported arbitrary URLs", async () => {
     const notFound = await new PaperResolver({ fetch: resolverFetch({}) }).resolve("PMID: 999999999");
     expect(notFound.problem?.code).toBe("PAPER_NOT_FOUND");
 
     const unavailable = await new PaperResolver({ fetch: resolverFetch({ failures: new Set(["europe"]) }) }).resolve("PMID: 23193287");
+    expect(unavailable.status).toBe("needs_attention");
     expect(unavailable.problem?.code).toBe("METADATA_SERVICE_UNAVAILABLE");
 
     const fetchMock = resolverFetch({ europe: europe() });
-    const unsupported = await new PaperResolver({ fetch: fetchMock }).resolve("A paper title not yet supported");
+    const unsupported = await new PaperResolver({ fetch: fetchMock }).resolve("https://publisher.example.org/article/opaque-id");
     expect(unsupported.problem?.code).toBe("QUERY_KIND_NOT_SUPPORTED");
+    expect(unsupported.problem?.next_steps).toEqual(expect.arrayContaining([expect.stringContaining("Clipper")]));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

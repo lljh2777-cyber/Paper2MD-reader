@@ -182,13 +182,15 @@ dependencies; adapters reuse this runtime-validated command boundary when enable
 Visual corrections require validation plus explicit confirmation and may only produce
 user sidecars. They never rewrite source Markdown, MinerU JSON, images or PDF files.
 
-The processing service now implements the first shared command adapter at
-`POST /api/v1/commands`. `resolve_paper` accepts exact PMID, PMCID and DOI inputs,
-cross-checks metadata through fixed Europe PMC/Crossref endpoints, and ranks verified
+The processing service implements the shared command adapter at `POST /api/v1/commands`.
+`resolve_paper` accepts titles, exact PMID/PMCID/DOI inputs, and identifier-bearing
+doi.org, PubMed, PMC and Europe PMC URLs. Known URLs are normalized without fetching
+their page. Title searches use fixed Europe PMC and Crossref endpoints and continue
+automatically only when both providers corroborate one identifier-bearing candidate
+above a strict similarity threshold with a safe lead; otherwise the result contains at
+most five deterministic candidates and `AMBIGUOUS_MATCH`. Exact matches rank verified
 open XML/HTML ahead of legal PDFs. Unpaywall OA discovery is enabled only when the
-operator configures `PAPER2MD_CONTACT_EMAIL`. Title matching, acquisition, package
-publication remain separate capabilities rather than hidden dependencies
-of this resolver.
+operator configures `PAPER2MD_CONTACT_EMAIL`.
 
 `ingest_paper` and `get_ingest_job` now provide the first complete automatic path for
 session-free open PMC articles. The service resolves an exact identifier, acquires only
@@ -197,8 +199,9 @@ allowlisted PMC HTML without redirects or browser credentials, uses the same det
 validates an isolated staging package, and atomically publishes it. Ready jobs return an
 opaque `package_id` plus `/reader/{package_id}`; the Web Reader opens that package directly
 through the service package API, so ZIP remains an export/backup format instead of an
-internal handoff. Publisher-session pages can now use the extension-to-service bridge.
-Arbitrary URL ingest, legal-PDF discovery/MinerU fallback and title matching remain later stages.
+internal handoff. Publisher-session pages can use the extension-to-service bridge. Arbitrary
+publisher URL fetching and legal-PDF acquisition/MinerU fallback remain later stages; a title
+or supported URL can resolve today, but automatic ingest still requires session-free open PMC HTML.
 
 An optional local MCP stdio sidecar exposes the four processing commands
 (`get_service_status`, `resolve_paper`, `ingest_paper`, and `get_ingest_job`) plus four

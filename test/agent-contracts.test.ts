@@ -21,6 +21,18 @@ describe("shared agent and ingest contracts", () => {
       kind: "doi",
       value: "10.1000/abc/def"
     });
+    expect(parsePaperQuery("https://pubmed.ncbi.nlm.nih.gov/23193287/?utm_source=test")).toMatchObject({
+      kind: "pmid",
+      value: "23193287"
+    });
+    expect(parsePaperQuery("https://pmc.ncbi.nlm.nih.gov/articles/pmc3531190/?pdf=render")).toMatchObject({
+      kind: "pmcid",
+      value: "PMC3531190"
+    });
+    expect(parsePaperQuery("https://europepmc.org/article/MED/23193287#abstract")).toMatchObject({
+      kind: "pmid",
+      value: "23193287"
+    });
     expect(parsePaperQuery("  A   deterministic paper title  ")).toMatchObject({
       kind: "title",
       value: "A deterministic paper title"
@@ -39,6 +51,7 @@ describe("shared agent and ingest contracts", () => {
     expect(() => parsePaperQuery("ftp://example.org/paper.pdf")).toThrow("HTTP(S)");
     expect(() => parsePaperQuery("https://user:secret@example.org/paper")).toThrow("credentials");
     expect(() => parsePaperQuery("DOI: definitely-not-a-doi")).toThrow("identifier is invalid");
+    expect(() => parsePaperQuery("https://doi.org/not-a-doi")).toThrow("valid DOI");
     expect(() => parsePaperQuery("abc")).toThrow("too short");
     expect(() => parsePaperQuery(`Paper\u0000title`)).toThrow("printable");
   });
