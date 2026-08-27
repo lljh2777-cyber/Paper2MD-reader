@@ -177,6 +177,14 @@ dependencies; they will reuse this runtime-validated command boundary when enabl
 Visual corrections require validation plus explicit confirmation and may only produce
 user sidecars. They never rewrite source Markdown, MinerU JSON, images or PDF files.
 
+The processing service now implements the first shared command adapter at
+`POST /api/v1/commands`. `resolve_paper` accepts exact PMID, PMCID and DOI inputs,
+cross-checks metadata through fixed Europe PMC/Crossref endpoints, and ranks verified
+open XML/HTML ahead of legal PDFs. Unpaywall OA discovery is enabled only when the
+operator configures `PAPER2MD_CONTACT_EMAIL`. Title matching, acquisition, package
+publication, MCP stdio and Reader WebMCP remain later stages rather than hidden
+dependencies of this resolver.
+
 The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
 implementations and receive no new functionality. The separate Research Agent Reader
 Obsidian plugin is the behavioral reference for extraction repair and reading features;

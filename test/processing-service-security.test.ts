@@ -14,6 +14,17 @@ describe("standalone processing service security", () => {
     }).host).toBe("0.0.0.0");
   });
 
+  it("restricts Host headers and validates resolver contact configuration", () => {
+    const config = loadProcessingServiceConfig({ PAPER2MD_SERVICE_PORT: "9123" });
+    expect(config.allowedHosts).toEqual(new Set(["127.0.0.1:9123", "localhost:9123", "[::1]:9123"]));
+    expect(loadProcessingServiceConfig({
+      PAPER2MD_ALLOWED_HOSTS: "reader.internal:443",
+      PAPER2MD_CONTACT_EMAIL: "maintainer@example.org"
+    })).toMatchObject({ contactEmail: "maintainer@example.org" });
+    expect(() => loadProcessingServiceConfig({ PAPER2MD_ALLOWED_HOSTS: "reader.internal/path" })).toThrow("allowed host");
+    expect(() => loadProcessingServiceConfig({ PAPER2MD_CONTACT_EMAIL: "not-an-email" })).toThrow("CONTACT_EMAIL");
+  });
+
   it("accepts only declared MinerU model and language options", () => {
     expect(parseMineruOptions({ "x-paper2md-model": "vlm", "x-paper2md-language": "en" }, 900)).toEqual({
       model: "vlm",

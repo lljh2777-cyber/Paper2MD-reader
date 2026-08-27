@@ -46,3 +46,38 @@ npm run processing:start
 - 当前任务数据不会自动删除，便于失败审计。投入多人使用前需增加明确的保留期和逐任务删除策略。
 
 常用变量：`PAPER2MD_DATA_ROOT`、`PAPER2MD_SERVICE_HOST`、`PAPER2MD_SERVICE_PORT`、`PAPER2MD_ALLOWED_ORIGINS`、`PAPER2MD_MAX_PDF_BYTES`、`PAPER2MD_MAX_ACTIVE_JOBS`、`PAPER2MD_MINERU_TIMEOUT`、`PAPER2MD_PYTHON_PATH`、`MINERU_CLI_PATH`、`MINERU_BASE_URL`。
+
+## 论文身份解析命令
+
+服务端提供受限的 `POST /api/v1/commands` 命令入口。当前实现
+`get_service_status` 和 `resolve_paper`；其他共享契约中的命令会明确返回
+`501`，不会退化为任意路径、命令或 `eval`。例如：
+
+```json
+{
+  "command": "resolve_paper",
+  "input": { "query": "PMCID: PMC3531190" }
+}
+```
+
+解析器当前只自动接受 PMID、PMCID 和 DOI。它使用 Europe PMC 查询生物医学
+元数据与开放全文，使用 Crossref 交叉验证 DOI 元数据；配置
+`PAPER2MD_CONTACT_EMAIL` 后，才会调用要求 email 参数的 Unpaywall v2 API
+补充合法开放获取位置。结果只包含结构化身份、不透明来源 ID、HTTPS 候选和
+确定性提取路线，不会在解析阶段抓取第三方全文。
+
+匹配规则为 fail closed：请求标识必须与返回记录精确一致；Europe PMC 与
+Crossref 的题名或年份明显冲突时返回 `AMBIGUOUS_MATCH`；没有可验证开放全文
+时返回 `FULL_TEXT_NOT_AVAILABLE` 及可行下一步。当前阶段不自动处理题名或
+任意论文 URL。
+
+相关配置：
+
+- `PAPER2MD_CONTACT_EMAIL`：可选联系邮箱；同时用于服务标识和启用 Unpaywall。
+- `PAPER2MD_RESOLVER_TIMEOUT_MS`：单个元数据请求超时，默认 12000。
+- `PAPER2MD_ALLOWED_HOSTS`：逗号分隔的精确 Host 允许列表。回环默认仅允许
+  当前端口上的 `127.0.0.1`、`localhost` 和 `[::1]`，用于抵御 DNS rebinding。
+
+接口依据：[Europe PMC REST API](https://europepmc.org/RestfulWebService)、
+[Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)、
+[Unpaywall REST API](https://unpaywall.org/api)。

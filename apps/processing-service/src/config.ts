@@ -14,6 +14,9 @@ export interface ProcessingServiceConfig {
   mineruBaseUrl?: string;
   serviceToken?: string;
   allowedOrigins: Set<string>;
+  allowedHosts: Set<string>;
+  contactEmail?: string;
+  resolverTimeoutMilliseconds: number;
   maximumPdfBytes: number;
   maximumActiveJobs: number;
   timeoutSeconds: number;
@@ -35,12 +38,34 @@ function validOrigin(value: string): string {
   return url.origin;
 }
 
+function validHost(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized.length > 255 || /[\s/@\\]/.test(normalized)) {
+    throw new Error(`Invalid allowed host: ${value}`);
+  }
+  const url = new URL(`http://${normalized}`);
+  if (url.pathname !== "/" || url.search || url.hash || url.host !== normalized) {
+    throw new Error(`Invalid allowed host: ${value}`);
+  }
+  return normalized;
+}
+
+function validEmail(value: string | undefined): string | undefined {
+  const email = value?.trim();
+  if (!email) return undefined;
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("PAPER2MD_CONTACT_EMAIL must be a valid contact email");
+  }
+  return email;
+}
+
 function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
 export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env): ProcessingServiceConfig {
   const host = env.PAPER2MD_SERVICE_HOST?.trim() || "127.0.0.1";
+  const port = integer(env.PAPER2MD_SERVICE_PORT, 8787, 1, 65535);
   const serviceToken = env.PAPER2MD_SERVICE_TOKEN?.trim() || undefined;
   if (!isLoopbackHost(host) && !serviceToken) {
     throw new Error("PAPER2MD_SERVICE_TOKEN is required when the processing service binds beyond loopback");
@@ -54,19 +79,31 @@ export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env
     "http://127.0.0.1:4174",
     "http://localhost:4174"
   ]);
+  const explicitHosts = (env.PAPER2MD_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map(validHost);
+  const hostWithPort = (value: string) => port === 80 ? value : `${value}:${port}`;
+  const defaultHosts = isLoopbackHost(host)
+    ? [hostWithPort("127.0.0.1"), hostWithPort("localhost"), hostWithPort("[::1]")]
+    : [hostWithPort(host)];
   const mineruBaseUrl = env.MINERU_BASE_URL?.trim() || undefined;
   if (mineruBaseUrl && !/^https?:\/\/[^\r\n]+$/.test(mineruBaseUrl)) {
     throw new Error("MINERU_BASE_URL must be one HTTP(S) URL");
   }
   return {
     host,
-    port: integer(env.PAPER2MD_SERVICE_PORT, 8787, 1, 65535),
+    port,
     dataRoot: resolve(env.PAPER2MD_DATA_ROOT?.trim() || "paper2md-service-data"),
     mineruCommand: env.MINERU_CLI_PATH?.trim() || "mineru-open-api",
     pythonCommand: env.PAPER2MD_PYTHON_PATH?.trim() || undefined,
     mineruBaseUrl,
     serviceToken,
     allowedOrigins,
+    allowedHosts: new Set(explicitHosts.length ? explicitHosts : defaultHosts.map(validHost)),
+    contactEmail: validEmail(env.PAPER2MD_CONTACT_EMAIL),
+    resolverTimeoutMilliseconds: integer(env.PAPER2MD_RESOLVER_TIMEOUT_MS, 12_000, 1_000, 60_000),
     maximumPdfBytes: integer(env.PAPER2MD_MAX_PDF_BYTES, 64 * 1024 * 1024, 1024, 256 * 1024 * 1024),
     maximumActiveJobs: integer(env.PAPER2MD_MAX_ACTIVE_JOBS, 2, 1, 8),
     timeoutSeconds: integer(env.PAPER2MD_MINERU_TIMEOUT, 900, 60, 1800)

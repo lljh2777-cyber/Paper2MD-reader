@@ -4,12 +4,19 @@ import { open, stat, unlink } from "node:fs/promises";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
+import { parseAgentCommand } from "../../../packages/agent-contracts/src/index";
+import { AgentCommandHandler, AgentCommandNotImplementedError } from "./agent-command-handler";
 import { loadProcessingServiceConfig, parseMineruOptions } from "./config";
 import { JobManager } from "./job-manager";
 import { normalizePackagePath } from "./package-publisher";
+import { PaperResolver } from "./paper-resolver";
 
 const config = loadProcessingServiceConfig();
 const jobs = new JobManager(config);
+const agentCommands = new AgentCommandHandler(new PaperResolver({
+  contactEmail: config.contactEmail,
+  timeoutMilliseconds: config.resolverTimeoutMilliseconds
+}));
 const requestBuckets = new Map<string, { startedAt: number; count: number }>();
 
 function json(response: ServerResponse, status: number, body: unknown): void {
@@ -36,6 +43,11 @@ function applyCors(request: IncomingMessage, response: ServerResponse): boolean 
   response.setHeader("Access-Control-Allow-Credentials", "true");
   response.setHeader("Vary", "Origin");
   return true;
+}
+
+function allowedHost(request: IncomingMessage): boolean {
+  const host = request.headers.host?.trim().toLowerCase();
+  return Boolean(host && config.allowedHosts.has(host));
 }
 
 function authorized(request: IncomingMessage): boolean {
@@ -87,6 +99,23 @@ async function receivePdf(request: IncomingMessage, destination: string): Promis
   return received;
 }
 
+async function receiveJson(request: IncomingMessage, maximumBytes = 16 * 1024): Promise<unknown> {
+  const declared = Number(request.headers["content-length"] ?? 0);
+  if (declared && (!Number.isSafeInteger(declared) || declared < 2 || declared > maximumBytes)) {
+    throw new Error(`JSON body exceeds the ${maximumBytes}-byte limit`);
+  }
+  const chunks: Buffer[] = [];
+  let received = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    received += bytes.byteLength;
+    if (received > maximumBytes) throw new Error(`JSON body exceeds the ${maximumBytes}-byte limit`);
+    chunks.push(bytes);
+  }
+  if (!received) throw new Error("JSON body is required");
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+
 function contentType(path: string): string {
   const extension = path.split(".").pop()?.toLowerCase();
   return ({
@@ -103,6 +132,7 @@ function contentType(path: string): string {
 }
 
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  if (!allowedHost(request)) return json(response, 421, { error: "Host is not allowed" });
   if (!applyCors(request, response)) return;
   if (request.method === "OPTIONS") {
     response.writeHead(204, {
@@ -117,7 +147,21 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
   if (request.method === "GET" && url.pathname === "/api/v1/health") {
-    return json(response, 200, { status: "ok", extraction: "mineru-precision", formats: ["md", "json"] });
+    return json(response, 200, await agentCommands.execute({ command: "get_service_status", input: {} }));
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/commands") {
+    if (!withinRateLimit(request)) return json(response, 429, { error: "Too many agent command requests" });
+    if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
+      return json(response, 415, { error: "Content-Type must be application/json" });
+    }
+    try {
+      const command = parseAgentCommand(await receiveJson(request));
+      const result = await agentCommands.execute(command);
+      return json(response, 200, { command: command.command, result });
+    } catch (error) {
+      if (error instanceof AgentCommandNotImplementedError) return json(response, 501, { error: error.message });
+      return json(response, 400, { error: error instanceof Error ? error.message : "Invalid agent command" });
+    }
   }
   if (request.method === "POST" && url.pathname === "/api/v1/jobs") {
     if (!withinRateLimit(request)) return json(response, 429, { error: "Too many PDF submissions" });

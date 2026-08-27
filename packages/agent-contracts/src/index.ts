@@ -33,6 +33,8 @@ export const INGEST_ERROR_CODES = [
   "DOMAIN_PERMISSION_REQUIRED",
   "ANTI_BOT_CHALLENGE",
   "CLIPPER_UNSUPPORTED",
+  "QUERY_KIND_NOT_SUPPORTED",
+  "METADATA_SERVICE_UNAVAILABLE",
   "EXTRACTION_FAILED",
   "PACKAGE_VALIDATION_FAILED"
 ] as const;
@@ -65,7 +67,7 @@ export type IngestState =
 export interface AttemptedSource {
   provider: string;
   locator: string;
-  outcome: "not_found" | "unavailable" | "restricted" | "unsupported" | "failed";
+  outcome: "available" | "not_found" | "unavailable" | "restricted" | "unsupported" | "failed";
   detail?: string;
 }
 
@@ -366,3 +368,5 @@ export function parseAgentCommand(value: unknown): AgentCommand {
     }
   }
 }
+
+export * from "./paper-resolution";
