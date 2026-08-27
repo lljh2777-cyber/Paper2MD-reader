@@ -33,15 +33,15 @@ export class RemotePackageReaderFileSystem implements ReaderFileSystem {
   }
 
   resolvePath(relativePath: string): string {
-    return `${this.rootLabel}/${this.safePath(relativePath)}`;
+    return `${this.rootLabel}/${this.normalizedPath(relativePath)}`;
   }
 
   async exists(relativePath: string): Promise<boolean> {
-    return this.files.has(this.safePath(relativePath));
+    return this.files.has(this.normalizedPath(relativePath));
   }
 
   async fileInfo(relativePath: string): Promise<ReaderFileInfo | undefined> {
-    const file = this.files.get(this.safePath(relativePath));
+    const file = this.files.get(this.normalizedPath(relativePath));
     return file ? { size: file.size } : undefined;
   }
 
@@ -54,7 +54,7 @@ export class RemotePackageReaderFileSystem implements ReaderFileSystem {
   }
 
   async listFiles(relativeDirectory: string): Promise<string[]> {
-    const directory = relativeDirectory ? this.safePath(relativeDirectory) : "";
+    const directory = relativeDirectory ? this.normalizedPath(relativeDirectory) : "";
     const prefix = directory ? `${directory}/` : "";
     return [...this.files.keys()]
       .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/"))
@@ -80,7 +80,7 @@ export class RemotePackageReaderFileSystem implements ReaderFileSystem {
     const path = this.safePath(relativePath);
     const encodedPath = path.split("/").map(encodeURIComponent).join("/");
     const response = await fetch(
-      `${this.apiBaseUrl}/jobs/${encodeURIComponent(this.packageId)}/files/${encodedPath}`,
+      `${this.apiBaseUrl}/packages/${encodeURIComponent(this.packageId)}/files/${encodedPath}`,
       { credentials: "include", headers: { Accept: "application/octet-stream" } }
     );
     if (!response.ok) throw new Error(`Package resource could not be loaded (${response.status})`);
@@ -88,8 +88,14 @@ export class RemotePackageReaderFileSystem implements ReaderFileSystem {
   }
 
   private safePath(value: string): string {
+    const path = this.normalizedPath(value);
+    if (!this.files.has(path)) throw new Error(`Unsafe or unknown package path: ${value}`);
+    return path;
+  }
+
+  private normalizedPath(value: string): string {
     const path = normalizeReaderPath(value);
-    if (!isSafeRelativePath(path) || !this.files.has(path)) throw new Error(`Unsafe or unknown package path: ${value}`);
+    if (!isSafeRelativePath(path)) throw new Error(`Unsafe package path: ${value}`);
     return path;
   }
 }

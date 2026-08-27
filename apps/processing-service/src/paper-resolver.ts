@@ -164,6 +164,17 @@ function europeSources(record: Record<string, unknown>, identity: ResolvedPaperI
       requires_domain_permission: false,
       requires_browser_session: false
     });
+    sources.push({
+      source_id: `pmc-html-${pmcid.toLowerCase()}`,
+      provider: "europe_pmc",
+      format: "html",
+      url: `https://pmc.ncbi.nlm.nih.gov/articles/${encodeURIComponent(pmcid)}/`,
+      access: "open_access",
+      acquisition_route: "clipper_core",
+      priority: 20,
+      requires_domain_permission: false,
+      requires_browser_session: false
+    });
   }
   const urls = object(record.fullTextUrlList)?.fullTextUrl;
   if (!Array.isArray(urls)) return sources;
@@ -173,6 +184,7 @@ function europeSources(record: Record<string, unknown>, identity: ResolvedPaperI
     const url = publicHttpsUrl(entry.url);
     const style = text(entry.documentStyle)?.toLowerCase();
     if (!url || (style !== "html" && style !== "pdf")) return;
+    if (style === "html" && identity.identifiers.pmcid) return;
     sources.push({
       source_id: `epmc-${style}-${index + 1}`,
       provider: "europe_pmc",

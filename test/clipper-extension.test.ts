@@ -3,6 +3,7 @@ import { Defuddle } from "defuddle/node";
 import { parseHTML } from "linkedom";
 import {
   buildArticleMarkdown,
+  buildClippingPackageFiles,
   collectMarkdownImages,
   isFetchableImageUrl,
   localizeMarkdownImages,
@@ -125,6 +126,29 @@ describe("Paper2MD browser clipper package projection", () => {
     expect(article).toContain(source);
     expect(source).toBe("## Abstract\n\nEvidence.");
     expect(safeArchiveName(page.title)).toBe("A paper multiscale maps.paper2md.zip");
+  });
+
+  it("builds the same deterministic clipping files for browser and service adapters", async () => {
+    const localized = new Map<string, LocalizedImage>([["https://example.org/media/figure.png", {
+      url: "https://example.org/media/figure.png",
+      path: "images/figure-0001.png",
+      mime: "image/png",
+      bytes: new Uint8Array([1, 2, 3])
+    }]]);
+    const clipping = await buildClippingPackageFiles({
+      page: { ...page, markdown: "## Results\n\n" + "Evidence. ".repeat(30) + "\n\n![Figure 1](/media/figure.png)" },
+      localizedImages: localized,
+      createdAt: "2026-08-27T00:00:00.000Z",
+      extraction: { engine: "defuddle", engineVersion: "0.19.3", useAsyncFallback: false }
+    });
+
+    expect([...clipping.files.keys()]).toEqual(["article.md", "_clipping/manifest.json", "images/figure-0001.png"]);
+    expect(clipping.article).toContain("![Figure 1](images/figure-0001.png)");
+    expect(clipping.manifest).toMatchObject({
+      schema_version: "paper2md-web-clipping-v1",
+      processing: { remote: false, ai: false },
+      omitted_image_count: 0
+    });
   });
 
   it("ignores non-network and malformed image sources", () => {

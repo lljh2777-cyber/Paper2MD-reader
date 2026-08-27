@@ -20,9 +20,10 @@ describe("standalone processing service security", () => {
     expect(loadProcessingServiceConfig({
       PAPER2MD_ALLOWED_HOSTS: "reader.internal:443",
       PAPER2MD_CONTACT_EMAIL: "maintainer@example.org"
-    })).toMatchObject({ contactEmail: "maintainer@example.org" });
+    })).toMatchObject({ contactEmail: "maintainer@example.org", readerBaseUrl: "http://127.0.0.1:4174/" });
     expect(() => loadProcessingServiceConfig({ PAPER2MD_ALLOWED_HOSTS: "reader.internal/path" })).toThrow("allowed host");
     expect(() => loadProcessingServiceConfig({ PAPER2MD_CONTACT_EMAIL: "not-an-email" })).toThrow("CONTACT_EMAIL");
+    expect(() => loadProcessingServiceConfig({ PAPER2MD_READER_BASE_URL: "http://reader.example.org" })).toThrow("HTTPS");
   });
 
   it("accepts only declared MinerU model and language options", () => {

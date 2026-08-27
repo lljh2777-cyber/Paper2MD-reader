@@ -31,6 +31,20 @@ export interface LocalizedImage {
   bytes: Uint8Array;
 }
 
+export interface ClippingExtractionMetadata {
+  engine: string;
+  engineVersion: string;
+  useAsyncFallback: boolean;
+}
+
+export interface ClippingPackageFiles {
+  article: string;
+  manifest: Record<string, unknown>;
+  files: Map<string, Uint8Array>;
+  includedImageCount: number;
+  omittedImageCount: number;
+}
+
 const STANDALONE_MARKDOWN_IMAGE = /^[\t ]*!\[([^\]]*)\]\((?:<([^>]+)>|([^\s)]+))(?:[\t ]+["'][^"']*["'])?\)[\t ]*$/gm;
 const ALLOWED_IMAGE_PROTOCOL = /^https?:$/;
 
@@ -190,4 +204,86 @@ export function extensionForMime(mime: string): string | undefined {
     "image/png": "png",
     "image/webp": "webp"
   } as Record<string, string>)[normalized];
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes).buffer);
+  return [...new Uint8Array(hash)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+/** Build the deterministic, host-neutral files shared by the extension and service. */
+export async function buildClippingPackageFiles(input: {
+  page: ExtractedPaperPage;
+  localizedImages: ReadonlyMap<string, LocalizedImage>;
+  createdAt: string;
+  extraction: ClippingExtractionMetadata;
+}): Promise<ClippingPackageFiles> {
+  const sourceBytes = new TextEncoder().encode(input.page.markdown);
+  if (sourceBytes.byteLength > MAX_CLIPPED_ARTICLE_BYTES) {
+    throw new Error(`Extracted article exceeds the safe limit of ${MAX_CLIPPED_ARTICLE_BYTES} bytes.`);
+  }
+  const occurrences = collectMarkdownImages(input.page.markdown, input.page.sourceUrl);
+  if (occurrences.length > MAX_CLIPPED_IMAGES) {
+    throw new Error(`Extracted article contains more than ${MAX_CLIPPED_IMAGES} images.`);
+  }
+  const included = [...input.localizedImages.values()];
+  if (included.length > MAX_CLIPPED_IMAGES) throw new Error(`Clipping contains more than ${MAX_CLIPPED_IMAGES} localized images.`);
+  let totalImageBytes = 0;
+  const paths = new Set<string>();
+  for (const image of included) {
+    if (!occurrences.some((occurrence) => occurrence.absoluteUrl === image.url)) {
+      throw new Error("Localized image is not referenced by the extracted article.");
+    }
+    if (!/^images\/figure-\d{4}\.(?:bmp|gif|jpe?g|png|webp)$/i.test(image.path) || paths.has(image.path)) {
+      throw new Error("Localized image has an unsafe or duplicate package path.");
+    }
+    const expectedExtension = extensionForMime(image.mime);
+    if (!expectedExtension || !image.path.toLowerCase().endsWith(`.${expectedExtension}`)
+      || image.bytes.byteLength < 1 || image.bytes.byteLength > MAX_CLIPPED_IMAGE_BYTES) {
+      throw new Error("Localized image has an unsupported type or size.");
+    }
+    paths.add(image.path);
+    totalImageBytes += image.bytes.byteLength;
+    if (totalImageBytes > MAX_CLIPPED_TOTAL_IMAGE_BYTES) throw new Error("Localized images exceed the aggregate safe limit.");
+  }
+
+  const localizedContent = localizeMarkdownImages(input.page.markdown, occurrences, input.localizedImages);
+  const article = buildArticleMarkdown(input.page, localizedContent, input.createdAt);
+  const articleBytes = new TextEncoder().encode(article);
+  if (articleBytes.byteLength > MAX_CLIPPED_ARTICLE_BYTES) {
+    throw new Error(`Packaged article exceeds the safe limit of ${MAX_CLIPPED_ARTICLE_BYTES} bytes.`);
+  }
+  const uniqueNetworkImages = new Set(occurrences.flatMap((occurrence) => occurrence.absoluteUrl ? [occurrence.absoluteUrl] : []));
+  const manifest = {
+    schema_version: "paper2md-web-clipping-v1",
+    source: { url: input.page.sourceUrl, title: input.page.title },
+    extraction: {
+      engine: input.extraction.engine,
+      engine_version: input.extraction.engineVersion,
+      use_async_fallback: input.extraction.useAsyncFallback,
+      created_at: input.createdAt,
+      word_count: input.page.wordCount
+    },
+    article: { path: "article.md", sha256: await sha256Hex(articleBytes), size_bytes: articleBytes.byteLength },
+    images: included.map((image) => ({
+      path: image.path,
+      source_url: image.url,
+      mime: image.mime,
+      size_bytes: image.bytes.byteLength
+    })),
+    omitted_image_count: uniqueNetworkImages.size - included.length,
+    processing: { remote: false, ai: false }
+  };
+  const files = new Map<string, Uint8Array>([
+    ["article.md", articleBytes],
+    ["_clipping/manifest.json", new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`)]
+  ]);
+  included.forEach((image) => files.set(image.path, image.bytes));
+  return {
+    article,
+    manifest,
+    files,
+    includedImageCount: included.length,
+    omittedImageCount: uniqueNetworkImages.size - included.length
+  };
 }

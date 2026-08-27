@@ -94,6 +94,11 @@ export class JobManager {
     return job ? publicTask(job) : undefined;
   }
 
+  getPackage(id: string) {
+    const job = this.jobs.get(id);
+    return job?.task.state === "succeeded" && job.task.package ? structuredClone(job.task.package) : undefined;
+  }
+
   packageFilePath(id: string, relativePath: string): string | undefined {
     const job = this.jobs.get(id);
     if (!job || job.task.state !== "succeeded" || !job.task.package) return undefined;

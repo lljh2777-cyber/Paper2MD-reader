@@ -1,5 +1,6 @@
 import type { ReaderProcessingProgress } from "../../../packages/reader-core/src/index";
 import type { ProcessingJob } from "../../../packages/agent-contracts/src/index";
+import { assertOpaqueId } from "../../../packages/agent-contracts/src/index";
 import {
   RemotePackageDescriptor,
   RemotePackageReaderFileSystem
@@ -41,6 +42,25 @@ export function configuredProcessingApiBaseUrl(): string | undefined {
 export class ProcessingClient {
   constructor(private readonly apiBaseUrl: string) {}
 
+  async openPackage(packageId: string): Promise<RemotePackageReaderFileSystem> {
+    const safeId = assertOpaqueId(packageId, "package_id");
+    const response = await this.fetchService(`${this.apiBaseUrl}/packages/${encodeURIComponent(safeId)}`, {
+      credentials: "include",
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) throw new Error(await this.errorMessage(response));
+    const descriptor = await response.json() as Partial<RemotePackageDescriptor>;
+    if (descriptor.packageId !== safeId || typeof descriptor.label !== "string" || !Array.isArray(descriptor.files)) {
+      throw new Error("Processing service returned an invalid package descriptor.");
+    }
+    return new RemotePackageReaderFileSystem(
+      descriptor.label,
+      this.apiBaseUrl,
+      safeId,
+      descriptor.files
+    );
+  }
+
   async processPdf(file: File, onProgress: (progress: ReaderProcessingProgress) => void): Promise<RemotePackageReaderFileSystem> {
     if (file.size < 5 || file.size > CLIENT_MAX_PDF_BYTES) {
       throw new Error(`PDF size must be between 5 bytes and ${CLIENT_MAX_PDF_BYTES / 1024 / 1024} MB.`);
@@ -80,12 +100,7 @@ export class ProcessingClient {
     if (job.state !== "succeeded" || !job.package) {
       throw new Error(job.message || "MinerU processing failed.");
     }
-    return new RemotePackageReaderFileSystem(
-      job.package.label,
-      this.apiBaseUrl,
-      job.id,
-      job.package.files
-    );
+    return this.openPackage(job.package.packageId);
   }
 
   private async parseJob(response: Response): Promise<RemoteProcessingJob> {

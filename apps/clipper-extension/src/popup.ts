@@ -4,10 +4,9 @@ import {
   MAX_CLIPPED_ARTICLE_BYTES,
   MAX_CLIPPED_TOTAL_IMAGE_BYTES,
   MAX_CLIPPING_ARCHIVE_BYTES,
-  buildArticleMarkdown,
+  buildClippingPackageFiles,
   collectMarkdownImages,
   extensionForMime,
-  localizeMarkdownImages,
   safeArchiveName,
   type LocalizedImage
 } from "./clipping-package";
@@ -93,44 +92,22 @@ async function buildClipping(page: ExtractedPaperPage): Promise<{ filename: stri
     });
   }
 
-  const localizedContent = localizeMarkdownImages(page.markdown, occurrences, localized);
   const created = new Date().toISOString();
-  const article = buildArticleMarkdown(page, localizedContent, created);
-  const articleBytes = strToU8(article);
-  if (articleBytes.byteLength > MAX_CLIPPED_ARTICLE_BYTES) {
-    throw new Error(`提取正文超过安全上限 ${Math.floor(MAX_CLIPPED_ARTICLE_BYTES / 1024 / 1024)} MiB。`);
-  }
-  const articleHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", articleBytes))]
-    .map((value) => value.toString(16).padStart(2, "0")).join("");
-  const manifest = {
-    schema_version: "paper2md-web-clipping-v1",
-    source: { url: page.sourceUrl, title: page.title },
-    extraction: {
-      engine: "defuddle",
-      engine_version: "0.19.3",
-      use_async_fallback: false,
-      created_at: created,
-      word_count: page.wordCount
-    },
-    article: { path: "article.md", sha256: articleHash, size_bytes: articleBytes.byteLength },
-    images: [...localized.values()].map((image) => ({ path: image.path, source_url: image.url, mime: image.mime, size_bytes: image.bytes.length })),
-    omitted_image_count: uniqueUrls.length - localized.size,
-    processing: { remote: false, ai: false }
-  };
-  const files: Record<string, Uint8Array> = {
-    "article.md": articleBytes,
-    "_clipping/manifest.json": strToU8(`${JSON.stringify(manifest, null, 2)}\n`)
-  };
-  localized.forEach((image) => { files[image.path] = image.bytes; });
-  const archiveBytes = zipSync(files, { level: 6 });
+  const clipping = await buildClippingPackageFiles({
+    page,
+    localizedImages: localized,
+    createdAt: created,
+    extraction: { engine: "defuddle", engineVersion: "0.19.3", useAsyncFallback: false }
+  });
+  const archiveBytes = zipSync(Object.fromEntries(clipping.files), { level: 6 });
   if (archiveBytes.byteLength > MAX_CLIPPING_ARCHIVE_BYTES) {
     throw new Error(`生成的阅读包超过安全上限 ${Math.floor(MAX_CLIPPING_ARCHIVE_BYTES / 1024 / 1024)} MiB。`);
   }
   return {
     filename: safeArchiveName(page.title),
     bytes: archiveBytes,
-    included: localized.size,
-    omitted: uniqueUrls.length - localized.size
+    included: clipping.includedImageCount,
+    omitted: clipping.omittedImageCount
   };
 }
 

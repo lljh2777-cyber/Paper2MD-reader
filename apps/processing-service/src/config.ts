@@ -17,6 +17,7 @@ export interface ProcessingServiceConfig {
   allowedHosts: Set<string>;
   contactEmail?: string;
   resolverTimeoutMilliseconds: number;
+  readerBaseUrl: string;
   maximumPdfBytes: number;
   maximumActiveJobs: number;
   timeoutSeconds: number;
@@ -63,6 +64,16 @@ function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
+function validReaderBaseUrl(value: string): string {
+  const url = new URL(value);
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error("PAPER2MD_READER_BASE_URL must use HTTPS, except on loopback");
+  }
+  if (url.username || url.password || url.search || url.hash) throw new Error("PAPER2MD_READER_BASE_URL must not contain credentials, query, or fragment");
+  return url.href;
+}
+
 export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env): ProcessingServiceConfig {
   const host = env.PAPER2MD_SERVICE_HOST?.trim() || "127.0.0.1";
   const port = integer(env.PAPER2MD_SERVICE_PORT, 8787, 1, 65535);
@@ -104,6 +115,7 @@ export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env
     allowedHosts: new Set(explicitHosts.length ? explicitHosts : defaultHosts.map(validHost)),
     contactEmail: validEmail(env.PAPER2MD_CONTACT_EMAIL),
     resolverTimeoutMilliseconds: integer(env.PAPER2MD_RESOLVER_TIMEOUT_MS, 12_000, 1_000, 60_000),
+    readerBaseUrl: validReaderBaseUrl(env.PAPER2MD_READER_BASE_URL?.trim() || "http://127.0.0.1:4174/"),
     maximumPdfBytes: integer(env.PAPER2MD_MAX_PDF_BYTES, 64 * 1024 * 1024, 1024, 256 * 1024 * 1024),
     maximumActiveJobs: integer(env.PAPER2MD_MAX_ACTIVE_JOBS, 2, 1, 8),
     timeoutSeconds: integer(env.PAPER2MD_MINERU_TIMEOUT, 900, 60, 1800)

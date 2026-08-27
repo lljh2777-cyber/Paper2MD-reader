@@ -182,8 +182,18 @@ The processing service now implements the first shared command adapter at
 cross-checks metadata through fixed Europe PMC/Crossref endpoints, and ranks verified
 open XML/HTML ahead of legal PDFs. Unpaywall OA discovery is enabled only when the
 operator configures `PAPER2MD_CONTACT_EMAIL`. Title matching, acquisition, package
-publication, MCP stdio and Reader WebMCP remain later stages rather than hidden
+publication, MCP stdio and Reader WebMCP remain separate capabilities rather than hidden
 dependencies of this resolver.
+
+`ingest_paper` and `get_ingest_job` now provide the first complete automatic path for
+session-free open PMC articles. The service resolves an exact identifier, acquires only
+allowlisted PMC HTML without redirects or browser credentials, uses the same deterministic
+`clipper-core` package projection as the browser extension, preserves the acquired HTML,
+validates an isolated staging package, and atomically publishes it. Ready jobs return an
+opaque `package_id` plus `/reader/{package_id}`; the Web Reader opens that package directly
+through the service package API, so ZIP remains an export/backup format instead of an
+internal handoff. Publisher-session pages, arbitrary URLs, legal-PDF download/MinerU
+fallback, title matching, MCP stdio and WebMCP remain later stages.
 
 The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
 implementations and receive no new functionality. The separate Research Agent Reader

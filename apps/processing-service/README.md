@@ -45,12 +45,12 @@ npm run processing:start
 - Cloudflare Worker / Codex Sites 只适合托管 Reader 前端，不能直接执行本地 MinerU CLI。处理服务应部署在独立的受控 Node 主机或容器中。
 - 当前任务数据不会自动删除，便于失败审计。投入多人使用前需增加明确的保留期和逐任务删除策略。
 
-常用变量：`PAPER2MD_DATA_ROOT`、`PAPER2MD_SERVICE_HOST`、`PAPER2MD_SERVICE_PORT`、`PAPER2MD_ALLOWED_ORIGINS`、`PAPER2MD_MAX_PDF_BYTES`、`PAPER2MD_MAX_ACTIVE_JOBS`、`PAPER2MD_MINERU_TIMEOUT`、`PAPER2MD_PYTHON_PATH`、`MINERU_CLI_PATH`、`MINERU_BASE_URL`。
+常用变量：`PAPER2MD_DATA_ROOT`、`PAPER2MD_SERVICE_HOST`、`PAPER2MD_SERVICE_PORT`、`PAPER2MD_ALLOWED_ORIGINS`、`PAPER2MD_MAX_PDF_BYTES`、`PAPER2MD_MAX_ACTIVE_JOBS`、`PAPER2MD_MINERU_TIMEOUT`、`PAPER2MD_PYTHON_PATH`、`PAPER2MD_READER_BASE_URL`、`MINERU_CLI_PATH`、`MINERU_BASE_URL`。
 
 ## 论文身份解析命令
 
 服务端提供受限的 `POST /api/v1/commands` 命令入口。当前实现
-`get_service_status` 和 `resolve_paper`；其他共享契约中的命令会明确返回
+`get_service_status`、`resolve_paper`、`ingest_paper` 和 `get_ingest_job`；其他共享契约中的命令会明确返回
 `501`，不会退化为任意路径、命令或 `eval`。例如：
 
 ```json
@@ -70,6 +70,36 @@ npm run processing:start
 Crossref 的题名或年份明显冲突时返回 `AMBIGUOUS_MATCH`；没有可验证开放全文
 时返回 `FULL_TEXT_NOT_AVAILABLE` 及可行下一步。当前阶段不自动处理题名或
 任意论文 URL。
+
+## 自动导入开放 PMC 全文
+
+`ingest_paper` 是有副作用的显式命令。它复用同一身份解析结果，目前只自动获取
+Europe PMC 已确认开放、并可通过 `pmc.ncbi.nlm.nih.gov` 无会话读取的 HTML：
+
+```json
+{
+  "command": "ingest_paper",
+  "input": { "query": "PMCID: PMC3531190" }
+}
+```
+
+命令立即返回不透明 `job_id`；使用 `get_ingest_job` 轮询。状态按
+`queued → resolving → matched → acquiring → clipping → validating → publishing → ready`
+推进。成功结果包含 `package_id` 和 `reader_url`。Reader 深链为
+`/reader/{package_id}`，网页随后从 `GET /api/v1/packages/{package_id}` 和受限的
+`.../files/{package-path}` 读取已发布包，不再要求 ZIP 中转。
+
+服务端使用与浏览器扩展相同的 `clipper-core` 生成 `article.md`、图片索引与
+`_clipping/manifest.json`；原始 HTML 只读保存在 `_clipping/source.html`。所有文件
+先写入随机任务暂存目录，核对正文哈希、源快照哈希、图片索引、路径和容量后，
+才通过同卷重命名原子发布。完整包目录已存在时拒绝覆盖。正文与网页内容只作为
+不可信数据处理，不进入命令、路径或 Agent 指令解析。
+
+当前自动获取不会跟随重定向，不会携带浏览器 cookie，也不会请求出版商登录页、
+付费墙或任意 Unpaywall URL。不能满足上述 PMC 条件时，任务以结构化
+`CLIPPER_UNSUPPORTED`/其他错误码进入 `needs_attention` 或 `failed`，并建议使用
+扩展或上传合法 PDF。`PAPER2MD_READER_BASE_URL` 控制返回的 Reader 基址；仅允许
+HTTPS，回环开发地址允许 HTTP。
 
 相关配置：
 
