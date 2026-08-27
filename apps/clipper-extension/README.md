@@ -26,6 +26,11 @@ The package contains an immutable `article.md`, localized raster images under
 `images/`, and `_clipping/manifest.json`. Reader display pairing remains a runtime
 projection and does not write back to the Markdown.
 
+Before extraction, the extension normalizes publisher figure markup in an isolated
+DOM copy. In particular, Nature/Springer pages that keep a short figure title in
+`figcaption` and the descriptive legend in a separate, figure-bound element are
+joined into one adjacent Markdown caption. The live page is not modified.
+
 ## Security boundary
 
 - Page access is granted by `activeTab` only after the user clicks the extension.

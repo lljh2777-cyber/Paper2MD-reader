@@ -1,5 +1,6 @@
 import Defuddle from "defuddle/full";
 import { EXTRACT_MESSAGE, type ExtractPageResponse } from "./messages";
+import { clonePaperDocumentForExtraction } from "./paper-dom-normalization";
 
 declare global {
   interface Window {
@@ -16,7 +17,8 @@ if (!window.__paper2mdExtractorInstalled) {
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     if (!message || typeof message !== "object" || (message as { type?: unknown }).type !== EXTRACT_MESSAGE) return;
     try {
-      const result = new Defuddle(document, {
+      const extractionDocument = clonePaperDocumentForExtraction(document);
+      const result = new Defuddle(extractionDocument, {
         markdown: true,
         useAsync: false,
         removeSmallImages: true,

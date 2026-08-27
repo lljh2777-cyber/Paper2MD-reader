@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Defuddle } from "defuddle/node";
+import { parseHTML } from "linkedom";
 import {
   buildArticleMarkdown,
   collectMarkdownImages,
@@ -10,6 +11,8 @@ import {
   type LocalizedImage
 } from "../apps/clipper-extension/src/clipping-package";
 import type { ExtractedPaperPage } from "../apps/clipper-extension/src/messages";
+import { mergeSeparatedFigureCaptions } from "../apps/clipper-extension/src/paper-dom-normalization";
+import { adaptClippingMarkdown } from "../src/model/clipping-markdown";
 
 const page: ExtractedPaperPage = {
   title: "A paper: multiscale maps",
@@ -41,6 +44,44 @@ describe("Paper2MD browser clipper package projection", () => {
     expect(result.content).toContain("figure-1.png");
     expect(result.content).toContain("Figure 1. Measured response across groups.");
     expect(result.content).not.toContain("Journal navigation");
+  });
+
+  it("joins a Nature-style title and separately stored figure description before extraction", async () => {
+    const fullCaption = "a, Schematic overview of DeepMet. RT, retention time. b, UMAP visualization of the chemical space occupied by known metabolites and generated molecules. c, Receiver operating characteristic curve. d, Proportion of enzymatic biotransformations recapitulated by DeepMet.";
+    const html = `<!doctype html><html lang="en"><head><title>DeepMet paper</title></head><body>
+      <article id="paper"><h1>DeepMet paper</h1><p>${"Evidence sentence. ".repeat(40)}</p>
+      <div class="c-article-section__figure" data-container-section="figure" id="figure-1">
+        <figure>
+          <figcaption><b class="c-article-section__figure-caption">Fig. 1: Learning the language of metabolism.</b></figcaption>
+          <div class="c-article-section__figure-content">
+            <img aria-describedby="figure-1-desc" src="/media/figure-1.png" alt="Fig. 1: Learning the language of metabolism.">
+            <div class="c-article-section__figure-description" data-test="bottom-caption" id="figure-1-desc"><p>${fullCaption}</p></div>
+          </div>
+          <a href="/figures/1">Full size image</a>
+        </figure>
+      </div>
+      <h2>Methods</h2><p>${"Method sentence. ".repeat(40)}</p></article></body></html>`;
+    const { document } = parseHTML(html);
+    mergeSeparatedFigureCaptions(document);
+    const normalizedHtml = document.toString();
+    const result = await Defuddle(normalizedHtml, page.sourceUrl, {
+      markdown: true,
+      useAsync: false,
+      contentSelector: "#paper"
+    });
+
+    expect(result.content).toContain("Fig. 1: Learning the language of metabolism.");
+    expect(result.content).toContain(fullCaption);
+    expect(result.content.match(/Schematic overview of DeepMet/g)).toHaveLength(1);
+    const occurrences = collectMarkdownImages(result.content, page.sourceUrl);
+    const localized = new Map<string, LocalizedImage>([[occurrences[0].absoluteUrl!, {
+      url: occurrences[0].absoluteUrl!,
+      path: "images/figure-0001.png",
+      mime: "image/png",
+      bytes: new Uint8Array([1])
+    }]]);
+    const readerProjection = adaptClippingMarkdown(localizeMarkdownImages(result.content, occurrences, localized));
+    expect(readerProjection.visuals[0]?.captionText).toContain(fullCaption);
   });
 
   it("localizes paper images in document order and preserves adjacent captions", () => {
