@@ -195,13 +195,17 @@ through the service package API, so ZIP remains an export/backup format instead 
 internal handoff. Publisher-session pages, arbitrary URLs, legal-PDF download/MinerU
 fallback, title matching and WebMCP remain later stages.
 
-An optional local MCP stdio sidecar now exposes only the four commands implemented by the
-processing service: `get_service_status`, `resolve_paper`, `ingest_paper`, and
-`get_ingest_job`. It forwards already validated command envelopes to the running loopback
+An optional local MCP stdio sidecar exposes the four processing commands
+(`get_service_status`, `resolve_paper`, `ingest_paper`, and `get_ingest_job`) plus four
+deterministic read tools (`list_packages`, `read_package_manifest`, `read_article_section`,
+and `list_figures`). It forwards already validated command envelopes to the running loopback
 processing service, so HTTP clients, MCP clients, package publication, and Reader deep links
 share one authoritative job state. The sidecar does not accept arbitrary paths, commands,
-URLs, or evaluation input; unimplemented package-reading and visual-write commands are not
-registered. MCP remains an external control surface and is not required by Reader or Clipper.
+URLs, or evaluation input; visual-write commands remain unregistered. The persistent package
+catalog discovers only atomically published packages in fixed storage roots, revalidates their
+manifest-bound files, and continues to work after a service restart. Article reads are bounded
+by line and byte limits, and figure reads return metadata rather than file contents. MCP remains
+an external control surface and is not required by Reader or Clipper.
 
 The early Paper2MD Reader Obsidian/Electron sources in this repository are legacy
 implementations and receive no new functionality. The separate Research Agent Reader

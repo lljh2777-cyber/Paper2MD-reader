@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "checks": {
+    "markdown_nonempty": true,
+    "json_array_valid": true,
+    "immutable_source_preserved": true,
+    "viewer_index_valid": true
+  }
+}

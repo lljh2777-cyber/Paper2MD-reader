@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "extractor": "mineru-open-api",
+  "created_at": "2026-08-27T00:00:00.000Z",
+  "processing_depth": "conversion-only",
+  "source": {
+    "original_name": "MinerU fixture.pdf",
+    "size": 13,
+    "sha256": "6c8d22e47796a2cf56b46bf9aa0dba0f8c666f324080ad8fcdea4b1b3c5b65c2"
+  },
+  "outputs": [
+    {
+      "path": "article.md",
+      "size": 255,
+      "sha256": "e7fa6965cd690dc38cfe2e0507213f0e5c139bb8ed1ee453f940efd04b16a346"
+    },
+    {
+      "path": "mineru-result.json",
+      "size": 90,
+      "sha256": "f2add55163df546fe42e2b434727fb459b0991fa6b86f39e1b07e1f2d66910c2"
+    },
+    {
+      "path": "images/figure-2.png",
+      "size": 21,
+      "sha256": "967c24f2d2a1634df6b70c093b0f5d77b8dd063326942d4a97c0f6567aae3b15"
+    },
+    {
+      "path": "_extraction/source.pdf",
+      "size": 13,
+      "sha256": "6c8d22e47796a2cf56b46bf9aa0dba0f8c666f324080ad8fcdea4b1b3c5b65c2"
+    },
+    {
+      "path": "_paper2md/reader.json",
+      "size": 437,
+      "sha256": "e8e3541aea2d37b5ff0b01a9d52424c2d16e06b66690eeded62c7084fd2d1332"
+    }
+  ]
+}

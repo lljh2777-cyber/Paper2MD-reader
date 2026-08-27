@@ -73,7 +73,8 @@ async function validateStage(root: string, sourceBytes: Uint8Array): Promise<Rec
   const indexedAssets = new Set<string>();
   for (const item of manifestImages) {
     const entry = object(item);
-    if (!entry || typeof entry.path !== "string" || typeof entry.mime !== "string" || !Number.isSafeInteger(entry.size_bytes)) {
+    if (!entry || typeof entry.path !== "string" || typeof entry.mime !== "string" || !Number.isSafeInteger(entry.size_bytes)
+      || typeof entry.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(entry.sha256)) {
       throw new Error("Clipping manifest contains an invalid image entry");
     }
     const asset = normalizePackagePath(entry.path);
@@ -81,7 +82,9 @@ async function validateStage(root: string, sourceBytes: Uint8Array): Promise<Rec
       throw new Error("Clipping manifest contains an unsafe or duplicate image path");
     }
     const bytes = await readFile(join(root, ...asset.split("/"))).catch(() => undefined);
-    if (!bytes || bytes.byteLength !== entry.size_bytes) throw new Error(`Clipping manifest image does not match: ${asset}`);
+    if (!bytes || bytes.byteLength !== entry.size_bytes || sha256(bytes) !== entry.sha256) {
+      throw new Error(`Clipping manifest image does not match: ${asset}`);
+    }
     indexedAssets.add(asset);
   }
   const referencedAssets = new Set<string>();

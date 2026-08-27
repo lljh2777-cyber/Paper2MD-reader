@@ -1,0 +1,19 @@
+{
+  "contract_version": "paper2md-reader-v0.1",
+  "assets": [
+    {
+      "id": "asset-figure",
+      "kind": "figure",
+      "path": "images/figure-2.png",
+      "display_label": "Figure 2",
+      "caption_block_id": "blk-caption",
+      "placement_block_id": "slot-figure",
+      "source_spans": [
+        {
+          "page_index": 2,
+          "bbox": { "x": 0.1, "y": 0.2, "width": 0.8, "height": 0.5 }
+        }
+      ]
+    }
+  ]
+}

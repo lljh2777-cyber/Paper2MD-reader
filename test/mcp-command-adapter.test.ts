@@ -31,7 +31,11 @@ describe("Paper2MD MCP command adapter", () => {
       "get_service_status",
       "resolve_paper",
       "ingest_paper",
-      "get_ingest_job"
+      "get_ingest_job",
+      "list_packages",
+      "read_package_manifest",
+      "read_article_section",
+      "list_figures"
     ]);
     expect(tools.find((tool) => tool.name === "get_service_status")?.annotations).toMatchObject({
       readOnlyHint: true,
@@ -44,6 +48,39 @@ describe("Paper2MD MCP command adapter", () => {
       idempotentHint: false,
       openWorldHint: true
     });
+    expect(tools.find((tool) => tool.name === "read_article_section")?.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    });
+  });
+
+  it("routes package inspection tools through the same strict command boundary", async () => {
+    const commands: AgentCommand[] = [];
+    const client = await connectedClient(async (command) => {
+      commands.push(command);
+      return { accepted: true };
+    });
+
+    await client.callTool({
+      name: "list_packages",
+      arguments: { cursor: "package-001", limit: 10 }
+    });
+    await client.callTool({
+      name: "read_article_section",
+      arguments: { package_id: "package-002", heading_id: "heading-0003", start_line: 40, max_lines: 50 }
+    });
+    await client.callTool({ name: "list_figures", arguments: { package_id: "package-002" } });
+
+    expect(commands).toEqual([
+      { command: "list_packages", input: { cursor: "package-001", limit: 10 } },
+      {
+        command: "read_article_section",
+        input: { package_id: "package-002", heading_id: "heading-0003", start_line: 40, max_lines: 50 }
+      },
+      { command: "list_figures", input: { package_id: "package-002" } }
+    ]);
   });
 
   it("routes validated inputs through the shared AgentCommand envelope", async () => {
@@ -72,6 +109,10 @@ describe("Paper2MD MCP command adapter", () => {
     await expect(client.callTool({
       name: "get_ingest_job",
       arguments: { job_id: "../outside" }
+    })).resolves.toMatchObject({ isError: true });
+    await expect(client.callTool({
+      name: "read_package_manifest",
+      arguments: { package_id: "../outside", arbitrary_path: "C:/secrets" }
     })).resolves.toMatchObject({ isError: true });
     await expect(client.callTool({
       name: "resolve_paper",

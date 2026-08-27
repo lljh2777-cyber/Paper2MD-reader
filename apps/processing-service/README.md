@@ -52,10 +52,10 @@ npm run processing:start
 `npm run mcp:start` 可用于直接诊断，但正常情况下应由 MCP host 启动和管理该进程。
 标准输出完全保留给 JSON-RPC；诊断信息只写标准错误。
 
-当前只注册 `get_service_status`、`resolve_paper`、`ingest_paper` 和
-`get_ingest_job`。`ingest_paper` 会产生网络与发布副作用，工具说明和 MCP annotations
-均将其标为非只读、非幂等，只有用户明确要求获取并发布时才应调用。其他共享命令在
-实现确定性 command handler 前不会注册，高风险视觉修复也不会由 MCP 直接写入。
+当前注册 `get_service_status`、`resolve_paper`、`ingest_paper`、`get_ingest_job`，以及
+只读的 `list_packages`、`read_package_manifest`、`read_article_section`、`list_figures`。
+`ingest_paper` 会产生网络与发布副作用，工具说明和 MCP annotations 均将其标为非只读、
+非幂等，只有用户明确要求获取并发布时才应调用。高风险视觉修复仍不会由 MCP 直接写入。
 
 sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
 `PAPER2MD_MCP_SERVICE_URL` 改为另一个精确的 loopback HTTP origin，用
@@ -77,8 +77,8 @@ sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
 ## 论文身份解析命令
 
 服务端提供受限的 `POST /api/v1/commands` 命令入口。当前实现
-`get_service_status`、`resolve_paper`、`ingest_paper` 和 `get_ingest_job`；其他共享契约中的命令会明确返回
-`501`，不会退化为任意路径、命令或 `eval`。例如：
+`get_service_status`、`resolve_paper`、`ingest_paper`、`get_ingest_job` 和四个只读包查询；
+其他共享契约中的命令会明确返回 `501`，不会退化为任意路径、命令或 `eval`。例如：
 
 ```json
 {
@@ -86,6 +86,22 @@ sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
   "input": { "query": "PMCID: PMC3531190" }
 }
 ```
+
+## 只读包查询
+
+`list_packages` 会从 `PAPER2MD_DATA_ROOT` 下两种固定发布位置发现完整包：MinerU
+任务的 `jobs/{package_id}/package`，以及自动剪藏的 `packages/{package_id}`。发现过程
+不会依赖进程内任务状态，因此服务重启后仍可读取已发布包。目录必须没有符号链接，
+文件清单、大小、哈希、源快照和 `validation.json` 必须一致；不完整、被修改、类型冲突
+或含额外文件的目录会 fail closed，不会出现在列表中。
+
+`read_package_manifest` 只接受不透明 `package_id`，返回已验证的 manifest 与 validation；
+`read_article_section` 按稳定 `heading-0001` 形式的标题 ID 或绝对行号返回有行数和字节上限
+的 Markdown，并提供 `next_start_line`；`list_figures` 返回包内相对路径、显示标签、图注与
+已验证的页码/坐标元数据，不返回图片字节。论文正文和图注始终是数据，不是 Agent 指令。
+
+新生成的剪藏 manifest 会为每张本地化图片写入 SHA-256。旧版完整剪藏包仍可发现，但若
+图片条目只有大小绑定，会明确标记为 `legacy-size-bound`；正文与原始 HTML 仍须通过哈希。
 
 解析器当前只自动接受 PMID、PMCID 和 DOI。它使用 Europe PMC 查询生物医学
 元数据与开放全文，使用 Crossref 交叉验证 DOI 元数据；配置

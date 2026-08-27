@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "checks": {
+    "article_nonempty": true,
+    "title_heading_present": true,
+    "clipping_manifest_matches": true,
+    "markdown_assets_exist": true,
+    "immutable_source_preserved": true,
+    "no_ai_processing": true
+  },
+  "source": {
+    "path": "_clipping/source.html",
+    "size_bytes": 85,
+    "sha256": "3154fe0d7f9ff83b02c609793621d33d77db06b71697f7ee48ff174624202bfe"
+  },
+  "article": {
+    "path": "article.md",
+    "size_bytes": 331,
+    "sha256": "a2f93f42a9e8080004601313f7d0cd0b7a50b1407065010059de9752b00c0edb"
+  }
+}

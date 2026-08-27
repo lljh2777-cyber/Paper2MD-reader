@@ -11,6 +11,7 @@ import { JobManager } from "./job-manager";
 import { IngestManager } from "./ingest-manager";
 import { normalizePackagePath } from "./package-publisher";
 import { PaperResolver } from "./paper-resolver";
+import { PublishedPackageCatalog } from "./published-package-catalog";
 
 const config = loadProcessingServiceConfig();
 const jobs = new JobManager(config);
@@ -19,7 +20,8 @@ const resolver = new PaperResolver({
   timeoutMilliseconds: config.resolverTimeoutMilliseconds
 });
 const ingests = new IngestManager(config, resolver);
-const agentCommands = new AgentCommandHandler(resolver, ingests);
+const packages = new PublishedPackageCatalog(config.dataRoot, config.readerBaseUrl);
+const agentCommands = new AgentCommandHandler(resolver, ingests, packages);
 const requestBuckets = new Map<string, { startedAt: number; count: number }>();
 
 function json(response: ServerResponse, status: number, body: unknown): void {
@@ -193,16 +195,20 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     const job = jobs.get(jobMatch[1]);
     return job ? json(response, 200, job) : json(response, 404, { error: "Job not found" });
   }
-  const packageMatch = /^\/api\/v1\/packages\/([0-9a-f-]+)$/.exec(url.pathname);
+  const packageMatch = /^\/api\/v1\/packages\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/.exec(url.pathname);
   if (request.method === "GET" && packageMatch) {
-    const packageDescriptor = jobs.getPackage(packageMatch[1]) ?? ingests.getPackage(packageMatch[1]);
-    return packageDescriptor ? json(response, 200, packageDescriptor) : json(response, 404, { error: "Package not found" });
+    try {
+      const packageDescriptor = await packages.descriptor(packageMatch[1]);
+      return packageDescriptor ? json(response, 200, packageDescriptor) : json(response, 404, { error: "Package not found" });
+    } catch {
+      return json(response, 404, { error: "Package not found or failed validation" });
+    }
   }
-  const packageFileMatch = /^\/api\/v1\/packages\/([0-9a-f-]+)\/files\/(.+)$/.exec(url.pathname);
+  const packageFileMatch = /^\/api\/v1\/packages\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})\/files\/(.+)$/.exec(url.pathname);
   if (request.method === "GET" && packageFileMatch) {
     try {
       const path = normalizePackagePath(packageFileMatch[2].split("/").map(decodeURIComponent).join("/"));
-      const file = jobs.packageFilePath(packageFileMatch[1], path) ?? ingests.packageFilePath(packageFileMatch[1], path);
+      const file = await packages.packageFilePath(packageFileMatch[1], path);
       if (!file) return json(response, 404, { error: "Package file not found" });
       const info = await stat(file);
       response.writeHead(200, {

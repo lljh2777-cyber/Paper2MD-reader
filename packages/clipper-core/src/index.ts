@@ -254,6 +254,7 @@ export async function buildClippingPackageFiles(input: {
     throw new Error(`Packaged article exceeds the safe limit of ${MAX_CLIPPED_ARTICLE_BYTES} bytes.`);
   }
   const uniqueNetworkImages = new Set(occurrences.flatMap((occurrence) => occurrence.absoluteUrl ? [occurrence.absoluteUrl] : []));
+  const imageHashes = await Promise.all(included.map((image) => sha256Hex(image.bytes)));
   const manifest = {
     schema_version: "paper2md-web-clipping-v1",
     source: { url: input.page.sourceUrl, title: input.page.title },
@@ -265,11 +266,12 @@ export async function buildClippingPackageFiles(input: {
       word_count: input.page.wordCount
     },
     article: { path: "article.md", sha256: await sha256Hex(articleBytes), size_bytes: articleBytes.byteLength },
-    images: included.map((image) => ({
+    images: included.map((image, index) => ({
       path: image.path,
       source_url: image.url,
       mime: image.mime,
-      size_bytes: image.bytes.byteLength
+      size_bytes: image.bytes.byteLength,
+      sha256: imageHashes[index]!
     })),
     omitted_image_count: uniqueNetworkImages.size - included.length,
     processing: { remote: false, ai: false }

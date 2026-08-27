@@ -1,11 +1,16 @@
 import type { AgentCommand } from "../../../packages/agent-contracts/src/index";
 import { PaperResolver } from "./paper-resolver";
 import { IngestManager } from "./ingest-manager";
+import { PublishedPackageCatalog } from "./published-package-catalog";
 
 export class AgentCommandNotImplementedError extends Error {}
 
 export class AgentCommandHandler {
-  constructor(private readonly resolver: PaperResolver, private readonly ingests: IngestManager) {}
+  constructor(
+    private readonly resolver: PaperResolver,
+    private readonly ingests: IngestManager,
+    private readonly packages: PublishedPackageCatalog
+  ) {}
 
   async execute(command: AgentCommand): Promise<unknown> {
     switch (command.command) {
@@ -18,7 +23,17 @@ export class AgentCommandHandler {
           ingest_query_kinds: ["pmid", "pmcid", "doi"],
           automatic_ingest_sources: ["pmc-open-html"],
           agent_transport: "http-command",
-          available_agent_transports: ["http-command", "mcp-stdio-sidecar"]
+          available_agent_transports: ["http-command", "mcp-stdio-sidecar"],
+          available_agent_commands: [
+            "get_service_status",
+            "resolve_paper",
+            "ingest_paper",
+            "get_ingest_job",
+            "list_packages",
+            "read_package_manifest",
+            "read_article_section",
+            "list_figures"
+          ]
         };
       case "resolve_paper":
         return this.resolver.resolve(command.input.query);
@@ -29,6 +44,14 @@ export class AgentCommandHandler {
         if (!job) throw new Error("Ingest job not found");
         return job;
       }
+      case "list_packages":
+        return this.packages.list(command.input.cursor, command.input.limit);
+      case "read_package_manifest":
+        return this.packages.readManifest(command.input.package_id);
+      case "read_article_section":
+        return this.packages.readArticleSection(command.input);
+      case "list_figures":
+        return this.packages.listFigures(command.input.package_id);
       default:
         throw new AgentCommandNotImplementedError(`Command is not implemented yet: ${command.command}`);
     }

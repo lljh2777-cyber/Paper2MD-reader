@@ -147,7 +147,8 @@ describe("Paper2MD browser clipper package projection", () => {
     expect(clipping.manifest).toMatchObject({
       schema_version: "paper2md-web-clipping-v1",
       processing: { remote: false, ai: false },
-      omitted_image_count: 0
+      omitted_image_count: 0,
+      images: [expect.objectContaining({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })]
     });
   });
 
