@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "algorithm_version": "visual-repair-v1.6",
+  "status": "complete",
+  "viewer_index": "viewer-index.json",
+  "inputs": {
+    "article": {
+      "path": "article.md",
+      "sha256": "a60d8aaa4ab85ab6c6c0c2009c7432242f6d9b6b524d680575e9882b40f137c3"
+    },
+    "mineru_result": {
+      "path": "mineru-result.json",
+      "sha256": "bf9760d52830d1df894bb893b65d038660d5c92ce1640f08e05e2d34a0a41e27"
+    }
+  },
+  "render_requirements": {
+    "pdf_crop_requires_original_pdf": true,
+    "fallback": "original_assets"
+  },
+  "summary": {
+    "eligible_visual_count": 1,
+    "group_count": 0,
+    "auto_group_count": 0,
+    "review_group_count": 0,
+    "skipped_group_count": 0,
+    "caption_link_count": 0,
+    "complete_caption_link_count": 0,
+    "partial_caption_link_count": 0
+  },
+  "groups": [],
+  "caption_links": [],
+  "issues": []
+}
