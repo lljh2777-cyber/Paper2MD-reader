@@ -8,7 +8,7 @@ credentials or arbitrary commands to the browser.
 The active standalone paths share one contract-driven reading core:
 
 - A public/browser Reader that opens one local Paper2MD/MinerU output directory without uploading it.
-- A standalone Markdown entry for Web Clipper-style documents, with display-only image/caption pairing.
+- A browser-extension clipping path based on Defuddle, plus standalone Markdown/HTML import.
 - An optional PDF upload path backed by the isolated MinerU processing service.
 
 Both hosts consume explicit Paper2MD contract data. They can also adapt official MinerU
@@ -22,7 +22,7 @@ so the browser can resolve those assets inside the same read-only boundary.
 
 ## Standalone Reader features
 
-- Local Paper2MD/MinerU folder import and standalone Markdown import.
+- Local Paper2MD/MinerU folder import, standalone Markdown/HTML import, and bounded `.paper2md.zip` clipping import.
 - Optional PDF processing through an isolated MinerU precision-extract service.
 - Continuous Markdown rendering in the main column.
 - Contract-backed Figure rail with full rendered captions and thumbnails.
@@ -41,6 +41,7 @@ so the browser can resolve those assets inside the same read-only boundary.
 npm install
 npm run web:build
 npm run processing:build
+npm run clipper:build
 ```
 
 For local PDF processing, start the complete Reader with one command:
@@ -69,6 +70,30 @@ from the selected directory. It does not upload package content or write files b
 When the local processing service is configured, the welcome screen also shows
 **Process PDF**. Only the selected PDF is sent to that configured service. See
 `apps/processing-service/README.md` for the security and deployment boundary.
+
+## Paper webpage clipping
+
+`apps/clipper-extension/` is a separate Chromium Manifest V3 extension. It follows
+the same browser-context extraction model as Obsidian Web Clipper: the extension
+reads the currently rendered paper page, uses Defuddle to extract Markdown and
+metadata, and localizes supported raster images into a `.paper2md.zip` package.
+
+```powershell
+npm run clipper:build
+```
+
+Then open `chrome://extensions` or `edge://extensions`, enable developer mode,
+choose **Load unpacked**, and select `E:\Paper2MD-Reader\apps\clipper-extension\dist`.
+On a paper full-text page, click **Paper2MD Web Clipper** and choose
+**提取并保存阅读包**. In the Web Reader, choose **导入网页剪藏** and open the
+downloaded `.paper2md.zip`.
+
+The extension is user-initiated and uses `activeTab`; it has no always-on content
+script. Image origins are optional permissions requested only for the images in the
+current extraction. Defuddle's asynchronous third-party fallback is disabled. The
+extension does not call AI or the MinerU processing service. If an image cannot be
+downloaded or permission is declined, its embedded image is replaced with a normal
+source link so the Reader never silently makes a remote resource request.
 
 ## MinerU result compatibility
 
@@ -136,6 +161,7 @@ The standalone product uses these active boundaries:
 
 ```text
 apps/web/                 browser-only package picker and Vite entry
+apps/clipper-extension/   current-page Defuddle extraction and local clipping package
 apps/processing-service/  isolated upload, MinerU, validation and publication service
 packages/reader-core/     contracts, loading and host interfaces
 packages/reader-ui/       shared article/Figure/caption workspace
@@ -246,6 +272,7 @@ Unknown contract versions are never guessed. The Reader renders ordinary Markdow
 - `npm run local:dev` — Local Reader at `http://127.0.0.1:4174/local-reader/`.
 - `npm run local:build` — production Local Reader bundle.
 - `npm run web:build` — workspace Web application bundle.
+- `npm run clipper:build` — unpacked Chromium Web Clipper extension bundle.
 - `npm run desktop:build` — frozen legacy migration-reference build; no new features.
 - `npm run preview` — visual preview at `http://127.0.0.1:4173/preview/`.
 

@@ -45,6 +45,24 @@ export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
     return new BrowserDirectoryReaderFileSystem(rootLabel, undefined, index);
   }
 
+  static fromFileMap(rootLabel: string, files: ReadonlyMap<string, File>): BrowserDirectoryReaderFileSystem {
+    if (files.size > PACKAGE_LIMITS.browserInputFiles) {
+      throw new PackageLimitError(
+        `The selection contains ${files.size} files; the safe limit is ${PACKAGE_LIMITS.browserInputFiles}.`,
+        files.size,
+        PACKAGE_LIMITS.browserInputFiles
+      );
+    }
+    const index = new Map<string, File>();
+    for (const [path, file] of files) {
+      const normalized = normalizeReaderPath(path);
+      if (!isSafeRelativePath(normalized)) throw new Error(`Unsafe package path: ${path}`);
+      if (index.has(normalized)) throw new Error(`Duplicate normalized package path: ${normalized}`);
+      index.set(normalized, file);
+    }
+    return new BrowserDirectoryReaderFileSystem(rootLabel || "Web clipping", undefined, index);
+  }
+
   resolvePath(relativePath: string): string {
     const safePath = this.safePath(relativePath);
     return `${this.rootLabel}/${safePath}`;

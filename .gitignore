@@ -17,6 +17,7 @@ sites-reader/.dev-server.*.log
 apps/desktop/dist/
 apps/desktop/out/
 apps/processing-service/dist/
+apps/clipper-extension/dist/
 paper2md-service-data/
 service-qa-data/
 **/__pycache__/

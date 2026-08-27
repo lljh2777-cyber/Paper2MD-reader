@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Paper2MD Web Clipper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="clipper-shell">
+      <header>
+        <strong>Paper2MD Web Clipper</strong>
+        <span>论文网页 → 本地阅读包</span>
+      </header>
+      <p id="page-title" class="page-title">正在读取当前页面…</p>
+      <p class="privacy-note">内容只在浏览器本地整理。图片会在你确认站点权限后下载；不调用 AI，也不发送到 Paper2MD 服务器。</p>
+      <button id="clip-button" type="button" disabled>提取并保存阅读包</button>
+      <div id="status" role="status" aria-live="polite"></div>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

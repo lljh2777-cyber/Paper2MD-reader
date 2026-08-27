@@ -1,6 +1,7 @@
 export * from "../../../src/filesystem/reader-file-system";
 export * from "../../../src/model/clipping-markdown";
 export * from "../../../src/model/clipping-html";
+export * from "../../../src/model/clipping-archive";
 export * from "../../../src/model/contract-validation";
 export * from "../../../src/model/manifest-validation";
 export * from "../../../src/model/mineru-content-list";

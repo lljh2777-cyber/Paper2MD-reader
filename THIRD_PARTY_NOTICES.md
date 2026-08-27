@@ -1,5 +1,22 @@
 # Third-party notices
 
+## Defuddle
+
+Paper2MD Web Clipper uses Defuddle to extract the main content and metadata from
+the current browser page and convert it to Markdown. Defuddle is licensed under
+the MIT License.
+
+- Project: https://github.com/kepano/defuddle
+- License: https://opensource.org/license/mit
+
+## fflate
+
+The Web Clipper and Web Reader use fflate to create and inspect local clipping ZIP
+packages. fflate is licensed under the MIT License.
+
+- Project: https://github.com/101arrowz/fflate
+- License: https://opensource.org/license/mit
+
 ## PDF.js / pdfjs-dist
 
 The Web Reader uses Mozilla PDF.js (`pdfjs-dist`) to render non-destructive crops from

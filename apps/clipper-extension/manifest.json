@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Paper2MD Web Clipper",
+  "version": "0.1.0",
+  "description": "Extract the current paper page into a local, immutable Markdown package for Paper2MD Reader.",
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "scripting"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Paper2MD Web Clipper"
+  },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  }
+}

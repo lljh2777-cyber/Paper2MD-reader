@@ -1,0 +1,76 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Segoe UI", "PingFang SC", sans-serif;
+  background: #171a1f;
+  color: #eef1f5;
+}
+
+body {
+  width: 340px;
+  margin: 0;
+}
+
+.clipper-shell {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+header {
+  display: grid;
+  gap: 3px;
+}
+
+header strong {
+  font-size: 17px;
+}
+
+header span,
+.privacy-note,
+#status {
+  color: #aeb6c2;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.page-title {
+  max-height: 4.4em;
+  margin: 0;
+  overflow: hidden;
+  font-family: Georgia, "Noto Serif SC", serif;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.privacy-note {
+  margin: 0;
+}
+
+button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: #2867b2;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+#status {
+  min-height: 1.55em;
+}
+
+#status[data-state="error"] {
+  color: #ff9b91;
+}
+
+#status[data-state="success"] {
+  color: #8dd3a6;
+}

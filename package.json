@@ -19,6 +19,7 @@
     "web:build": "vite build --config apps/web/vite.config.mjs",
     "web:dev": "vite --config apps/web/vite.config.mjs",
     "reader:dev": "node scripts/reader-dev.mjs",
+    "clipper:build": "npm run build --workspace @paper2md/clipper-extension",
     "processing:build": "npm run build --workspace @paper2md/processing-service",
     "processing:start": "npm run start --workspace @paper2md/processing-service",
     "desktop:build": "node apps/desktop/build.mjs",
@@ -30,12 +31,15 @@
   },
   "dependencies": {
     "dompurify": "^3.2.6",
+    "fflate": "^0.8.2",
     "katex": "^0.18.4",
     "markdown-it": "^14.1.0",
     "pdfjs-dist": "^6.2.108"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
+    "@types/chrome": "^0.1.33",
+    "defuddle": "^0.19.3",
     "@types/node": "^22.10.2",
     "electron": "43.2.0",
     "esbuild": "^0.28.1",
