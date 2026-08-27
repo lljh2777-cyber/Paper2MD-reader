@@ -17,6 +17,11 @@ import {
   type ExtractedPaperPage,
   type FetchImageResponse
 } from "./messages";
+import {
+  buildClippingSubmissionFormData,
+  publishClippingSubmission,
+  requestProcessingServicePermission
+} from "./processing-bridge";
 
 function requiredElement<T extends Element>(selector: string): T {
   const node = document.querySelector<T>(selector);
@@ -26,6 +31,7 @@ function requiredElement<T extends Element>(selector: string): T {
 
 const titleElement = requiredElement<HTMLElement>("#page-title");
 const clipButton = requiredElement<HTMLButtonElement>("#clip-button");
+const exportButton = requiredElement<HTMLButtonElement>("#export-button");
 const statusElement = requiredElement<HTMLElement>("#status");
 
 let activeTab: chrome.tabs.Tab | undefined;
@@ -42,11 +48,12 @@ function fromBase64(value: string): Uint8Array {
   return bytes;
 }
 
-async function extractPage(tabId: number): Promise<ExtractedPaperPage> {
+async function extractPage(tabId: number): Promise<{ page: ExtractedPaperPage; sourceHtml: string }> {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["extractor.js"] });
   const response = await chrome.tabs.sendMessage(tabId, { type: EXTRACT_MESSAGE }) as ExtractPageResponse;
   if (!response?.ok) throw new Error(response?.error || "无法提取当前页面。");
-  return response.page;
+  if (!response.page || typeof response.sourceHtml !== "string") throw new Error("页面提取器返回了无效结果。");
+  return { page: response.page, sourceHtml: response.sourceHtml };
 }
 
 async function requestImageOrigins(urls: readonly string[]): Promise<Set<string>> {
@@ -61,7 +68,18 @@ async function fetchImage(url: string): Promise<FetchImageResponse> {
   return chrome.runtime.sendMessage({ type: FETCH_IMAGE_MESSAGE, url }) as Promise<FetchImageResponse>;
 }
 
-async function buildClipping(page: ExtractedPaperPage): Promise<{ filename: string; bytes: Uint8Array; included: number; omitted: number }> {
+interface PreparedClipping {
+  page: ExtractedPaperPage;
+  sourceHtml: string;
+  localizedImages: Map<string, LocalizedImage>;
+  createdAt: string;
+  filename: string;
+  files: ReadonlyMap<string, Uint8Array>;
+  included: number;
+  omitted: number;
+}
+
+async function buildClipping(page: ExtractedPaperPage, sourceHtml: string): Promise<PreparedClipping> {
   if (strToU8(page.markdown).byteLength > MAX_CLIPPED_ARTICLE_BYTES) {
     throw new Error(`提取正文超过安全上限 ${Math.floor(MAX_CLIPPED_ARTICLE_BYTES / 1024 / 1024)} MiB。`);
   }
@@ -99,16 +117,36 @@ async function buildClipping(page: ExtractedPaperPage): Promise<{ filename: stri
     createdAt: created,
     extraction: { engine: "defuddle", engineVersion: "0.19.3", useAsyncFallback: false }
   });
-  const archiveBytes = zipSync(Object.fromEntries(clipping.files), { level: 6 });
-  if (archiveBytes.byteLength > MAX_CLIPPING_ARCHIVE_BYTES) {
-    throw new Error(`生成的阅读包超过安全上限 ${Math.floor(MAX_CLIPPING_ARCHIVE_BYTES / 1024 / 1024)} MiB。`);
-  }
   return {
+    page,
+    sourceHtml,
+    localizedImages: localized,
+    createdAt: created,
     filename: safeArchiveName(page.title),
-    bytes: archiveBytes,
+    files: clipping.files,
     included: clipping.includedImageCount,
     omitted: clipping.omittedImageCount
   };
+}
+
+function createArchive(clipping: PreparedClipping): Uint8Array {
+  const bytes = zipSync(Object.fromEntries(clipping.files), { level: 6 });
+  if (bytes.byteLength > MAX_CLIPPING_ARCHIVE_BYTES) {
+    throw new Error(`生成的阅读包超过安全上限 ${Math.floor(MAX_CLIPPING_ARCHIVE_BYTES / 1024 / 1024)} MiB。`);
+  }
+  return bytes;
+}
+
+async function prepareClipping(tabId: number): Promise<PreparedClipping> {
+  setStatus("正在提取论文正文…");
+  const extracted = await extractPage(tabId);
+  titleElement.textContent = extracted.page.title;
+  return buildClipping(extracted.page, extracted.sourceHtml);
+}
+
+function setActionsDisabled(disabled: boolean): void {
+  clipButton.disabled = disabled;
+  exportButton.disabled = disabled;
 }
 
 async function downloadArchive(filename: string, bytes: Uint8Array): Promise<void> {
@@ -132,28 +170,60 @@ async function initialize(): Promise<void> {
     return;
   }
   titleElement.textContent = activeTab.title || url;
-  clipButton.disabled = false;
+  setActionsDisabled(false);
   setStatus("准备就绪");
 }
 
 clipButton.addEventListener("click", () => {
   void (async () => {
     if (!activeTab?.id) return;
-    clipButton.disabled = true;
+    setActionsDisabled(true);
     try {
-      setStatus("正在提取论文正文…");
-      const page = await extractPage(activeTab.id);
-      titleElement.textContent = page.title;
-      const archive = await buildClipping(page);
-      setStatus("正在保存阅读包…");
-      await downloadArchive(archive.filename, archive.bytes);
-      setStatus(`已生成阅读包：${archive.included} 张图片已本地化${archive.omitted ? `，${archive.omitted} 张未包含` : ""}。`, "success");
+      setStatus("正在请求本地服务权限…");
+      if (!await requestProcessingServicePermission()) throw new Error("你没有授权访问本地 Paper2MD processing service。");
+      const clipping = await prepareClipping(activeTab.id);
+      setStatus("正在暂存并校验阅读包…");
+      const form = buildClippingSubmissionFormData({
+        page: clipping.page,
+        sourceHtml: clipping.sourceHtml,
+        localizedImages: clipping.localizedImages,
+        createdAt: clipping.createdAt,
+        extraction: { engine: "defuddle", engineVersion: "0.19.3", useAsyncFallback: false }
+      });
+      const published = await publishClippingSubmission(form);
+      setStatus(`阅读包已发布：${clipping.included} 张图片已本地化${clipping.omitted ? `，${clipping.omitted} 张未包含` : ""}。`, "success");
+      await chrome.tabs.create({ url: published.readerUrl });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error), "error");
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(message === "Failed to fetch"
+        ? "无法连接本地 processing service。请先在 Paper2MD-Reader 运行 npm run reader:dev。"
+        : message, "error");
     } finally {
-      clipButton.disabled = false;
+      setActionsDisabled(false);
     }
   })();
 });
 
-void initialize();
+exportButton.addEventListener("click", () => {
+  void (async () => {
+    if (!activeTab?.id) return;
+    setActionsDisabled(true);
+    try {
+      const archive = await prepareClipping(activeTab.id);
+      setStatus("正在导出 ZIP 备份…");
+      await downloadArchive(archive.filename, createArchive(archive));
+      setStatus(`ZIP 备份已生成：${archive.included} 张图片已本地化${archive.omitted ? `，${archive.omitted} 张未包含` : ""}。`, "success");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), "error");
+    } finally {
+      setActionsDisabled(false);
+    }
+  })();
+});
+
+if (typeof chrome === "undefined" || !chrome.tabs?.query || !chrome.scripting?.executeScript) {
+  titleElement.textContent = "请从浏览器扩展菜单打开 Paper2MD Web Clipper。";
+  setStatus("当前页面不是扩展运行环境。", "error");
+} else {
+  void initialize();
+}

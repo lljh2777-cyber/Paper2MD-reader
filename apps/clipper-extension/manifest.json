@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6TEmJzbe2xGd3RdExfRWZmYxAdt/YfQo2V3UaYTrl2h1TaNdBbmfSl4bktBqQih9RIF/4Or/KGvv2hn4+wPOctZ3omSYn1EnH1begDyM97ahEeviQV8GEEHv6E84UjZ8sgv3qs9GdDcGkIjlDuc+O+0EkRpnpbSEr2DC/AKizqSgHxjwxm9a+w0HlW240q1lQmJeESx4ybLVFgwfhhvd8s2T27EakkHPR7V4GOlmCKrNC5/rchmBhGL7OWPJcygR13882iBgHjjKD6/rVrZDzXC5zjCBa+ETrVLhbb/zIGFe33YYC0uzZED5H3UbrW1y1NUvy4wnKI/ho+ne89KwDwIDAQAB",
   "name": "Paper2MD Web Clipper",
   "version": "0.1.0",
   "description": "Extract the current paper page into a local, immutable Markdown package for Paper2MD Reader.",

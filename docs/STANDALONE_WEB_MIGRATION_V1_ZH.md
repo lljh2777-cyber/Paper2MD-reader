@@ -44,9 +44,11 @@
 后续分成两种适配器：
 
 - 公共页面：服务端抓取，但必须防 SSRF、限制重定向/响应大小/内容类型，并下载允许的图片为包内资源。
-- 登录态或客户端渲染页面：由轻量浏览器扩展在当前页面运行 Defuddle/Web Clipper 提取，将净化后的 Markdown 和资源发送给 Reader。
+- 登录态或客户端渲染页面：由轻量浏览器扩展在当前页面运行 Defuddle/Web Clipper 提取，将版本化元数据、Markdown、源 HTML 快照和本地化图片提交到 processing service；服务端重新构包、暂存校验、原子发布并返回 Reader 深链。
 
 网页导入产物与 MinerU 包使用同一个 Reader 模型，但保留来源类型和诊断信息；显示层 Figure 编号不写回原始 Markdown。
+
+扩展桥接已移除正常流程中的 ZIP 中转。发布动作必须由用户点击触发，并按需请求固定回环服务与图片域名权限；服务端 `/api/v1/clippings` 只接受默认稳定扩展 ID（或显式配置 ID）的精确 `chrome-extension://` Origin。普通网页、未知扩展及无 Origin 请求均 fail closed。ZIP 只保留为显式导出/备份。
 
 ## WebMCP 渐进增强边界
 

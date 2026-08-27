@@ -37,6 +37,23 @@ npm run processing:start
 
 默认仅监听 `127.0.0.1:8787`，允许 `http://127.0.0.1:4174` 和 `http://localhost:4174` 访问。随后运行 `npm run web:dev`。
 
+## Clipper 直连发布
+
+浏览器扩展在用户点击 **提取、校验并在 Reader 打开** 后，通过
+`POST /api/v1/clippings` 提交受限 multipart：一个版本化元数据对象、提取后的 Markdown、
+同一隔离 DOM 的源 HTML 快照，以及逐张本地化图片。服务端不接受扩展生成的 manifest，
+而是重新调用共享 `clipper-core`，然后复用暂存校验与原子发布器。成功响应只返回不透明
+`package_id`、已验证包描述和 `/reader/{package_id}`，扩展随即打开 Reader。
+
+该端点必须带精确 `chrome-extension://` Origin；缺失 Origin、普通网页 Origin 和未知扩展
+Origin 都会被拒绝。仓库 manifest 使用稳定本地扩展 ID，默认白名单与其一致；发布版可用
+`PAPER2MD_ALLOWED_CLIPPER_IDS` 配置逗号分隔的精确扩展 ID。请求体上限由
+`PAPER2MD_MAX_CLIPPING_BYTES` 控制，默认 84 MiB。扩展只在点击发布后请求固定
+`http://127.0.0.1/*` 权限，不会默认取得所有本地网络权限。
+
+扩展不会存储或发送 `PAPER2MD_SERVICE_TOKEN`。若本地服务显式启用了该 token，当前
+直连发布会按统一认证边界返回 `401`；在加入一次性配对/OAuth 桥之前，可使用 ZIP 备份导入。
+
 ## 本地 MCP stdio sidecar
 
 构建 processing service 后，Codex、Claude 等本地 MCP host 可以直接启动
@@ -72,7 +89,7 @@ sidecar 默认只连接 `http://127.0.0.1:8787/`。可用
 - Cloudflare Worker / Codex Sites 只适合托管 Reader 前端，不能直接执行本地 MinerU CLI。处理服务应部署在独立的受控 Node 主机或容器中。
 - 当前任务数据不会自动删除，便于失败审计。投入多人使用前需增加明确的保留期和逐任务删除策略。
 
-常用变量：`PAPER2MD_DATA_ROOT`、`PAPER2MD_SERVICE_HOST`、`PAPER2MD_SERVICE_PORT`、`PAPER2MD_ALLOWED_ORIGINS`、`PAPER2MD_MAX_PDF_BYTES`、`PAPER2MD_MAX_ACTIVE_JOBS`、`PAPER2MD_MINERU_TIMEOUT`、`PAPER2MD_PYTHON_PATH`、`PAPER2MD_READER_BASE_URL`、`MINERU_CLI_PATH`、`MINERU_BASE_URL`。
+常用变量：`PAPER2MD_DATA_ROOT`、`PAPER2MD_SERVICE_HOST`、`PAPER2MD_SERVICE_PORT`、`PAPER2MD_ALLOWED_ORIGINS`、`PAPER2MD_ALLOWED_CLIPPER_IDS`、`PAPER2MD_MAX_PDF_BYTES`、`PAPER2MD_MAX_CLIPPING_BYTES`、`PAPER2MD_MAX_ACTIVE_JOBS`、`PAPER2MD_MINERU_TIMEOUT`、`PAPER2MD_PYTHON_PATH`、`PAPER2MD_READER_BASE_URL`、`MINERU_CLI_PATH`、`MINERU_BASE_URL`。
 
 ## 论文身份解析命令
 

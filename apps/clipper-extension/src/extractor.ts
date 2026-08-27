@@ -1,4 +1,5 @@
 import Defuddle from "defuddle/full";
+import { MAX_CLIPPED_SOURCE_BYTES } from "../../../packages/clipper-core/src/index";
 import { EXTRACT_MESSAGE, type ExtractPageResponse } from "./messages";
 import { clonePaperDocumentForExtraction } from "./paper-dom-normalization";
 
@@ -18,6 +19,10 @@ if (!window.__paper2mdExtractorInstalled) {
     if (!message || typeof message !== "object" || (message as { type?: unknown }).type !== EXTRACT_MESSAGE) return;
     try {
       const extractionDocument = clonePaperDocumentForExtraction(document);
+      const sourceHtml = extractionDocument.documentElement.outerHTML;
+      if (new TextEncoder().encode(sourceHtml).byteLength > MAX_CLIPPED_SOURCE_BYTES) {
+        throw new Error(`当前页面源 HTML 超过安全上限 ${Math.floor(MAX_CLIPPED_SOURCE_BYTES / 1024 / 1024)} MiB。`);
+      }
       const result = new Defuddle(extractionDocument, {
         markdown: true,
         useAsync: false,
@@ -28,6 +33,7 @@ if (!window.__paper2mdExtractorInstalled) {
       if (markdown.length < 200) throw new Error("当前页面没有提取到足够的论文正文。");
       const response: ExtractPageResponse = {
         ok: true,
+        sourceHtml,
         page: {
           title: readable(result.title) || readable(document.title) || "Untitled paper",
           author: readable(result.author),

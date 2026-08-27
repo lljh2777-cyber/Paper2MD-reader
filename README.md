@@ -76,7 +76,7 @@ When the local processing service is configured, the welcome screen also shows
 `apps/clipper-extension/` is a separate Chromium Manifest V3 extension. It follows
 the same browser-context extraction model as Obsidian Web Clipper: the extension
 reads the currently rendered paper page, uses Defuddle to extract Markdown and
-metadata, and localizes supported raster images into a `.paper2md.zip` package.
+metadata, and localizes supported raster images with deterministic shared rules.
 
 ```powershell
 npm run clipper:build
@@ -85,15 +85,20 @@ npm run clipper:build
 Then open `chrome://extensions` or `edge://extensions`, enable developer mode,
 choose **Load unpacked**, and select `E:\Paper2MD-Reader\apps\clipper-extension\dist`.
 On a paper full-text page, click **Paper2MD Web Clipper** and choose
-**提取并保存阅读包**. In the Web Reader, choose **导入网页剪藏** and open the
-downloaded `.paper2md.zip`.
+**提取、校验并在 Reader 打开**. The extension submits typed multipart fields to the
+loopback processing service; the service rebuilds and validates the package, atomically
+publishes it, and the extension opens the returned Reader deep link. **导出 ZIP 备份**
+remains available, but ZIP is no longer the normal handoff.
 
 The extension is user-initiated and uses `activeTab`; it has no always-on content
-script. Image origins are optional permissions requested only for the images in the
-current extraction. Defuddle's asynchronous third-party fallback is disabled. The
-extension does not call AI or the MinerU processing service. If an image cannot be
-downloaded or permission is declined, its embedded image is replaced with a normal
-source link so the Reader never silently makes a remote resource request.
+script. Image origins and the fixed loopback service origin are optional permissions
+requested only during the corresponding action. Defuddle's asynchronous third-party
+fallback is disabled and the extension never calls AI. If an image cannot be downloaded
+or permission is declined, its embedded image is replaced with a normal source link so
+the Reader never silently makes a remote resource request. Direct publication is limited
+to the stable extension Origin; the service rejects missing, ordinary-web and unknown-
+extension Origins, rebuilds the manifest itself, and accepts no arbitrary path, fetch
+target, command or evaluation input.
 
 ## MinerU result compatibility
 
@@ -161,7 +166,7 @@ The standalone product uses these active boundaries:
 
 ```text
 apps/web/                 browser-only package picker and Vite entry
-apps/clipper-extension/   browser tab, session, permission and download adapter
+apps/clipper-extension/   browser tab, session, permission, publication and ZIP-export adapter
 apps/processing-service/  isolated processing service plus optional local MCP stdio sidecar
 packages/agent-contracts/ shared MCP/WebMCP command, ingest-state and error contracts
 packages/clipper-core/    deterministic Markdown/image/clipping package projection
@@ -192,8 +197,8 @@ allowlisted PMC HTML without redirects or browser credentials, uses the same det
 validates an isolated staging package, and atomically publishes it. Ready jobs return an
 opaque `package_id` plus `/reader/{package_id}`; the Web Reader opens that package directly
 through the service package API, so ZIP remains an export/backup format instead of an
-internal handoff. Publisher-session pages, arbitrary URLs, legal-PDF download/MinerU
-fallback, title matching and extension bridging remain later stages.
+internal handoff. Publisher-session pages can now use the extension-to-service bridge.
+Arbitrary URL ingest, legal-PDF discovery/MinerU fallback and title matching remain later stages.
 
 An optional local MCP stdio sidecar exposes the four processing commands
 (`get_service_status`, `resolve_paper`, `ingest_paper`, and `get_ingest_job`) plus four

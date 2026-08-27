@@ -6,12 +6,13 @@ import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
 import { parseAgentCommand } from "../../../packages/agent-contracts/src/index";
 import { AgentCommandHandler, AgentCommandNotImplementedError } from "./agent-command-handler";
-import { loadProcessingServiceConfig, parseMineruOptions } from "./config";
+import { isProcessingRequestOriginAllowed, loadProcessingServiceConfig, parseMineruOptions } from "./config";
 import { JobManager } from "./job-manager";
 import { IngestManager } from "./ingest-manager";
 import { normalizePackagePath } from "./package-publisher";
 import { PaperResolver } from "./paper-resolver";
 import { PublishedPackageCatalog } from "./published-package-catalog";
+import { publishClippingSubmission } from "./clipping-submission";
 
 const config = loadProcessingServiceConfig();
 const jobs = new JobManager(config);
@@ -37,17 +38,37 @@ function json(response: ServerResponse, status: number, body: unknown): void {
   response.end(text);
 }
 
-function applyCors(request: IncomingMessage, response: ServerResponse): boolean {
+function applyCors(request: IncomingMessage, response: ServerResponse, pathname: string): boolean {
   const origin = request.headers.origin;
-  if (!origin) return true;
-  if (!config.allowedOrigins.has(origin)) {
+  const clippingSubmission = pathname === "/api/v1/clippings";
+  if (!isProcessingRequestOriginAllowed(config, pathname, origin)) {
     json(response, 403, { error: "Origin is not allowed" });
     return false;
   }
+  if (!origin) return true;
   response.setHeader("Access-Control-Allow-Origin", origin);
-  response.setHeader("Access-Control-Allow-Credentials", "true");
+  if (!clippingSubmission) response.setHeader("Access-Control-Allow-Credentials", "true");
   response.setHeader("Vary", "Origin");
   return true;
+}
+
+async function receiveMultipart(request: IncomingMessage): Promise<FormData> {
+  const contentType = request.headers["content-type"]?.trim() ?? "";
+  if (!/^multipart\/form-data;\s*boundary=/i.test(contentType)) throw new Error("Content-Type must be multipart/form-data with a boundary");
+  const declared = Number(request.headers["content-length"] ?? 0);
+  if (!Number.isSafeInteger(declared) || declared < 1 || declared > config.maximumClippingBytes) {
+    throw new Error(`Clipping body must be between 1 byte and ${config.maximumClippingBytes} bytes`);
+  }
+  const chunks: Buffer[] = [];
+  let received = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    received += bytes.byteLength;
+    if (received > config.maximumClippingBytes) throw new Error("Clipping body exceeds the configured limit");
+    chunks.push(bytes);
+  }
+  if (received !== declared) throw new Error("Clipping body length did not match Content-Length");
+  return new Response(Buffer.concat(chunks), { headers: { "Content-Type": contentType } }).formData();
 }
 
 function allowedHost(request: IncomingMessage): boolean {
@@ -138,7 +159,8 @@ function contentType(path: string): string {
 
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (!allowedHost(request)) return json(response, 421, { error: "Host is not allowed" });
-  if (!applyCors(request, response)) return;
+  const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  if (!applyCors(request, response, url.pathname)) return;
   if (request.method === "OPTIONS") {
     response.writeHead(204, {
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -149,7 +171,6 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return;
   }
   if (!authorized(request)) return json(response, 401, { error: "Unauthorized" });
-  const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
   if (request.method === "GET" && url.pathname === "/api/v1/health") {
     return json(response, 200, await agentCommands.execute({ command: "get_service_status", input: {} }));
@@ -188,6 +209,21 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
       }
       const message = error instanceof Error ? error.message : "PDF upload failed";
       return json(response, message.includes("queue") ? 429 : 400, { error: message });
+    }
+  }
+  if (request.method === "POST" && url.pathname === "/api/v1/clippings") {
+    if (!withinRateLimit(request)) return json(response, 429, { error: { code: "RATE_LIMITED", message: "Too many Clipper submissions" } });
+    try {
+      const result = await publishClippingSubmission(await receiveMultipart(request), config);
+      return json(response, 201, result);
+    } catch (error) {
+      return json(response, 400, {
+        error: {
+          code: "PACKAGE_VALIDATION_FAILED",
+          message: error instanceof Error ? error.message.slice(0, 1_024) : "Clipping submission failed validation",
+          next_steps: ["Keep the current page open and retry", "Export a ZIP backup if the local service remains unavailable"]
+        }
+      });
     }
   }
   const jobMatch = /^\/api\/v1\/jobs\/([0-9a-f-]+)$/.exec(url.pathname);

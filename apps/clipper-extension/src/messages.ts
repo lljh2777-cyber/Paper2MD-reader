@@ -5,7 +5,7 @@ export const EXTRACT_MESSAGE = "paper2md:extract-current-page";
 export const FETCH_IMAGE_MESSAGE = "paper2md:fetch-image";
 
 export type ExtractPageResponse =
-  | { ok: true; page: ExtractedPaperPage }
+  | { ok: true; page: ExtractedPaperPage; sourceHtml: string }
   | { ok: false; error: string };
 
 export type FetchImageResponse =

@@ -13,8 +13,9 @@
         <span>论文网页 → 本地阅读包</span>
       </header>
       <p id="page-title" class="page-title">正在读取当前页面…</p>
-      <p class="privacy-note">内容只在浏览器本地整理。图片会在你确认站点权限后下载；不调用 AI，也不发送到 Paper2MD 服务器。</p>
-      <button id="clip-button" type="button" disabled>提取并保存阅读包</button>
+      <p class="privacy-note">内容在浏览器内确定性整理；发布时只提交到你本机的 Paper2MD processing service。图片会按域名请求权限，不调用 AI。</p>
+      <button id="clip-button" type="button" disabled>提取、校验并在 Reader 打开</button>
+      <button id="export-button" class="secondary" type="button" disabled>导出 ZIP 备份</button>
       <div id="status" role="status" aria-live="polite"></div>
     </main>
     <script type="module" src="popup.js"></script>

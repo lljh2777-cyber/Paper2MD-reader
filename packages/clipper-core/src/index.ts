@@ -2,6 +2,7 @@ export const MAX_CLIPPED_IMAGES = 256;
 export const MAX_CLIPPED_IMAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_CLIPPED_TOTAL_IMAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_CLIPPED_ARTICLE_BYTES = 32 * 1024 * 1024;
+export const MAX_CLIPPED_SOURCE_BYTES = 16 * 1024 * 1024;
 export const MAX_CLIPPING_ARCHIVE_BYTES = 64 * 1024 * 1024;
 
 export interface ExtractedPaperPage {
@@ -35,6 +36,23 @@ export interface ClippingExtractionMetadata {
   engine: string;
   engineVersion: string;
   useAsyncFallback: boolean;
+}
+
+export const CLIPPING_SUBMISSION_SCHEMA_VERSION = "paper2md-clipping-submission-v1";
+
+export interface ClippingSubmissionImage {
+  field: string;
+  path: string;
+  sourceUrl: string;
+  mime: string;
+}
+
+export interface ClippingSubmissionMetadata {
+  schemaVersion: typeof CLIPPING_SUBMISSION_SCHEMA_VERSION;
+  createdAt: string;
+  page: Omit<ExtractedPaperPage, "markdown">;
+  extraction: ClippingExtractionMetadata;
+  images: ClippingSubmissionImage[];
 }
 
 export interface ClippingPackageFiles {

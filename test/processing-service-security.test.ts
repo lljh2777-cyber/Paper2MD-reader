@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { loadProcessingServiceConfig, parseMineruOptions } from "../apps/processing-service/src/config";
+import {
+  isProcessingRequestOriginAllowed,
+  loadProcessingServiceConfig,
+  parseMineruOptions
+} from "../apps/processing-service/src/config";
 import { safePdfFilename } from "../apps/processing-service/src/job-manager";
 import { mineruExtractArgs, mineruSpawnSpec, runMineru } from "../apps/processing-service/src/mineru-runner";
 import { flattenMineruElements, normalizePackagePath } from "../apps/processing-service/src/package-publisher";
@@ -24,6 +28,17 @@ describe("standalone processing service security", () => {
     expect(() => loadProcessingServiceConfig({ PAPER2MD_ALLOWED_HOSTS: "reader.internal/path" })).toThrow("allowed host");
     expect(() => loadProcessingServiceConfig({ PAPER2MD_CONTACT_EMAIL: "not-an-email" })).toThrow("CONTACT_EMAIL");
     expect(() => loadProcessingServiceConfig({ PAPER2MD_READER_BASE_URL: "http://reader.example.org" })).toThrow("HTTPS");
+  });
+
+  it("limits direct clipping submission to the exact stable extension origin", () => {
+    const config = loadProcessingServiceConfig();
+    const clipperOrigin = "chrome-extension://fkngpgapepiflkncpicajbmgafebgbip";
+    expect(config.allowedClipperOrigins).toEqual(new Set([clipperOrigin]));
+    expect(isProcessingRequestOriginAllowed(config, "/api/v1/clippings", clipperOrigin)).toBe(true);
+    expect(isProcessingRequestOriginAllowed(config, "/api/v1/clippings", undefined)).toBe(false);
+    expect(isProcessingRequestOriginAllowed(config, "/api/v1/clippings", "http://127.0.0.1:4174")).toBe(false);
+    expect(isProcessingRequestOriginAllowed(config, "/api/v1/health", "http://127.0.0.1:4174")).toBe(true);
+    expect(() => loadProcessingServiceConfig({ PAPER2MD_ALLOWED_CLIPPER_IDS: "not-an-extension" })).toThrow("extension ID");
   });
 
   it("accepts only declared MinerU model and language options", () => {

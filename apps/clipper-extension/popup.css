@@ -63,6 +63,12 @@ button:disabled {
   opacity: 0.55;
 }
 
+button.secondary {
+  border: 1px solid #46505d;
+  background: transparent;
+  color: #dce2ea;
+}
+
 #status {
   min-height: 1.55em;
 }

@@ -14,14 +14,18 @@ export interface ProcessingServiceConfig {
   mineruBaseUrl?: string;
   serviceToken?: string;
   allowedOrigins: Set<string>;
+  allowedClipperOrigins: Set<string>;
   allowedHosts: Set<string>;
   contactEmail?: string;
   resolverTimeoutMilliseconds: number;
   readerBaseUrl: string;
   maximumPdfBytes: number;
+  maximumClippingBytes: number;
   maximumActiveJobs: number;
   timeoutSeconds: number;
 }
+
+const LOCAL_CLIPPER_EXTENSION_ID = "fkngpgapepiflkncpicajbmgafebgbip";
 
 function integer(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
   const parsed = value ? Number(value) : fallback;
@@ -37,6 +41,12 @@ function validOrigin(value: string): string {
     throw new Error(`Invalid allowed origin: ${value}`);
   }
   return url.origin;
+}
+
+function validClipperId(value: string): string {
+  const id = value.trim().toLowerCase();
+  if (!/^[a-p]{32}$/.test(id)) throw new Error(`Invalid Clipper extension ID: ${value}`);
+  return id;
 }
 
 function validHost(value: string): string {
@@ -90,6 +100,12 @@ export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env
     "http://127.0.0.1:4174",
     "http://localhost:4174"
   ]);
+  const configuredClipperIds = (env.PAPER2MD_ALLOWED_CLIPPER_IDS ?? LOCAL_CLIPPER_EXTENSION_ID)
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map(validClipperId);
+  const allowedClipperOrigins = new Set(configuredClipperIds.map((id) => `chrome-extension://${id}`));
   const explicitHosts = (env.PAPER2MD_ALLOWED_HOSTS ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -112,14 +128,25 @@ export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env
     mineruBaseUrl,
     serviceToken,
     allowedOrigins,
+    allowedClipperOrigins,
     allowedHosts: new Set(explicitHosts.length ? explicitHosts : defaultHosts.map(validHost)),
     contactEmail: validEmail(env.PAPER2MD_CONTACT_EMAIL),
     resolverTimeoutMilliseconds: integer(env.PAPER2MD_RESOLVER_TIMEOUT_MS, 12_000, 1_000, 60_000),
     readerBaseUrl: validReaderBaseUrl(env.PAPER2MD_READER_BASE_URL?.trim() || "http://127.0.0.1:4174/"),
     maximumPdfBytes: integer(env.PAPER2MD_MAX_PDF_BYTES, 64 * 1024 * 1024, 1024, 256 * 1024 * 1024),
+    maximumClippingBytes: integer(env.PAPER2MD_MAX_CLIPPING_BYTES, 84 * 1024 * 1024, 1024, 192 * 1024 * 1024),
     maximumActiveJobs: integer(env.PAPER2MD_MAX_ACTIVE_JOBS, 2, 1, 8),
     timeoutSeconds: integer(env.PAPER2MD_MINERU_TIMEOUT, 900, 60, 1800)
   };
+}
+
+export function isProcessingRequestOriginAllowed(
+  config: Pick<ProcessingServiceConfig, "allowedOrigins" | "allowedClipperOrigins">,
+  pathname: string,
+  origin: string | undefined
+): boolean {
+  if (pathname === "/api/v1/clippings") return Boolean(origin && config.allowedClipperOrigins.has(origin));
+  return !origin || config.allowedOrigins.has(origin);
 }
 
 export function parseMineruOptions(headers: Record<string, string | string[] | undefined>, timeoutSeconds: number) {

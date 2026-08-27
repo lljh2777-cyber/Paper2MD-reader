@@ -22,6 +22,8 @@ export class AgentCommandHandler {
           resolver_query_kinds: ["pmid", "pmcid", "doi"],
           ingest_query_kinds: ["pmid", "pmcid", "doi"],
           automatic_ingest_sources: ["pmc-open-html"],
+          clipper_submission: "multipart-v1",
+          clipper_publication: "staged-validated-atomic",
           agent_transport: "http-command",
           available_agent_transports: ["http-command", "mcp-stdio-sidecar"],
           available_agent_commands: [
