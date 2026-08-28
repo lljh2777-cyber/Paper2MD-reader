@@ -509,12 +509,23 @@
 .p2md-pdf-toolbar {
   align-items: center;
   border-bottom: 1px solid var(--p2md-border);
+  box-sizing: border-box;
   display: flex;
   flex: 0 0 45px;
   gap: 6px;
   min-width: 0;
   padding: 7px 12px;
 }
+
+.p2md-pdf-toolbar-group {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.p2md-pdf-toolbar-view { gap: 4px; }
 
 .p2md-pdf-icon-button,
 .p2md-pdf-fit-button {
@@ -532,7 +543,7 @@
 
 .p2md-pdf-icon-button { padding: 0; width: 28px; }
 .p2md-pdf-icon-button svg { height: 15px; width: 15px; }
-.p2md-pdf-fit-button { font-size: 10.5px; padding: 3px 7px; }
+.p2md-pdf-fit-button { font-size: 10.5px; padding: 3px 7px; white-space: nowrap; }
 .p2md-pdf-fit-button.is-active { background: var(--background-modifier-hover); color: var(--text-normal); }
 .p2md-pdf-icon-button:hover:not(:disabled),
 .p2md-pdf-icon-button:focus-visible,
@@ -582,7 +593,31 @@
 .p2md-pdf-follow-label { max-width: 104px; overflow: hidden; text-overflow: ellipsis; }
 
 @container (max-width: 520px) {
+  .p2md-pdf-toolbar {
+    align-items: center;
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-areas:
+      "page follow"
+      "zoom view";
+    grid-template-columns: minmax(0, 1fr) auto;
+    justify-content: stretch;
+    padding: 6px 8px;
+    row-gap: 5px;
+  }
+  .p2md-pdf-toolbar-page { grid-area: page; }
+  .p2md-pdf-toolbar-zoom { grid-area: zoom; }
+  .p2md-pdf-toolbar-view { grid-area: view; justify-self: end; }
+  .p2md-pdf-toolbar-divider { display: none; }
+  .p2md-pdf-follow-control { grid-area: follow; margin-left: 0; }
   .p2md-pdf-follow-label { display: none; }
+}
+
+@container (max-width: 340px) {
+  .p2md-pdf-toolbar,
+  .p2md-pdf-toolbar-group { column-gap: 4px; }
+  .p2md-pdf-fit-button { font-size: 9.5px; padding-inline: 5px; }
+  .p2md-pdf-zoom-value { min-width: 28px; }
 }
 
 .p2md-pdf-scroll {
@@ -623,6 +658,7 @@
 .p2md-pdf-page.is-error .p2md-pdf-page-placeholder,
 .p2md-pdf-empty.is-error { color: var(--text-error); }
 .p2md-pdf-page canvas { display: block; }
+.p2md-pdf-page canvas[hidden] { display: none; }
 .p2md-pdf-image-layer,
 .p2md-pdf-overlay { inset: 0; pointer-events: none; position: absolute; }
 .p2md-pdf-image-layer { z-index: 1; }

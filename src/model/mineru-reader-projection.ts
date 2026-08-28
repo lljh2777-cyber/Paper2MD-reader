@@ -156,13 +156,32 @@ export function projectMinerUReaderMarkdown(input: {
   let skipped = 0;
 
   for (const visual of input.visuals) {
-    const ids = [...new Set(visual.memberMarkdownImageIds ?? [])];
+    // Proven footer/license badges are omitted only from visual navigation.
+    // Their original Markdown occurrence remains visible and byte-identical.
+    if (visual.hidden) continue;
+    const ids = visual.memberMarkdownImageIds ?? [];
+    const memberPaths = visual.memberAssetPaths ?? [];
     const images = ids.map((id) => byId.get(id));
-    if (!visual.placementBlockId || !ids.length || images.some((image) => !image)) {
+    if (
+      !visual.placementBlockId
+      || !ids.length
+      || ids.length !== new Set(ids).size
+      || memberPaths.length !== new Set(memberPaths).size
+      || ids.length !== memberPaths.length
+      || images.some((image) => !image)
+    ) {
       skipped += 1;
       continue;
     }
     const exactImages = images.filter((image): image is MarkdownImageRange => Boolean(image)).sort((a, b) => a.start - b.start);
+    if (
+      exactImages.some((image, index) => index > 0 && image.start < exactImages[index - 1].end)
+      || exactImages.some((image) => !memberPaths.includes(image.assetPath))
+      || memberPaths.some((path) => !exactImages.some((image) => image.assetPath === path))
+    ) {
+      skipped += 1;
+      continue;
+    }
     const anchor = exactImages[0];
     const assetId = visual.id.startsWith("ast_") ? visual.id : `ast_${visual.placementBlockId.slice(5)}`;
     const marker = `<!-- p2md:slot id="${visual.placementBlockId}" asset="${assetId}" -->\n`;

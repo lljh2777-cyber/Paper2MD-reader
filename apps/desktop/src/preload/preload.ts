@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   ConversionTask,
   DESKTOP_CHANNELS,
+  DESKTOP_VISUAL_REVIEW_SIDECAR_LIMIT_BYTES,
   Paper2MDDesktopApi,
   StartConversionRequest,
   StartRemoteMineruRequest,
@@ -9,12 +10,25 @@ import {
 } from "../shared/desktop-api";
 
 const api: Paper2MDDesktopApi = {
+  getAppVersion: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getAppVersion),
   getSelfCheck: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSelfCheck),
   getLibrarySnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getLibrarySnapshot),
   chooseLibrary: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseLibrary),
   openLibraryDocument: (packageId) => ipcRenderer.invoke(DESKTOP_CHANNELS.openLibraryDocument, packageId),
   setLibraryFavorite: (packageId, favorite) => ipcRenderer.invoke(DESKTOP_CHANNELS.setLibraryFavorite, packageId, favorite),
   revealLibrary: () => ipcRenderer.invoke(DESKTOP_CHANNELS.revealLibrary),
+  readVisualReviewSidecar: (candidatePackageSha256) => ipcRenderer.invoke(
+    DESKTOP_CHANNELS.readVisualReviewSidecar,
+    candidatePackageSha256
+  ),
+  writeVisualReviewSidecar: (candidatePackageSha256, sidecar) => {
+    const serialized = JSON.stringify(sidecar);
+    if (
+      typeof serialized !== "string" ||
+      new TextEncoder().encode(serialized).byteLength > DESKTOP_VISUAL_REVIEW_SIDECAR_LIMIT_BYTES
+    ) throw new Error("Visual review sidecar exceeds the desktop IPC limit");
+    return ipcRenderer.invoke(DESKTOP_CHANNELS.writeVisualReviewSidecar, candidatePackageSha256, serialized);
+  },
   getMineruCredentialStatus: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getMineruCredentialStatus),
   saveMineruCredential: (token) => ipcRenderer.invoke(DESKTOP_CHANNELS.saveMineruCredential, token),
   clearMineruCredential: () => ipcRenderer.invoke(DESKTOP_CHANNELS.clearMineruCredential),

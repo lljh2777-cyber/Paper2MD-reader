@@ -127,4 +127,100 @@ describe("MinerU PDF caption continuation recovery", () => {
       visuals: [visual], viewerIndex, mineruPayload, markdown
     })).toEqual([]);
   });
+
+  it("recovers a horizontally adjacent continuation for an already-linked partial next-page caption", () => {
+    const anchorText = "Fig. 2 | Discovery results. a, Sampling overview. b, Frequency distribution. c–f, Generated properties. g, Held-out frequency. h, HMDB coverage. i, Missing classes. j, ROC curve showing";
+    const continuationText = "prioritization of HMDB metabolites. k, Enrichment among frequent molecules. l, Coverage within the top molecules. m, Confirmed examples. n–p, Previously unrecognized metabolites. n, First example. o, Second example. p, Third example.";
+    const bodyPrefix = "The evaluation paragraph remains part of the article. ";
+    const mixedText = `${bodyPrefix}${continuationText}`;
+    const sourceMarkdown = `# Paper\n\n${mixedText}\n\n![](images/fig2.jpg)\n\nFig. 2 | See next page for caption\n\n${anchorText}\n`;
+    const anchorStart = sourceMarkdown.lastIndexOf(anchorText);
+    const visual: RepairedMinerUVisual = {
+      id: "visual-fig2",
+      kind: "figure",
+      path: "images/fig2.jpg",
+      label: "Fig. 2",
+      pageIndex: 3,
+      placementBlockId: "slot-fig2",
+      memberBlockIds: ["p0003-s000000"],
+      captionText: anchorText,
+      captionPageIndex: 4,
+      captionStatus: "partial",
+      captionSourceRanges: [{ start: anchorStart, end: anchorStart + anchorText.length, text: anchorText }]
+    };
+    const viewerIndex = {
+      schema_version: 1,
+      pages: [
+        {
+          page_idx: 3,
+          blocks: [{
+            id: "p0003-s000000",
+            source_index: 0,
+            page_order: 0,
+            role: "visual",
+            bbox_norm: [60, 60, 947, 772],
+            caption: { items: [{ text: "Fig. 2 | See next page for caption", kind: "next-page-placeholder" }] }
+          }]
+        },
+        {
+          page_idx: 4,
+          blocks: [
+            {
+              id: "p0004-s000001",
+              source_index: 1,
+              page_order: 0,
+              role: "text",
+              bbox_norm: [60, 59, 497, 250],
+              text: { char_count: anchorText.length, leading_formal_figure_caption_key: "figure:2" }
+            },
+            {
+              id: "p0004-s000002",
+              source_index: 2,
+              page_order: 1,
+              role: "text",
+              bbox_norm: [60, 275, 497, 900],
+              text: { char_count: mixedText.length }
+            },
+            {
+              id: "p0004-s000003",
+              source_index: 3,
+              page_order: 2,
+              role: "text",
+              bbox_norm: [507, 59, 944, 237],
+              text: { char_count: 0 }
+            }
+          ]
+        }
+      ]
+    };
+    const mineruPayload = [
+      { type: "image", page_idx: 3, bbox: [60, 60, 947, 772], img_path: visual.path, image_caption: ["Fig. 2 | See next page for caption"] },
+      { type: "text", page_idx: 4, bbox: [60, 59, 497, 250], text: anchorText },
+      { type: "text", page_idx: 4, bbox: [60, 275, 497, 900], text: mixedText },
+      { type: "text", page_idx: 4, bbox: [507, 59, 944, 237], text: "" }
+    ];
+
+    const requests = collectPdfCaptionContinuationRequests({
+      visuals: [visual], viewerIndex, mineruPayload, markdown: sourceMarkdown
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      visualId: visual.id,
+      sourceBlockId: "p0004-s000003",
+      pageIndex: 4,
+      anchorProjected: true,
+      bbox: { x: 0.507, y: 0.059, width: 0.437, height: 0.178 }
+    });
+
+    const recovered = recoverPdfCaptionContinuation(sourceMarkdown, requests[0], continuationText);
+    expect(recovered).toMatchObject({
+      captionText: `${anchorText} ${continuationText}`,
+      captionStatus: "complete",
+      anchorProjected: true
+    });
+    const projected = sourceMarkdown.replace(anchorText, "");
+    const suppressed = suppressRecoveredCaptionContinuation(projected, recovered!);
+    expect(suppressed).toContain(bodyPrefix.trim());
+    expect(suppressed).not.toContain(continuationText);
+  });
 });

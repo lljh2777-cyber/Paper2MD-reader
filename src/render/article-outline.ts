@@ -1,8 +1,12 @@
 import { readerText, type ReaderLocale } from "../ui/locale";
 import { setReaderIcon } from "./icons";
 import { scrollReaderTarget } from "../sync/scroll-controller";
+import type { ReaderArticleAnchor } from "../sync/reader-view-state";
 
 const OUTLINE_COLLAPSED_STORAGE_KEY = "paper2md-reader:outline-collapsed";
+const RUNNING_HEADER_LABELS = new Set(["article"]);
+const REPORTING_FORM_BRANDS = new Set(["natureportfolio", "nature portfolio"]);
+const REPORTING_FORM_ROOT_LABELS = new Set(["reporting summary"]);
 
 export interface ArticleOutlineEntry {
   element: HTMLElement;
@@ -26,13 +30,54 @@ function normalizedHeadingText(heading: HTMLElement): string {
   return (heading.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
+function normalizedHeadingKey(heading: HTMLElement): string {
+  return normalizedHeadingText(heading).toLocaleLowerCase();
+}
+
+function reportingFormStartsAt(headings: HTMLElement[], index: number): boolean {
+  if (headings[index].tagName !== "H1" || !REPORTING_FORM_BRANDS.has(normalizedHeadingKey(headings[index]))) return false;
+  const nextHeading = headings[index + 1];
+  return Boolean(
+    nextHeading
+    && nextHeading.tagName === "H2"
+    && REPORTING_FORM_ROOT_LABELS.has(normalizedHeadingKey(nextHeading))
+  );
+}
+
 /** Build display-only navigation targets without changing the source Markdown. */
 export function collectArticleOutlineEntries(article: HTMLElement): ArticleOutlineEntry[] {
+  const headings = [...article.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")];
+  const labelCounts = new Map<string, number>();
+  headings.forEach((heading) => {
+    const key = normalizedHeadingKey(heading);
+    if (key) labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
+    delete heading.dataset.p2mdOutlineExcluded;
+    delete heading.dataset.p2mdOutlineTarget;
+  });
   const entries: ArticleOutlineEntry[] = [];
-  article.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6").forEach((heading, index) => {
+  let insideReportingForm = false;
+  headings.forEach((heading, index) => {
     const label = normalizedHeadingText(heading);
     if (!label) return;
     const level = Number.parseInt(heading.tagName.slice(1), 10);
+    if (reportingFormStartsAt(headings, index)) {
+      insideReportingForm = true;
+      heading.dataset.p2mdOutlineExcluded = "reporting-form";
+      return;
+    }
+    if (insideReportingForm) {
+      if (level === 1 && !REPORTING_FORM_BRANDS.has(normalizedHeadingKey(heading))) {
+        insideReportingForm = false;
+      } else {
+        heading.dataset.p2mdOutlineExcluded = "reporting-form";
+        return;
+      }
+    }
+    const key = normalizedHeadingKey(heading);
+    if (RUNNING_HEADER_LABELS.has(key) && (labelCounts.get(key) ?? 0) > 1) {
+      heading.dataset.p2mdOutlineExcluded = "running-header";
+      return;
+    }
     const targetId = heading.id || `p2md-outline-heading-${index + 1}`;
     if (!heading.id) heading.id = targetId;
     heading.dataset.p2mdOutlineTarget = targetId;
@@ -143,6 +188,73 @@ export class ArticleOutline {
       current = entry.element;
     }
     this.setActive(current);
+  }
+
+  captureReadingAnchor(): ReaderArticleAnchor | undefined {
+    if (!this.entries.length) return undefined;
+    const scrollRect = this.scrollContainer.getBoundingClientRect();
+    const inset = Math.min(120, Math.max(0, scrollRect.height * 0.2));
+    const probe = this.scrollContainer.scrollTop + inset;
+    const tops = this.entries.map((entry) => (
+      this.scrollContainer.scrollTop + entry.element.getBoundingClientRect().top - scrollRect.top
+    ));
+    let index = 0;
+    for (let candidate = 0; candidate < tops.length; candidate += 1) {
+      if (tops[candidate] > probe) break;
+      index = candidate;
+    }
+    const start = tops[index];
+    const end = index + 1 < tops.length ? tops[index + 1] : this.scrollContainer.scrollHeight;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return undefined;
+    const entry = this.entries[index];
+    return {
+      targetId: entry.targetId,
+      label: entry.label,
+      level: entry.level,
+      sectionProgress: Math.max(0, Math.min(1, (probe - start) / (end - start)))
+    };
+  }
+
+  restoreReadingAnchor(anchor: ReaderArticleAnchor | undefined): boolean {
+    const matchingEntries = anchor
+      ? this.entries.filter((candidate) => (
+        candidate.targetId === anchor.targetId
+        && candidate.label === anchor.label
+        && candidate.level === anchor.level
+      ))
+      : [];
+    const entry = matchingEntries.length === 1 ? matchingEntries[0] : undefined;
+    if (
+      !entry
+      || !anchor
+      || !Number.isFinite(anchor.sectionProgress)
+      || anchor.sectionProgress < 0
+      || anchor.sectionProgress > 1
+    ) {
+      this.scrollContainer.scrollTop = 0;
+      return false;
+    }
+    const index = this.entries.indexOf(entry);
+    const scrollRect = this.scrollContainer.getBoundingClientRect();
+    const inset = Math.min(120, Math.max(0, scrollRect.height * 0.2));
+    const start = this.scrollContainer.scrollTop + entry.element.getBoundingClientRect().top - scrollRect.top;
+    const next = this.entries[index + 1];
+    const end = next
+      ? this.scrollContainer.scrollTop + next.element.getBoundingClientRect().top - scrollRect.top
+      : this.scrollContainer.scrollHeight;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      this.scrollContainer.scrollTop = 0;
+      return false;
+    }
+    const maximum = Math.max(0, this.scrollContainer.scrollHeight - this.scrollContainer.clientHeight);
+    const desired = start + (end - start) * anchor.sectionProgress - inset;
+    const target = Math.max(0, Math.min(maximum, desired));
+    this.scrollContainer.scrollTop = target;
+    if (Math.abs(this.scrollContainer.scrollTop - target) > 1) {
+      this.scrollContainer.scrollTop = 0;
+      return false;
+    }
+    return true;
   }
 
   listTargets(): ArticleOutlineTarget[] {

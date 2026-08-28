@@ -34,6 +34,8 @@ export interface DesktopLibrarySnapshot {
   truncated?: boolean;
 }
 
+export const DESKTOP_VISUAL_REVIEW_SIDECAR_LIMIT_BYTES = 64 * 1024;
+
 export interface MineruCredentialStatus {
   configured: boolean;
   storage: "os-protected";
@@ -145,12 +147,15 @@ export interface StartReviewedLayoutRequest {
 }
 
 export interface Paper2MDDesktopApi {
+  getAppVersion(): Promise<string>;
   getSelfCheck(): Promise<DesktopSelfCheck>;
   getLibrarySnapshot(): Promise<DesktopLibrarySnapshot>;
   chooseLibrary(): Promise<DesktopLibrarySnapshot | undefined>;
   openLibraryDocument(packageId: string): Promise<DesktopRootSelection>;
   setLibraryFavorite(packageId: string, favorite: boolean): Promise<DesktopLibrarySnapshot>;
   revealLibrary(): Promise<void>;
+  readVisualReviewSidecar(candidatePackageSha256: string): Promise<unknown | undefined>;
+  writeVisualReviewSidecar(candidatePackageSha256: string, sidecar: unknown): Promise<void>;
   getMineruCredentialStatus(): Promise<MineruCredentialStatus>;
   saveMineruCredential(token: string): Promise<MineruCredentialStatus>;
   clearMineruCredential(): Promise<MineruCredentialStatus>;
@@ -179,12 +184,15 @@ export interface Paper2MDDesktopApi {
 }
 
 export const DESKTOP_CHANNELS = {
+  getAppVersion: "paper2md:get-app-version",
   getSelfCheck: "paper2md:get-self-check",
   getLibrarySnapshot: "paper2md:get-library-snapshot",
   chooseLibrary: "paper2md:choose-library",
   openLibraryDocument: "paper2md:open-library-document",
   setLibraryFavorite: "paper2md:set-library-favorite",
   revealLibrary: "paper2md:reveal-library",
+  readVisualReviewSidecar: "paper2md:read-visual-review-sidecar",
+  writeVisualReviewSidecar: "paper2md:write-visual-review-sidecar",
   getMineruCredentialStatus: "paper2md:get-mineru-credential-status",
   saveMineruCredential: "paper2md:save-mineru-credential",
   clearMineruCredential: "paper2md:clear-mineru-credential",

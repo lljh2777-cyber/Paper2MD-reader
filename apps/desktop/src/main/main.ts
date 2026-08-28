@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, copyFile, lstat, mkdir, open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { app, BrowserWindow, dialog, IpcMainInvokeEvent, ipcMain, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, IpcMainInvokeEvent, ipcMain, nativeTheme, safeStorage, screen, shell } from "electron";
 import {
   ConversionTask,
   DESKTOP_CHANNELS,
+  DESKTOP_VISUAL_REVIEW_SIDECAR_LIMIT_BYTES,
   DesktopPdfSelection,
   DesktopPackagePdf,
   DesktopRootSelection,
@@ -48,6 +49,13 @@ import {
   type RemoteMineruPaths,
   type RemoteMineruStage
 } from "../../../processing-service/src/remote-mineru-workflow";
+import {
+  clampWindowBounds,
+  DESKTOP_WINDOW_MIN_HEIGHT,
+  DESKTOP_WINDOW_MIN_WIDTH,
+  DesktopWindowState,
+  DesktopWindowStateStore
+} from "./desktop-window-state";
 
 const MAX_PDF_BYTES = 256 * 1024 * 1024;
 const MAX_IPC_FILE_BYTES = 64 * 1024 * 1024;
@@ -68,6 +76,11 @@ const remoteMineruJobs = new Map<string, RemoteMineruJob>();
 const MINERU_TOKEN_PAGE = "https://mineru.net/apiManage/token";
 let libraryManager: DesktopLibraryManager | undefined;
 let credentialStore: DesktopCredentialStore | undefined;
+let windowStateStore: DesktopWindowStateStore | undefined;
+let pendingWindowState: DesktopWindowState | undefined;
+let windowStateTimer: ReturnType<typeof setTimeout> | undefined;
+let windowStateWrite: Promise<void> = Promise.resolve();
+let displayStateHandlersInstalled = false;
 
 class TaskCancelledError extends Error {}
 
@@ -106,14 +119,14 @@ async function discoverSourcePdf(root: string): Promise<DesktopPackagePdf | unde
   return { relativePath: name, name, size: info.size };
 }
 
-async function registerRoot(path: string, includeSourcePdf = false): Promise<DesktopRootSelection> {
+async function registerRoot(path: string, includeSourcePdf = false, displayLabel?: string): Promise<DesktopRootSelection> {
   const canonical = await realpath(path);
   const sourcePdf = includeSourcePdf ? await discoverSourcePdf(canonical) : undefined;
   const id = randomUUID();
   roots.set(id, canonical);
   return {
     id,
-    label: basename(canonical),
+    label: displayLabel?.trim().slice(0, 512) || basename(canonical),
     sourcePdf
   };
 }
@@ -451,6 +464,10 @@ function validateReviewedOptions(request: StartReviewedLayoutRequest): ReviewedL
 }
 
 function installIpcHandlers(): void {
+  ipcMain.handle(DESKTOP_CHANNELS.getAppVersion, (event) => {
+    assertTrusted(event);
+    return app.getVersion();
+  });
   ipcMain.handle(DESKTOP_CHANNELS.getSelfCheck, async (event) => {
     assertTrusted(event);
     return runDesktopSelfCheck({
@@ -476,8 +493,10 @@ function installIpcHandlers(): void {
   });
   ipcMain.handle(DESKTOP_CHANNELS.openLibraryDocument, async (event, packageId: string) => {
     assertTrusted(event);
-    const root = await requireLibraryManager().packageRoot(packageId);
-    return registerRoot(root, true);
+    const manager = requireLibraryManager();
+    const [root, snapshot] = await Promise.all([manager.packageRoot(packageId), manager.snapshot()]);
+    const label = snapshot.documents.find((document) => document.packageId === packageId)?.label;
+    return registerRoot(root, true, label);
   });
   ipcMain.handle(DESKTOP_CHANNELS.setLibraryFavorite, async (event, packageId: string, favorite: boolean) => {
     assertTrusted(event);
@@ -488,6 +507,28 @@ function installIpcHandlers(): void {
     assertTrusted(event);
     const error = await shell.openPath(await requireLibraryManager().revealPath());
     if (error) throw new Error(error);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.readVisualReviewSidecar, async (event, candidatePackageSha256: string) => {
+    assertTrusted(event);
+    return requireLibraryManager().readVisualReviewSidecar(candidatePackageSha256);
+  });
+  ipcMain.handle(DESKTOP_CHANNELS.writeVisualReviewSidecar, async (
+    event,
+    candidatePackageSha256: string,
+    serialized: string
+  ) => {
+    assertTrusted(event);
+    if (
+      typeof serialized !== "string" ||
+      Buffer.byteLength(serialized, "utf8") > DESKTOP_VISUAL_REVIEW_SIDECAR_LIMIT_BYTES
+    ) throw new Error("Visual review sidecar exceeds the desktop IPC limit");
+    let sidecar: unknown;
+    try {
+      sidecar = JSON.parse(serialized) as unknown;
+    } catch {
+      throw new Error("Visual review sidecar is not valid JSON");
+    }
+    await requireLibraryManager().writeVisualReviewSidecar(candidatePackageSha256, sidecar);
   });
   ipcMain.handle(DESKTOP_CHANNELS.getMineruCredentialStatus, async (event) => {
     assertTrusted(event);
@@ -875,39 +916,71 @@ function installIpcHandlers(): void {
   });
 }
 
-function createWindow(): void {
-  const window = new BrowserWindow({
-    width: 1500,
-    height: 960,
-    minWidth: 980,
-    minHeight: 680,
-    show: false,
-    backgroundColor: "#ffffff",
-    webPreferences: {
-      preload: join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true
-    }
-  });
-  window.removeMenu();
-  window.once("ready-to-show", () => window.show());
-  void window.loadFile(join(__dirname, "renderer/index.html"));
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+function currentWorkAreas(): Array<{ x: number; y: number; width: number; height: number }> {
+  return screen.getAllDisplays().map((display) => display.workArea);
 }
 
-app.whenReady().then(async () => {
-  if (process.argv.includes(PACKAGING_SMOKE_ARGUMENT)) {
-    try {
-      await verifyPackagedRuntimeFiles();
-      app.exit(0);
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : "Packaged runtime verification failed");
-      app.exit(1);
+function sameBounds(
+  left: { x: number; y: number; width: number; height: number },
+  right: { x: number; y: number; width: number; height: number }
+): boolean {
+  return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
+}
+
+function captureWindowState(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  pendingWindowState = {
+    bounds: window.getNormalBounds(),
+    maximized: window.isMaximized()
+  };
+}
+
+function flushWindowState(): Promise<void> {
+  if (windowStateTimer) clearTimeout(windowStateTimer);
+  windowStateTimer = undefined;
+  const state = pendingWindowState;
+  pendingWindowState = undefined;
+  if (!state || !windowStateStore) return windowStateWrite;
+  windowStateWrite = windowStateWrite
+    .then(() => windowStateStore?.save(state))
+    .then(() => undefined)
+    .catch(() => undefined);
+  return windowStateWrite;
+}
+
+function scheduleWindowStateSave(window: BrowserWindow): void {
+  captureWindowState(window);
+  if (windowStateTimer) clearTimeout(windowStateTimer);
+  windowStateTimer = setTimeout(() => void flushWindowState(), 250);
+}
+
+function clampOpenWindowsToDisplays(): void {
+  const workAreas = currentWorkAreas();
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (window.isDestroyed() || window.isMaximized()) return;
+    const current = window.getBounds();
+    const clamped = clampWindowBounds(current, workAreas, primaryWorkArea);
+    if (!sameBounds(current, clamped)) {
+      window.setMinimumSize(
+        Math.min(DESKTOP_WINDOW_MIN_WIDTH, clamped.width),
+        Math.min(DESKTOP_WINDOW_MIN_HEIGHT, clamped.height)
+      );
+      window.setBounds(clamped);
     }
-    return;
-  }
+    scheduleWindowStateSave(window);
+  });
+}
+
+function installDisplayStateHandlers(): void {
+  if (displayStateHandlersInstalled) return;
+  displayStateHandlersInstalled = true;
+  screen.on("display-added", clampOpenWindowsToDisplays);
+  screen.on("display-removed", clampOpenWindowsToDisplays);
+  screen.on("display-metrics-changed", clampOpenWindowsToDisplays);
+}
+
+async function initializeDesktopState(): Promise<void> {
   if (process.platform === "win32") app.setAppUserModelId("com.paper2md.reader");
   const userDataPath = app.getPath("userData");
   libraryManager = new DesktopLibraryManager(userDataPath);
@@ -919,10 +992,109 @@ app.whenReady().then(async () => {
   });
   await libraryManager.restore();
   await taskStore.restore(userDataPath);
+  windowStateStore = new DesktopWindowStateStore(userDataPath);
+  installDisplayStateHandlers();
   installIpcHandlers();
-  createWindow();
+}
+
+async function createWindow(showWhenReady = true): Promise<BrowserWindow> {
+  const restoredState = await windowStateStore?.load();
+  const bounds = clampWindowBounds(
+    restoredState?.bounds,
+    currentWorkAreas(),
+    screen.getPrimaryDisplay().workArea
+  );
+  const window = new BrowserWindow({
+    ...bounds,
+    minWidth: Math.min(DESKTOP_WINDOW_MIN_WIDTH, bounds.width),
+    minHeight: Math.min(DESKTOP_WINDOW_MIN_HEIGHT, bounds.height),
+    show: false,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#20242a" : "#f7f8fa",
+    webPreferences: {
+      preload: join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+  window.removeMenu();
+  if (restoredState?.maximized) window.maximize();
+  if (showWhenReady) window.once("ready-to-show", () => window.show());
+  window.on("move", () => scheduleWindowStateSave(window));
+  window.on("resize", () => scheduleWindowStateSave(window));
+  window.on("maximize", () => scheduleWindowStateSave(window));
+  window.on("unmaximize", () => {
+    clampOpenWindowsToDisplays();
+    scheduleWindowStateSave(window);
+  });
+  window.on("close", () => {
+    captureWindowState(window);
+    void flushWindowState();
+  });
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  await window.loadFile(join(__dirname, "renderer/index.html"));
+  return window;
+}
+
+async function verifyPackagedRendererRuntime(): Promise<void> {
+  await verifyPackagedRuntimeFiles();
+  await initializeDesktopState();
+  const window = await createWindow(false);
+  try {
+    const state = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+      window.setTimeout(() => resolve({
+        shell: Boolean(document.querySelector(".p2md-desktop-shell")),
+        referenceTabs: document.querySelectorAll(".p2md-reference-tab").length,
+        iframeCount: document.querySelectorAll("iframe").length,
+        version: document.querySelector(".p2md-desktop-app-version")?.textContent ?? "",
+        separatorRole: document.querySelector(".p2md-desktop-reference-separator")?.getAttribute("role") ?? "",
+        separatorControls: document.querySelector(".p2md-desktop-reference-separator")?.getAttribute("aria-controls") ?? "",
+        referencePane: Boolean(document.querySelector("#p2md-desktop-reference-pane")),
+        startupBackground: getComputedStyle(document.documentElement).backgroundColor
+      }), 250);
+    })`, true) as {
+      shell: boolean;
+      referenceTabs: number;
+      iframeCount: number;
+      version: string;
+      separatorRole: string;
+      separatorControls: string;
+      referencePane: boolean;
+      startupBackground: string;
+    };
+    if (
+      !state.shell
+      || state.referenceTabs !== 2
+      || state.iframeCount !== 0
+      || state.version !== `v${app.getVersion()}`
+      || state.separatorRole !== "separator"
+      || state.separatorControls !== "p2md-desktop-reference-pane"
+      || !state.referencePane
+      || state.startupBackground === "rgba(0, 0, 0, 0)"
+    ) {
+      throw new Error(`Packaged renderer smoke check failed: ${JSON.stringify(state)}`);
+    }
+  } finally {
+    window.destroy();
+  }
+}
+
+app.whenReady().then(async () => {
+  if (process.argv.includes(PACKAGING_SMOKE_ARGUMENT)) {
+    try {
+      await verifyPackagedRendererRuntime();
+      app.exit(0);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Packaged runtime verification failed");
+      app.exit(1);
+    }
+    return;
+  }
+  await initializeDesktopState();
+  await createWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
   });
 });
 
@@ -950,7 +1122,7 @@ app.on("before-quit", (event) => {
     }
   });
   shutdownPersistenceStarted = true;
-  void taskStore.flush().finally(() => app.quit());
+  void Promise.all([taskStore.flush(), flushWindowState()]).finally(() => app.quit());
 });
 
 app.on("window-all-closed", () => {

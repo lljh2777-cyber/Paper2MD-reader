@@ -362,6 +362,7 @@ export class PackageLoader {
     }
 
     let visuals: RepairedMinerUVisual[] = parsed.visuals;
+    let verificationVisuals: RepairedMinerUVisual[] = visuals;
     let captionContinuations: PdfCaptionContinuationRequest[] = [];
     let paragraphRecoveries: MinerUParagraphRecoveryRequest[] = [];
     let pageMap: LoadedPaperPackage["pageMap"];
@@ -455,11 +456,14 @@ export class PackageLoader {
           mineruHash,
           sourcePdfPath: hasSourcePdf ? sourcePdfPath : undefined
         });
+        const projectedVisuals = applied.visuals;
+        const visibleVisuals = projectedVisuals.filter((visual) => !visual.hidden);
+        verificationVisuals = projectedVisuals;
         pageMap = buildMinerUPageMap(article.text, mineruPayload, viewerContract, {
           article: articleHash,
           mineru: mineruHash
         });
-        pdfLayout = buildMinerUPdfLayout(viewerContract, applied.visuals, articleHash, mineruHash);
+        pdfLayout = buildMinerUPdfLayout(viewerContract, visibleVisuals, articleHash, mineruHash);
         if (pageMap) {
           const mapped = pageMap.boundaries.filter((boundary) => boundary.candidates.length).length;
           diagnostics.push({
@@ -468,7 +472,7 @@ export class PackageLoader {
             message: `已为 ${mapped}/${pageMap.pageCount} 个 MinerU 正文页建立确定性阅读边界。`
           });
         }
-        visuals = applied.visuals;
+        visuals = visibleVisuals;
         diagnostics.push(...applied.diagnostics);
         if (hasSourcePdf) {
           captionContinuations = collectPdfCaptionContinuationRequests({
@@ -500,7 +504,7 @@ export class PackageLoader {
         }
         const projected = projectMinerUReaderMarkdown({
           markdown: article.text,
-          visuals,
+          visuals: projectedVisuals,
           viewerIndex: viewerContract,
           articleHash,
           mineruHash
@@ -525,7 +529,7 @@ export class PackageLoader {
     }
 
     const requiredAssetPaths = [...new Set([
-      ...visuals.map((visual) => visual.path),
+      ...verificationVisuals.flatMap((visual) => [visual.path, ...(visual.memberAssetPaths ?? [])]),
       ...(pdfLayout?.blocks.flatMap((block) => block.assetPath ? [block.assetPath] : []) ?? [])
     ])];
     const requiredAssetInfos = await mapWithConcurrency(
@@ -590,6 +594,7 @@ export class PackageLoader {
       pageIndex: visual.pageIndex,
       sourceBBox: visual.bbox,
       memberAssetPaths: visual.memberAssetPaths,
+      memberBlockIds: visual.memberBlockIds,
       captionPageIndex: visual.captionPageIndex,
       captionStatus: visual.captionStatus,
       display: visual.display

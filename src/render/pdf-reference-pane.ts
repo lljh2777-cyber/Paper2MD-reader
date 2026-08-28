@@ -71,6 +71,9 @@ export class PdfReferencePane {
   private renderQueue = Promise.resolve();
   private generation = 0;
   private scrollFrame = 0;
+  private resizeFrame = 0;
+  private renderedAvailableWidth = 0;
+  private readonly resizeObserver?: ResizeObserver;
   private visible = false;
 
   constructor(
@@ -110,7 +113,13 @@ export class PdfReferencePane {
     const followTrack = element("span", "p2md-follow-track");
     this.followLabel = element("span", "p2md-pdf-follow-label");
     follow.append(this.followInput, followTrack, this.followLabel);
-    this.toolbar.append(this.previous, this.pageInput, this.pageCount, this.next, divider, zoomOut, this.zoomValue, zoomIn, fit, this.layoutButton, follow);
+    const pageControls = element("div", "p2md-pdf-toolbar-group p2md-pdf-toolbar-page");
+    pageControls.append(this.previous, this.pageInput, this.pageCount, this.next);
+    const zoomControls = element("div", "p2md-pdf-toolbar-group p2md-pdf-toolbar-zoom");
+    zoomControls.append(divider, zoomOut, this.zoomValue, zoomIn);
+    const viewControls = element("div", "p2md-pdf-toolbar-group p2md-pdf-toolbar-view");
+    viewControls.append(fit, this.layoutButton);
+    this.toolbar.append(pageControls, zoomControls, viewControls, follow);
     this.scroll = element("div", "p2md-pdf-scroll");
     this.scroll.tabIndex = 0;
     this.scroll.ariaLabel = readerText(locale, "continuousPdf");
@@ -137,9 +146,9 @@ export class PdfReferencePane {
     zoomOut.addEventListener("click", () => this.changeZoom(1 / 1.15));
     zoomIn.addEventListener("click", () => this.changeZoom(1.15));
     fit.addEventListener("click", () => {
-      if (!this.state.setZoom(1)) return;
+      const changed = this.state.setZoom(1);
       this.rebuildPages();
-      this.onStateChange?.();
+      if (changed) this.onStateChange?.();
     });
     this.layoutButton.addEventListener("click", () => {
       this.showLayoutBoxes = !this.showLayoutBoxes;
@@ -155,6 +164,12 @@ export class PdfReferencePane {
       this.onStateChange?.();
     });
     this.scroll.addEventListener("scroll", () => this.scheduleVisiblePageUpdate(), { passive: true });
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(() => this.scheduleResizeRebuild());
+      this.resizeObserver.observe(this.scroll);
+    } else {
+      window.addEventListener("resize", this.scheduleResizeRebuild, { passive: true });
+    }
     this.updateToolbar();
   }
 
@@ -194,7 +209,15 @@ export class PdfReferencePane {
   setVisible(value: boolean): void {
     this.visible = value;
     this.container.hidden = !value;
-    if (value && this.source && this.state.pageCount && !this.wrappers.length) this.rebuildPages();
+    if (
+      value
+      && this.source
+      && this.state.pageCount
+      && (
+        !this.wrappers.length
+        || Math.abs(this.measureAvailableWidth() - this.renderedAvailableWidth) >= 2
+      )
+    ) this.rebuildPages();
   }
 
   trackMarkdownPage(pageNumber: number): void {
@@ -249,6 +272,10 @@ export class PdfReferencePane {
   destroy(): void {
     this.generation += 1;
     this.source = undefined;
+    this.resizeObserver?.disconnect();
+    if (!this.resizeObserver) window.removeEventListener("resize", this.scheduleResizeRebuild);
+    if (this.resizeFrame) cancelAnimationFrame(this.resizeFrame);
+    this.resizeFrame = 0;
     this.clearPages();
   }
 
@@ -257,7 +284,8 @@ export class PdfReferencePane {
     const currentPage = this.state.currentPage;
     this.clearPages();
     const generation = ++this.generation;
-    const availableWidth = Math.max(260, this.scroll.clientWidth - 34);
+    const availableWidth = this.measureAvailableWidth();
+    this.renderedAvailableWidth = availableWidth;
     const estimatedWidth = Math.floor(availableWidth * this.state.zoom);
     for (let pageNumber = 1; pageNumber <= this.state.pageCount; pageNumber += 1) {
       const wrapper = element("section", "p2md-pdf-page is-loading");
@@ -338,7 +366,32 @@ export class PdfReferencePane {
     this.wrappers = [];
     this.scroll.replaceChildren();
     this.renderQueue = Promise.resolve();
+    this.renderedAvailableWidth = 0;
   }
+
+  private measureAvailableWidth(): number {
+    return Math.max(160, this.scroll.clientWidth - 34);
+  }
+
+  private readonly scheduleResizeRebuild = (): void => {
+    if (
+      this.resizeFrame
+      || !this.visible
+      || !this.source
+      || !this.state.pageCount
+      || !this.wrappers.length
+      || Math.abs(this.measureAvailableWidth() - this.renderedAvailableWidth) < 2
+    ) return;
+    this.resizeFrame = requestAnimationFrame(() => {
+      this.resizeFrame = 0;
+      if (
+        this.visible
+        && this.source
+        && this.state.pageCount
+        && Math.abs(this.measureAvailableWidth() - this.renderedAvailableWidth) >= 2
+      ) this.rebuildPages();
+    });
+  };
 
   private renderMessage(message: string, error = false): void {
     this.clearPages();

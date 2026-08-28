@@ -4,7 +4,12 @@ import { Diagnostic, NormalizedBBox } from "./reader-contract";
 
 type UnknownRecord = Record<string, unknown>;
 
+const FIGURE_KEY_RE = /^\s*(extended\s+data\s+fig(?:ure)?|supplementary\s+fig(?:ure)?|supporting(?:\s+information)?\s+fig(?:ure)?|fig(?:ure)?|图)\.?\s*([A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)/i;
+const FIGURE_REFERENCE_VERBS_RE = /^(?:shows?|illustrates?|depicts?|demonstrates?|presents?|reports?|displays?|compares?|lists?|summari[sz]es?|gives?|provides?|plots?|is|are|was|were)\b/i;
+
 export interface RepairedMinerUVisual extends MinerUVisual {
+  /** Display-only navigation suppression for proven non-article artifacts. Source files stay unchanged. */
+  hidden?: boolean;
   memberAssetPaths?: string[];
   memberBlockIds?: string[];
   memberMarkdownImageIds?: string[];
@@ -95,9 +100,68 @@ function startsWithPanelLabel(value: string): boolean {
   return /^\s*[a-z](?:\s*[-–—]\s*[a-z])?[\s,.;:)]/i.test(value);
 }
 
+function firstAlphaIsLowercase(value: string): boolean {
+  for (const character of value) {
+    if (!/\p{L}/u.test(character)) continue;
+    return character === character.toLocaleLowerCase() && character !== character.toLocaleUpperCase();
+  }
+  return false;
+}
+
+function sourceStartsLikeCaptionContinuation(value: string | undefined): boolean {
+  return Boolean(value && (
+    firstAlphaIsLowercase(value)
+    || /^\s*[\[(]?[A-Za-z][\])\].:]?(?=\s|[,;:])/.test(value)
+  ));
+}
+
 function formalFigureKeyFromText(value: string): string | undefined {
-  const match = /^\s*(?:Fig(?:ure)?\.?|Extended\s+Data\s+Fig(?:ure)?\.?|Supplementary\s+Fig(?:ure)?\.?|Supporting\s+Fig(?:ure)?\.?)\s*([A-Za-z0-9]+(?:\.[A-Za-z0-9]+)?)/i.exec(value);
-  return match?.[1]?.toLocaleLowerCase();
+  return FIGURE_KEY_RE.exec(value)?.[2]?.toLocaleLowerCase();
+}
+
+function formalFigureMetadataKeyFromText(value: string): string | undefined {
+  const match = FIGURE_KEY_RE.exec(value);
+  if (!match) return undefined;
+  const remainder = value.slice(match[0].length);
+  const delimited = /^\s*[|｜:：.]\s*([^|｜:：.\s][\s\S]*)$/.exec(remainder);
+  const undelimited = /^\s+([^|｜:：.\s][\s\S]*)$/.exec(remainder);
+  const title = (delimited?.[1] ?? undelimited?.[1] ?? "").trim();
+  if (title.length < 5 || FIGURE_REFERENCE_VERBS_RE.test(title)) return undefined;
+  const rawKind = match[1].trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  const kind = rawKind.startsWith("extended data")
+    ? "extended-data-figure"
+    : rawKind.startsWith("supplementary")
+      ? "supplementary-figure"
+      : rawKind.startsWith("supporting")
+        ? "supporting-figure"
+        : rawKind === "图" ? "图" : "figure";
+  return `${kind}:${match[2].trim().toLocaleLowerCase().replace(/\./g, "_")}`;
+}
+
+function sourceBoundFormalCaption(
+  block: UnknownRecord,
+  sourceTextByBlockId: Map<string, string>
+): { key: string; terminal: boolean } | undefined {
+  const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id) : undefined;
+  if (!source) return undefined;
+  const sourceKey = formalFigureMetadataKeyFromText(source);
+  if (!sourceKey) return undefined;
+  const summary = record(block.text);
+  const caption = record(block.caption);
+  const metadataKeys = [...new Set([
+    ...strings(summary?.formal_figure_caption_keys),
+    ...strings(caption?.formal_figure_caption_keys),
+    typeof summary?.leading_formal_figure_caption_key === "string" ? summary.leading_formal_figure_caption_key : "",
+    typeof caption?.leading_formal_figure_caption_key === "string" ? caption.leading_formal_figure_caption_key : ""
+  ].filter(Boolean).map((key) => key.toLocaleLowerCase()))];
+  const sourceTerminal = endsWithTerminalPunctuation(source);
+  if (
+    metadataKeys.length !== 1
+    || metadataKeys[0] !== sourceKey
+    || typeof summary?.ends_with_terminal_punctuation !== "boolean"
+    || summary.ends_with_terminal_punctuation !== sourceTerminal
+  ) return undefined;
+  return { key: sourceKey, terminal: sourceTerminal };
 }
 
 function captionPanelMarkers(value: string): Array<{ start: string; end: string }> {
@@ -446,9 +510,50 @@ function normalizedBboxArray(value: unknown): [number, number, number, number] |
   return [x0, y0, x1, y1];
 }
 
-function terminalCaption(block: UnknownRecord): boolean {
-  const summary = record(block.text);
-  return summary?.ends_with_terminal_punctuation === true;
+function axisOverlap(startA: number, endA: number, startB: number, endB: number): number {
+  return Math.max(0, Math.min(endA, endB) - Math.max(startA, startB));
+}
+
+function sameTopCaptionBand(anchor: UnknownRecord, candidate: UnknownRecord): boolean {
+  const anchorBbox = normalizedBboxArray(anchor.bbox_norm);
+  const candidateBbox = normalizedBboxArray(candidate.bbox_norm);
+  if (!anchorBbox || !candidateBbox) return false;
+  const [ax0, ay0, ax1, ay1] = anchorBbox;
+  const [cx0, cy0, cx1, cy1] = candidateBbox;
+  if (Math.abs(ay0 - cy0) > 45 || axisOverlap(ax0, ax1, cx0, cx1) > 0) return false;
+  const xGap = Math.max(0, Math.max(ax0, cx0) - Math.min(ax1, cx1));
+  if (xGap > 80) return false;
+  const anchorHeight = ay1 - ay0;
+  const candidateHeight = cy1 - cy0;
+  const yOverlap = axisOverlap(ay0, ay1, cy0, cy1);
+  if (yOverlap < 0.55 * Math.min(anchorHeight, candidateHeight)) return false;
+  const heightRatio = candidateHeight / anchorHeight;
+  return heightRatio >= 0.45 && heightRatio <= 2.2;
+}
+
+function blockCharCount(block: UnknownRecord): number {
+  const value = record(block.text)?.char_count;
+  return Number.isInteger(value) ? Math.max(0, Number(value)) : 0;
+}
+
+function runningPageHeader(block: UnknownRecord): boolean {
+  if (block.role !== "title" || blockCharCount(block) <= 0 || blockCharCount(block) > 16) return false;
+  const blockBbox = normalizedBboxArray(block.bbox_norm);
+  const text = record(block.text) ?? {};
+  return Boolean(
+    blockBbox
+    && blockBbox[0] <= 200
+    && blockBbox[1] <= 40
+    && blockBbox[2] - blockBbox[0] <= 180
+    && blockBbox[3] <= 65
+    && !text.leading_figure_key
+    && !text.leading_formal_figure_caption_key
+  );
+}
+
+function terminalCaptionSource(block: UnknownRecord, sourceTextByBlockId: Map<string, string>): boolean {
+  const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id)?.trim() : undefined;
+  return Boolean(source && endsWithTerminalPunctuation(source));
 }
 
 function hasFormalCaption(block: UnknownRecord): boolean {
@@ -458,6 +563,62 @@ function hasFormalCaption(block: UnknownRecord): boolean {
     || strings(text?.formal_figure_caption_keys).length > 0
     || Boolean(caption?.leading_formal_figure_caption_key)
     || Boolean(text?.leading_formal_figure_caption_key);
+}
+
+function rawTypeMatchesRole(role: unknown, raw: UnknownRecord): boolean {
+  const type = String(raw.type ?? "unknown").trim().toLocaleLowerCase();
+  if (role === "visual") return type === "image" || type === "chart";
+  if (role === "table") return type === "table" || type === "table_body";
+  if (role === "equation") return type === "equation" || type === "interline_equation";
+  if (role === "title") return type === "title" || type === "paragraph_title"
+    || (type === "text" && raw.text_level !== null && raw.text_level !== undefined);
+  if (role === "text") return ["text", "paragraph", "ref_text", "list"].includes(type)
+    && !(type === "text" && raw.text_level !== null && raw.text_level !== undefined);
+  if (role === "marginalia") return [
+    "aside_text", "footer", "header", "page_footer", "page_footnote", "page_header", "page_number"
+  ].includes(type);
+  return role === "other";
+}
+
+function sameNormalizedBbox(left: unknown, right: unknown): boolean {
+  const a = normalizedBboxArray(left);
+  const b = normalizedBboxArray(right);
+  return Boolean(a && b && a.every((value, index) => value === b![index]));
+}
+
+function stringSetEquals(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === new Set(left).size
+    && right.length === new Set(right).size
+    && left.length === right.length
+    && left.every((value) => right.includes(value));
+}
+
+function expandedCaptionPanelLabels(value: string): Set<string> {
+  const labels = new Set<string>();
+  captionPanelMarkers(value).forEach(({ start, end }) => {
+    const first = start.charCodeAt(0);
+    const last = end.charCodeAt(0);
+    if (first < 97 || first > 122 || last < first || last > 122) return;
+    for (let code = first; code <= last; code += 1) labels.add(String.fromCharCode(code));
+  });
+  return labels;
+}
+
+function footerBadgeGeometry(block: UnknownRecord): boolean {
+  if (block.role !== "visual" || captionItems(block).length || hasFormalCaption(block)) return false;
+  const caption = record(block.caption);
+  const text = record(block.text);
+  const blockBbox = normalizedBboxArray(block.bbox_norm);
+  if (
+    !blockBbox
+    || caption?.next_page_marker === true
+    || strings(caption?.next_page_figure_keys).length
+    || text?.leading_figure_key
+    || text?.leading_formal_figure_caption_key
+  ) return false;
+  const width = blockBbox[2] - blockBbox[0];
+  const height = blockBbox[3] - blockBbox[1];
+  return blockBbox[1] >= 700 && width <= 100 && height <= 35 && width * height <= 2_500;
 }
 
 export function applyMinerUVisualRepair(input: {
@@ -490,18 +651,51 @@ export function applyMinerUVisualRepair(input: {
   const pages = Array.isArray(viewer.pages) ? viewer.pages : [];
   const blockById = new Map<string, UnknownRecord>();
   const pageByBlockId = new Map<string, number>();
+  const sourceIndexes = new Set<number>();
+  const pageIndexes = new Set<number>();
+  let contractStructureSafe = true;
+  let runtimeInferenceSafe = true;
   pages.forEach((pageValue) => {
     const page = record(pageValue);
-    if (!Array.isArray(page?.blocks)) return;
+    if (!page || !Number.isInteger(page.page_idx) || pageIndexes.has(Number(page.page_idx)) || !Array.isArray(page.blocks)) {
+      contractStructureSafe = false;
+      runtimeInferenceSafe = false;
+      return;
+    }
+    pageIndexes.add(Number(page.page_idx));
     page.blocks.forEach((blockValue) => {
       const block = record(blockValue);
       if (typeof block?.id === "string") {
+        if (blockById.has(block.id)) {
+          contractStructureSafe = false;
+          runtimeInferenceSafe = false;
+        }
         blockById.set(block.id, block);
-        if (Number.isInteger(page?.page_idx)) pageByBlockId.set(block.id, Number(page.page_idx));
+        pageByBlockId.set(block.id, Number(page.page_idx));
+      } else {
+        contractStructureSafe = false;
+        runtimeInferenceSafe = false;
       }
+      const sourceIndex = Number(block?.source_index);
+      if (!Number.isInteger(sourceIndex) || sourceIndexes.has(sourceIndex)) {
+        contractStructureSafe = false;
+        runtimeInferenceSafe = false;
+      }
+      else sourceIndexes.add(sourceIndex);
     });
   });
   const visualByPath = new Map(input.visuals.map((visual) => [visual.path, visual]));
+  if (visualByPath.size !== input.visuals.length) {
+    contractStructureSafe = false;
+    runtimeInferenceSafe = false;
+  }
+  if (Array.isArray(viewer.markdown_images)) {
+    const markdownIds = viewer.markdown_images.map(record).map((image) => image?.id).filter((id): id is string => typeof id === "string");
+    if (markdownIds.length !== viewer.markdown_images.length || new Set(markdownIds).size !== markdownIds.length) {
+      contractStructureSafe = false;
+      runtimeInferenceSafe = false;
+    }
+  }
   const orderByPath = new Map(input.visuals.map((visual, index) => [visual.path, index]));
   const consumed = new Set<string>();
   const repaired: Array<{ order: number; visual: RepairedMinerUVisual }> = [];
@@ -511,17 +705,284 @@ export function applyMinerUVisualRepair(input: {
     ? input.mineruPayload.flatMap((value) => Array.isArray(value) ? value : [value]).map(record)
     : [];
   const sourceTextByBlockId = new Map<string, string>();
+  let sourceBindingSafe = true;
   blockById.forEach((block, id) => {
     const sourceIndex = Number(block.source_index);
     const raw = Number.isInteger(sourceIndex) ? rawRecords[sourceIndex] : undefined;
+    const pageIndex = pageByBlockId.get(id);
+    const rawAssetPath = typeof raw?.img_path === "string" && raw.img_path.trim()
+      ? raw.img_path.replace(/\\/g, "/")
+      : undefined;
+    const blockAssetPath = typeof block.asset_path === "string" && block.asset_path.trim()
+      ? block.asset_path.replace(/\\/g, "/")
+      : undefined;
+    const sourceBound = Boolean(
+      raw
+      && pageIndex !== undefined
+      && Number(raw.page_idx) === pageIndex
+      && rawTypeMatchesRole(block.role, raw)
+      && sameNormalizedBbox(block.bbox_norm, raw.bbox)
+      && (blockAssetPath === undefined || rawAssetPath === blockAssetPath)
+    );
+    if (!sourceBound) {
+      sourceBindingSafe = false;
+      runtimeInferenceSafe = false;
+      return;
+    }
     const text = typeof raw?.text === "string" ? raw.text.trim() : "";
     if (text) sourceTextByBlockId.set(id, text);
   });
+  if (!contractStructureSafe || !sourceBindingSafe) {
+    diagnostics.push({
+      level: "warning",
+      code: "mineru-viewer-source-binding-invalid",
+      message: "Viewer 派生块无法与原始 MinerU 页码、类型、坐标和资源建立唯一绑定，已保留原始图片显示。"
+    });
+    return { visuals: input.visuals, diagnostics };
+  }
   let fullPageConsolidationCount = 0;
   const consolidatedPages = new Set<number>();
   const syntheticGroups: UnknownRecord[] = [];
   const rawGroupRecords = rawGroups.map(record).filter((group): group is UnknownRecord => Boolean(group));
   const pageRecords = pages.map(record).filter((page): page is UnknownRecord => Boolean(page));
+  const runtimeGroupIds = rawGroupRecords.map((group) => group.id).filter((id): id is string => typeof id === "string");
+  if (runtimeGroupIds.length !== rawGroupRecords.length || new Set(runtimeGroupIds).size !== runtimeGroupIds.length) {
+    diagnostics.push({
+      level: "warning",
+      code: "mineru-visual-group-binding-invalid",
+      message: "视觉修复组标识不唯一，已保留原始图片显示。"
+    });
+    return { visuals: input.visuals, diagnostics };
+  }
+  const groupSupportsRuntimeInference = (group: UnknownRecord, pageIndex: number): boolean => {
+    const ids = strings(group.member_block_ids);
+    const paths = strings(group.member_asset_paths);
+    const markdownIds = strings(group.member_markdown_image_ids);
+    const blocks = ids.map((id) => blockById.get(id));
+    const expectedPaths = blocks.flatMap((block) => typeof block?.asset_path === "string" ? [block.asset_path] : []);
+    const expectedMarkdownIds = blocks.flatMap((block) => block ? strings(block.markdown_image_ids) : []);
+    const replacement = record(group.replacement);
+    const confidence = Number(group.confidence);
+    return Number(group.page_idx) === pageIndex
+      && group.decision === "auto"
+      && ids.length >= 2
+      && blocks.every((block) => Boolean(
+        block
+        && ["visual", "table"].includes(String(block.role))
+        && typeof block.id === "string"
+        && pageByBlockId.get(block.id) === pageIndex
+      ))
+      && stringSetEquals(ids, ids)
+      && stringSetEquals(paths, expectedPaths)
+      && stringSetEquals(markdownIds, expectedMarkdownIds)
+      && Number.isFinite(confidence)
+      && confidence >= 0
+      && confidence <= 1
+      && replacement?.mode === "pdf_crop"
+      && Boolean(normalizedBboxArray(replacement.bbox_norm));
+  };
+  const pageSourceCaptionDetails = (
+    memberIds: string[],
+    pageIndex: number,
+    requireCaptionOnlyPage = false
+  ): {
+    caption: string;
+    captionBlocks: UnknownRecord[];
+    captionSourceRanges: Array<{ start: number; end: number; text: string }>;
+    captionStatus: "complete";
+  } | undefined => {
+    if (!input.articleMarkdown || !memberIds.length) return undefined;
+    const page = pageRecords.find((candidate) => Number(candidate.page_idx) === pageIndex);
+    if (!Array.isArray(page?.blocks)) return undefined;
+    const ordered = page.blocks.map(record)
+      .filter((block): block is UnknownRecord => Boolean(block))
+      .sort((left, right) => Number(left.page_order) - Number(right.page_order) || Number(left.source_index) - Number(right.source_index));
+    const pageVisuals = ordered.filter((block) => ["visual", "table"].includes(String(block.role)));
+    if (pageVisuals.some((block) => (
+      typeof block.id !== "string"
+      || typeof block.asset_path !== "string"
+      || !visualByPath.has(block.asset_path)
+    ))) return undefined;
+    const pageVisualIds = pageVisuals.map((block) => String(block.id));
+    const memberSet = new Set(memberIds);
+    if (
+      memberSet.size !== memberIds.length
+      || pageVisualIds.length !== memberSet.size
+      || pageVisualIds.some((id) => !memberSet.has(id))
+    ) return undefined;
+    const memberBoxes = pageVisuals.map((block) => normalizedBboxArray(block.bbox_norm));
+    if (memberBoxes.some((value) => !value)) return undefined;
+    const exactMemberBoxes = memberBoxes.filter((value): value is [number, number, number, number] => Boolean(value));
+    const visualLeft = Math.min(...exactMemberBoxes.map((value) => value[0]));
+    const visualRight = Math.max(...exactMemberBoxes.map((value) => value[2]));
+    const visualBottom = Math.max(...exactMemberBoxes.map((value) => value[3]));
+    const formal = ordered.filter((block) => {
+      const blockBbox = normalizedBboxArray(block.bbox_norm);
+      const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id) : undefined;
+      const sourceCaption = sourceBoundFormalCaption(block, sourceTextByBlockId);
+      const gap = blockBbox ? blockBbox[1] - visualBottom : Number.POSITIVE_INFINITY;
+      const horizontalOverlap = blockBbox ? axisOverlap(visualLeft, visualRight, blockBbox[0], blockBbox[2]) : 0;
+      return ["text", "title"].includes(String(block.role))
+        && hasFormalCaption(block)
+        && typeof block.id === "string"
+        && Boolean(source)
+        && Boolean(blockBbox)
+        && gap >= -20
+        && gap <= 120
+        && horizontalOverlap >= 0.6 * Math.min(visualRight - visualLeft, Number(blockBbox?.[2]) - Number(blockBbox?.[0]))
+        && Boolean(sourceCaption);
+    });
+    if (formal.length !== 1) return undefined;
+    const anchor = formal[0];
+    const selected = [anchor];
+    if (!terminalCaptionSource(anchor, sourceTextByBlockId)) {
+      const following = ordered.filter((block) => (
+        Number(block.page_order) > Number(anchor.page_order)
+        && ["text", "title"].includes(String(block.role))
+        && !runningPageHeader(block)
+        && typeof block.id === "string"
+        && Boolean(sourceTextByBlockId.get(block.id))
+      ));
+      const continuationCandidates = following.filter((block) => {
+        const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id) : undefined;
+        return !hasFormalCaption(block)
+          && sameTopCaptionBand(anchor, block)
+          && sourceStartsLikeCaptionContinuation(source)
+          && terminalCaptionSource(block, sourceTextByBlockId);
+      });
+      const continuation = continuationCandidates.length === 1 && following[0] === continuationCandidates[0]
+        ? continuationCandidates[0]
+        : undefined;
+      if (!continuation) return undefined;
+      selected.push(continuation);
+    }
+    if (requireCaptionOnlyPage) {
+      const selectedIds = new Set(selected.map((block) => String(block.id)));
+      const unrelated = ordered.filter((block) => (
+        ["text", "title"].includes(String(block.role))
+        && !runningPageHeader(block)
+        && typeof block.id === "string"
+        && Boolean(sourceTextByBlockId.get(block.id))
+        && !selectedIds.has(block.id)
+      ));
+      if (unrelated.length) return undefined;
+    }
+    const ranges = selected.map((block) => markdownRange(
+      block,
+      sourceTextByBlockId.get(String(block.id)),
+      input.articleMarkdown
+    ));
+    if (ranges.some((range) => !range)) return undefined;
+    const exactRanges = ranges.filter((range): range is NonNullable<typeof range> => Boolean(range));
+    if (exactRanges.some((range, index) => index > 0 && range.start <= exactRanges[index - 1].end)) return undefined;
+    const captionText = selected.map((block) => sourceTextByBlockId.get(String(block.id))!).join(" ").replace(/\s+/g, " ").trim();
+    const captionPanels = expandedCaptionPanelLabels(captionText);
+    const visualPanels = [...new Set(panelLabels(pageVisuals).map((label) => label.toLocaleLowerCase()).filter((label) => /^[a-z]$/.test(label)))];
+    if (visualPanels.length && visualPanels.some((label) => !captionPanels.has(label))) return undefined;
+    return {
+      caption: captionText,
+      captionBlocks: selected,
+      captionSourceRanges: exactRanges,
+      captionStatus: "complete"
+    };
+  };
+  const viewerMarkdownOccurrences = input.articleMarkdown
+    ? markdownImageOccurrences(viewer, input.articleMarkdown)
+    : new Map<string, MarkdownImageOccurrence>();
+  const provenLicenseFooterBadge = (block: UnknownRecord): boolean => {
+    if (!input.articleMarkdown || !footerBadgeGeometry(block) || typeof block.id !== "string") return false;
+    const pageIndex = pageByBlockId.get(block.id);
+    const page = pageRecords.find((candidate) => Number(candidate.page_idx) === pageIndex);
+    if (!Array.isArray(page?.blocks)) return false;
+    const ordered = page.blocks.map(record)
+      .filter((candidate): candidate is UnknownRecord => Boolean(candidate))
+      .sort((left, right) => Number(left.page_order) - Number(right.page_order) || Number(left.source_index) - Number(right.source_index));
+    const blockIndex = ordered.indexOf(block);
+    if (blockIndex < 0) return false;
+    const following = ordered.slice(blockIndex + 1).find((candidate) => (
+      ["text", "title"].includes(String(candidate.role))
+      && typeof candidate.id === "string"
+      && Boolean(sourceTextByBlockId.get(candidate.id))
+    ));
+    if (!following || typeof following.id !== "string" || hasFormalCaption(following)) return false;
+    const licenseText = sourceTextByBlockId.get(following.id)!;
+    if (
+      !/^Open Access\s+This article is licensed under a Creative Commons/i.test(licenseText)
+      || !/creativecommons\.org\/licenses\//i.test(licenseText)
+    ) return false;
+    const blockBbox = normalizedBboxArray(block.bbox_norm);
+    const textBbox = normalizedBboxArray(following.bbox_norm);
+    if (!blockBbox || !textBbox || textBbox[0] < blockBbox[2] || textBbox[0] - blockBbox[2] > 15) return false;
+    const yOverlap = axisOverlap(blockBbox[1], blockBbox[3], textBbox[1], textBbox[3]);
+    if (yOverlap < 0.8 * Math.min(blockBbox[3] - blockBbox[1], textBbox[3] - textBbox[1])) return false;
+    const ids = strings(block.markdown_image_ids);
+    if (ids.length !== 1) return false;
+    const imageOccurrence = viewerMarkdownOccurrences.get(ids[0]);
+    const textRange = markdownRange(following, licenseText, input.articleMarkdown);
+    return Boolean(
+      imageOccurrence
+      && textRange
+      && textRange.start > imageOccurrence.end
+      && !input.articleMarkdown.slice(imageOccurrence.end, textRange.start).trim()
+    );
+  };
+  const reportingSignature = (page: UnknownRecord): boolean => Array.isArray(page.blocks) && page.blocks.map(record).some((block) => {
+    if (!block || block.role !== "marginalia" || typeof block.id !== "string") return false;
+    const blockBbox = normalizedBboxArray(block.bbox_norm);
+    const source = sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+    return source === "nature portfolio | reporting summary"
+      && Boolean(blockBbox)
+      && Number(blockBbox?.[0]) >= 900
+      && Number(blockBbox?.[1]) <= 60
+      && Number(blockBbox?.[2]) - Number(blockBbox?.[0]) <= 40;
+  });
+  const reportingBoundaries = pageRecords.filter((page) => {
+    if (!runtimeInferenceSafe || !Array.isArray(page.blocks) || !Number.isInteger(page.page_idx) || !reportingSignature(page)) return false;
+    const ordered = page.blocks.map(record)
+      .filter((block): block is UnknownRecord => Boolean(block))
+      .sort((left, right) => Number(left.page_order) - Number(right.page_order));
+    const brand = ordered.filter((block) => {
+      const blockBbox = normalizedBboxArray(block.bbox_norm);
+      const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLocaleLowerCase() : undefined;
+      return block.role === "title" && source === "natureportfolio" && Boolean(blockBbox)
+        && Number(blockBbox?.[0]) <= 100 && Number(blockBbox?.[1]) <= 120;
+    });
+    const summary = ordered.filter((block) => {
+      const blockBbox = normalizedBboxArray(block.bbox_norm);
+      const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLocaleLowerCase() : undefined;
+      return block.role === "title" && source === "reporting summary" && Boolean(blockBbox)
+        && Number(blockBbox?.[0]) <= 100 && Number(blockBbox?.[1]) >= 100 && Number(blockBbox?.[1]) <= 260;
+    });
+    return brand.length === 1 && summary.length === 1 && Number(brand[0].page_order) < Number(summary[0].page_order);
+  });
+  const reportingFormPages = new Set<number>();
+  if (reportingBoundaries.length === 1) {
+    const start = Number(reportingBoundaries[0].page_idx);
+    let expected = start;
+    for (const page of [...pageRecords].sort((left, right) => Number(left.page_idx) - Number(right.page_idx))) {
+      const pageIndex = Number(page.page_idx);
+      if (pageIndex < start) continue;
+      if (pageIndex !== expected || !reportingSignature(page)) break;
+      reportingFormPages.add(pageIndex);
+      expected += 1;
+    }
+  }
+  const provenReportingFormTable = (block: UnknownRecord, visual: MinerUVisual): boolean => {
+    const actualPageIndex = typeof block.id === "string" ? pageByBlockId.get(block.id) : undefined;
+    if (
+      actualPageIndex === undefined
+      || actualPageIndex !== visual.pageIndex
+      || !reportingFormPages.has(actualPageIndex)
+      || visual.placementBlockId
+      || block.role !== "table"
+      || captionItems(block).length
+      || hasFormalCaption(block)
+      || strings(block.markdown_image_ids).length
+      || typeof block.id !== "string"
+    ) return false;
+    return !rawGroupRecords.some((group) => strings(group.member_block_ids).includes(block.id as string))
+      && !captionLinks.map(record).some((link) => link?.visual_block_id === block.id);
+  };
   for (const page of pageRecords) {
     if (!Number.isInteger(page.page_idx) || !Array.isArray(page.blocks)) continue;
     const pageIndex = Number(page.page_idx);
@@ -530,10 +991,78 @@ export function applyMinerUVisualRepair(input: {
     if (
       autoGroups.length < 2
       || pageGroups.length !== autoGroups.length
+      || !runtimeInferenceSafe
+      || !autoGroups.every((group) => groupSupportsRuntimeInference(group, pageIndex))
       || captionLinks.map(record).some((link) => Number(link?.source_page_idx) === pageIndex)
       || !input.articleMarkdown
       || !input.sourcePdfPath
     ) continue;
+
+    const pageVisualSourceBlocks = page.blocks.map(record).filter((block): block is UnknownRecord => Boolean(
+      block && ["visual", "table"].includes(String(block.role))
+    ));
+    const pageVisualBlocks = pageVisualSourceBlocks.filter((block): block is UnknownRecord => Boolean(
+      block
+      && typeof block.id === "string"
+      && typeof block.asset_path === "string"
+      && visualByPath.has(block.asset_path)
+    ));
+    const coveredMemberIds = autoGroups.flatMap((group) => strings(group.member_block_ids));
+    const pageVisualIds = pageVisualBlocks.map((block) => String(block.id));
+    const pageVisualPaths = pageVisualBlocks.map((block) => String(block.asset_path));
+    const pageMarkdownIds = pageVisualBlocks.flatMap((block) => strings(block.markdown_image_ids));
+    const exactPageCoverage = pageVisualBlocks.length === pageVisualSourceBlocks.length
+      && pageVisualPaths.length === new Set(pageVisualPaths).size
+      && pageMarkdownIds.length === pageVisualBlocks.length
+      && pageMarkdownIds.length === new Set(pageMarkdownIds).size
+      && coveredMemberIds.length === new Set(coveredMemberIds).size
+      && pageVisualIds.length === new Set(pageVisualIds).size
+      && pageVisualIds.length === coveredMemberIds.length
+      && pageVisualIds.every((id) => coveredMemberIds.includes(id));
+    const samePageCaption = exactPageCoverage
+      ? pageSourceCaptionDetails(pageVisualIds, pageIndex, true)
+      : undefined;
+    const samePageBoxes = pageVisualBlocks.map((block) => normalizedBboxArray(block.bbox_norm));
+    const samePageLabels = panelLabels(pageVisualBlocks)
+      .map((label) => label.toLocaleLowerCase())
+      .filter((label) => /^[a-z]$/.test(label));
+    if (
+      samePageCaption
+      && samePageBoxes.length >= 4
+      && samePageBoxes.every((value) => Boolean(value))
+      && new Set(samePageLabels).size >= 3
+    ) {
+      const boxes = samePageBoxes.filter((value): value is [number, number, number, number] => Boolean(value));
+      const union: [number, number, number, number] = [
+        Math.min(...boxes.map((value) => value[0])),
+        Math.min(...boxes.map((value) => value[1])),
+        Math.max(...boxes.map((value) => value[2])),
+        Math.max(...boxes.map((value) => value[3]))
+      ];
+      const unionArea = ((union[2] - union[0]) * (union[3] - union[1])) / 1_000_000;
+      if (unionArea >= 0.3 && unionArea <= 0.9) {
+        const memberPaths = pageVisualPaths;
+        const markdownIds = pageMarkdownIds;
+        const confidence = Math.min(...autoGroups.map((group) => Number(group.confidence)).filter(Number.isFinite));
+        const padding = Math.max(0, ...autoGroups.map((group) => Number(record(group.replacement)?.padding_norm ?? 0)).filter(Number.isFinite));
+        syntheticGroups.push({
+          id: `vr-runtime-full-page-${pageIndex.toString().padStart(4, "0")}`,
+          page_idx: pageIndex,
+          member_block_ids: pageVisualIds,
+          member_asset_paths: memberPaths,
+          member_markdown_image_ids: markdownIds,
+          caption_anchor_block_ids: samePageCaption.captionBlocks.map((block) => String(block.id)),
+          decision: "auto",
+          confidence: Number.isFinite(confidence) ? confidence : 0.8,
+          replacement: { mode: "pdf_crop", bbox_norm: union, padding_norm: Math.min(50, padding) },
+          reason_codes: ["runtime_full_page_visual_component", "unique_same_page_formal_caption"],
+          fallback: "original_assets"
+        });
+        consolidatedPages.add(pageIndex);
+        fullPageConsolidationCount += 1;
+        continue;
+      }
+    }
 
     const meaningfulBlocks = page.blocks.map(record).filter((block): block is UnknownRecord => Boolean(
       block && !["discarded", "marginalia"].includes(String(block.role))
@@ -559,8 +1088,7 @@ export function applyMinerUVisualRepair(input: {
       || memberBboxes.some((value) => !value)
     ) continue;
 
-    const coveredIds = new Set(autoGroups.flatMap((group) => strings(group.member_block_ids)));
-    if (coveredIds.size < Math.max(4, Math.ceil(meaningfulBlocks.length / 2))) continue;
+    if (!stringSetEquals(coveredMemberIds, memberIds)) continue;
     const labels = panelLabels(meaningfulBlocks)
       .map((label) => label.toLocaleLowerCase())
       .filter((label) => /^[a-z]$/.test(label));
@@ -575,16 +1103,13 @@ export function applyMinerUVisualRepair(input: {
       .map((block) => Number(block.page_order))
       .filter(Number.isFinite));
     const targetCaptions = nextBlocks.filter((block) => {
-      const summary = record(block.text);
+      const sourceCaption = sourceBoundFormalCaption(block, sourceTextByBlockId);
       return ["text", "title"].includes(String(block.role))
         && Number(block.page_order) === firstMeaningfulOrder
-        && typeof summary?.leading_formal_figure_caption_key === "string"
-        && Boolean(summary.leading_formal_figure_caption_key)
-        && terminalCaption(block)
+        && sourceCaption?.terminal === true
         && Array.isArray(block.bbox_norm)
         && Number(block.bbox_norm[1]) <= 320
-        && typeof block.id === "string"
-        && Boolean(sourceTextByBlockId.get(block.id));
+        && typeof block.id === "string";
     });
     if (targetCaptions.length !== 1) continue;
     const targetText = sourceTextByBlockId.get(String(targetCaptions[0].id))!;
@@ -623,55 +1148,98 @@ export function applyMinerUVisualRepair(input: {
     ...rawGroupRecords.filter((group) => !consolidatedPages.has(Number(group.page_idx))),
     ...syntheticGroups
   ];
-  const autoGroupCountByPage = new Map<number, number>();
-  groups.map(record).filter((group): group is UnknownRecord => group?.decision === "auto").forEach((group) => {
-    if (!Number.isInteger(group.page_idx)) return;
-    const page = Number(group.page_idx);
-    autoGroupCountByPage.set(page, (autoGroupCountByPage.get(page) ?? 0) + 1);
-  });
   let reviewCount = 0;
+  let hiddenFooterBadgeCount = 0;
+  let hiddenReportingFormVisualCount = 0;
 
   const captionDetails = (memberIds: string[], blocks: UnknownRecord[], pageIndex: number, inferNextPage: boolean) => {
     const memberSet = new Set(memberIds);
     const links = captionLinks.map(record).filter((link): link is UnknownRecord => Boolean(link))
       .filter((link) => typeof link.visual_block_id === "string" && memberSet.has(link.visual_block_id));
-    if (links.length === 0 && inferNextPage && autoGroupCountByPage.get(pageIndex) === 1 && input.articleMarkdown) {
+    if (links.length === 0 && inferNextPage && runtimeInferenceSafe && input.articleMarkdown) {
+      const sourceFigureKeys = [...new Set(blocks.flatMap((block) => {
+        const caption = record(block.caption);
+        return caption?.next_page_marker === true ? strings(caption.next_page_figure_keys) : [];
+      }))];
+      const sourcePage = pages.map(record).find((page) => page?.page_idx === pageIndex);
       const nextPage = pages.map(record).find((page) => page?.page_idx === pageIndex + 1);
-      const candidates = Array.isArray(nextPage?.blocks)
-        ? nextPage.blocks.map(record).filter((block): block is UnknownRecord => {
-          if (!block || !["text", "title"].includes(String(block.role))) return false;
-          const summary = record(block.text);
-          return typeof summary?.leading_formal_figure_caption_key === "string"
-            && Boolean(summary.leading_formal_figure_caption_key)
-            && typeof block.id === "string"
-            && Boolean(sourceTextByBlockId.get(block.id));
-        })
+      const markerFigureKey = sourceFigureKeys.length === 1 ? sourceFigureKeys[0] : undefined;
+      const consolidatedInference = sourceFigureKeys.length === 0 && consolidatedPages.has(pageIndex);
+      const sourceClaims = markerFigureKey && Array.isArray(sourcePage?.blocks)
+        ? sourcePage.blocks.map(record).filter((block): block is UnknownRecord => Boolean(
+          block
+          && typeof block.id === "string"
+          && block.role === "visual"
+          && record(block.caption)?.next_page_marker === true
+          && strings(record(block.caption)?.next_page_figure_keys).includes(markerFigureKey)
+        ))
         : [];
-      const firstMeaningfulOrder = Array.isArray(nextPage?.blocks)
-        ? Math.min(...nextPage.blocks.map(record)
-          .filter((block) => block && block.role !== "discarded" && block.role !== "marginalia")
-          .map((block) => Number(block!.page_order))
-          .filter(Number.isFinite))
-        : Number.NaN;
-      if (candidates.length === 1 && Number(candidates[0].page_order) === firstMeaningfulOrder) {
-        const id = String(candidates[0].id);
-        const caption = sourceTextByBlockId.get(id)!;
-        const start = input.articleMarkdown.indexOf(caption);
-        if (start >= 0 && input.articleMarkdown.indexOf(caption, start + caption.length) < 0) {
-          return {
-            caption,
-            captionSourceRanges: [
-              ...nextPagePlaceholderRanges(blocks, viewer, input.articleMarkdown),
-              { start, end: start + caption.length, text: caption }
-            ],
-            captionPageIndex: pageIndex + 1,
-            captionStatus: "complete" as const,
-            panelLabels: panelLabels(blocks)
-          };
+      const sourceApproved = consolidatedInference
+        || (sourceClaims.length === 1 && memberSet.has(String(sourceClaims[0].id)));
+      if (sourceApproved && Array.isArray(nextPage?.blocks)) {
+        const ordered = nextPage.blocks.map(record)
+          .filter((block): block is UnknownRecord => Boolean(block))
+          .sort((left, right) => Number(left.page_order) - Number(right.page_order) || Number(left.source_index) - Number(right.source_index));
+        const candidates = ordered.filter((block) => {
+          const sourceCaption = sourceBoundFormalCaption(block, sourceTextByBlockId);
+          return ["text", "title"].includes(String(block.role))
+            && Boolean(sourceCaption)
+            && (!markerFigureKey || sourceCaption?.key === markerFigureKey.toLocaleLowerCase())
+            && typeof block.id === "string";
+        });
+        const meaningful = ordered.filter((block) => {
+          if (["discarded", "marginalia"].includes(String(block.role)) || runningPageHeader(block)) return false;
+          return !["text", "title"].includes(String(block.role))
+            || blockCharCount(block) > 0
+            || (typeof block.id === "string" && Boolean(sourceTextByBlockId.get(block.id)));
+        });
+        const anchor = candidates.length === 1 && meaningful[0] === candidates[0] ? candidates[0] : undefined;
+        const anchorBbox = anchor ? normalizedBboxArray(anchor.bbox_norm) : undefined;
+        const selected = anchor && (!anchorBbox || anchorBbox[1] <= 320) ? [anchor] : [];
+        if (anchor && selected.length && !terminalCaptionSource(anchor, sourceTextByBlockId)) {
+          const continuation = meaningful[1];
+          const summary = record(continuation?.text);
+          const continuationSource = typeof continuation?.id === "string"
+            ? sourceTextByBlockId.get(continuation.id)
+            : undefined;
+          if (
+            continuation?.role === "text"
+            && summary?.leading_figure_key == null
+            && sameTopCaptionBand(anchor, continuation)
+            && sourceStartsLikeCaptionContinuation(continuationSource)
+            && terminalCaptionSource(continuation, sourceTextByBlockId)
+          ) selected.push(continuation);
+          else selected.length = 0;
+        }
+        if (selected.length && terminalCaptionSource(selected[selected.length - 1], sourceTextByBlockId)) {
+          const ranges = selected.map((block) => markdownRange(block, sourceTextByBlockId.get(String(block.id)), input.articleMarkdown));
+          if (ranges.every((range): range is NonNullable<typeof range> => Boolean(range))) {
+            const caption = selected.map((block) => sourceTextByBlockId.get(String(block.id))!).join(" ").replace(/\s+/g, " ").trim();
+            return {
+              caption,
+              captionSourceRanges: [
+                ...nextPagePlaceholderRanges(blocks, viewer, input.articleMarkdown),
+                ...ranges
+              ],
+              captionPageIndex: pageIndex + 1,
+              captionStatus: "complete" as const,
+              panelLabels: panelLabels(blocks)
+            };
+          }
         }
       }
     }
     if (links.length === 0 && input.articleMarkdown) {
+      const sourceCaption = pageSourceCaptionDetails(memberIds, pageIndex);
+      if (sourceCaption) {
+        return {
+          caption: sourceCaption.caption,
+          captionSourceRanges: sourceCaption.captionSourceRanges,
+          captionPageIndex: pageIndex,
+          captionStatus: sourceCaption.captionStatus,
+          panelLabels: panelLabels(blocks)
+        };
+      }
       const samePage = samePageCaptionDetails(blocks, viewer, input.articleMarkdown);
       if (samePage) {
         return {
@@ -718,9 +1286,21 @@ export function applyMinerUVisualRepair(input: {
     const memberIds = strings(group.member_block_ids);
     const blocks = memberIds.map((id) => blockById.get(id)).filter((value): value is UnknownRecord => Boolean(value));
     if (blocks.length !== memberIds.length || blocks.length < 2) return;
-    const paths = strings(group.member_asset_paths).length
-      ? strings(group.member_asset_paths)
-      : blocks.map((block) => block.asset_path).filter((value): value is string => typeof value === "string");
+    const pageIndex = Number(group.page_idx);
+    const expectedPaths = blocks.map((block) => block.asset_path).filter((value): value is string => typeof value === "string");
+    const expectedMarkdownIds = blocks.flatMap((block) => strings(block.markdown_image_ids));
+    const paths = strings(group.member_asset_paths);
+    const suppliedMarkdownIds = strings(group.member_markdown_image_ids);
+    const confidence = Number(group.confidence);
+    if (
+      !Number.isInteger(pageIndex)
+      || blocks.some((block) => typeof block.id !== "string" || pageByBlockId.get(block.id) !== pageIndex)
+      || !stringSetEquals(paths, expectedPaths)
+      || !stringSetEquals(suppliedMarkdownIds, expectedMarkdownIds)
+      || !Number.isFinite(confidence)
+      || confidence < 0
+      || confidence > 1
+    ) return;
     const memberPaths = [...new Set(paths)].filter((path) => isSafeRelativePath(path) && visualByPath.has(path));
     if (memberPaths.length < 1 || memberPaths.some((path) => consumed.has(path))) return;
     const memberVisuals = memberPaths.map((path) => visualByPath.get(path)!);
@@ -768,7 +1348,6 @@ export function applyMinerUVisualRepair(input: {
       localPanelRanges
     );
     const captionText = linkedCaption.caption || bestCaption(captionBlocks, memberVisuals);
-    const pageIndex = Number.isInteger(group.page_idx) ? Number(group.page_idx) : anchor.pageIndex;
     memberPaths.forEach((path) => consumed.add(path));
     repaired.push({
       order: Math.min(...memberPaths.map((path) => orderByPath.get(path) ?? Number.MAX_SAFE_INTEGER)),
@@ -803,7 +1382,37 @@ export function applyMinerUVisualRepair(input: {
     }
     const block = matchingBlocks[0];
     const blockId = typeof block.id === "string" ? block.id : "";
-    const linkedCaption = captionDetails(blockId ? [blockId] : [], [block], visual.pageIndex, false);
+    const blockMarkdownIds = strings(block.markdown_image_ids);
+    if (blockId && blockMarkdownIds.length === 1 && provenLicenseFooterBadge(block)) {
+      hiddenFooterBadgeCount += 1;
+      repaired.push({
+        order: index,
+        visual: {
+          ...visual,
+          hidden: true,
+          memberAssetPaths: [visual.path],
+          memberBlockIds: [blockId],
+          memberMarkdownImageIds: blockMarkdownIds,
+          display: { mode: "asset" }
+        }
+      });
+      return;
+    }
+    if (blockId && provenReportingFormTable(block, visual)) {
+      hiddenReportingFormVisualCount += 1;
+      repaired.push({
+        order: index,
+        visual: {
+          ...visual,
+          hidden: true,
+          memberAssetPaths: [visual.path],
+          memberBlockIds: [blockId],
+          display: { mode: "asset" }
+        }
+      });
+      return;
+    }
+    const linkedCaption = captionDetails(blockId ? [blockId] : [], [block], visual.pageIndex, true);
     const localPanelRanges = input.articleMarkdown
       ? samePagePanelLabelRanges([block], viewer, input.articleMarkdown)
       : [];
@@ -821,7 +1430,7 @@ export function applyMinerUVisualRepair(input: {
         label: labelFromCaption(captionText, visual.label),
         memberAssetPaths: [visual.path],
         memberBlockIds: blockId ? [blockId] : undefined,
-        memberMarkdownImageIds: strings(block.markdown_image_ids),
+        memberMarkdownImageIds: blockMarkdownIds,
         captionSourceRanges: captionSourceRanges.length ? captionSourceRanges : undefined,
         captionPageIndex: linkedCaption.captionPageIndex,
         captionStatus: linkedCaption.captionStatus,
@@ -841,7 +1450,7 @@ export function applyMinerUVisualRepair(input: {
     diagnostics.push({
       level: "info",
       code: "mineru-full-page-visual-consolidated",
-      message: `已将 ${fullPageConsolidationCount} 个跨页图注的整页多面板视觉区域合并为单一显示对象。`
+      message: `已将 ${fullPageConsolidationCount} 个具有唯一正式图注的整页多面板视觉区域合并为单一显示对象。`
     });
   }
   if (reviewCount) {
@@ -849,6 +1458,20 @@ export function applyMinerUVisualRepair(input: {
       level: "warning",
       code: "mineru-visual-repair-review",
       message: `${reviewCount} 个不确定视觉组合未自动合并，继续显示原始图片。`
+    });
+  }
+  if (hiddenFooterBadgeCount) {
+    diagnostics.push({
+      level: "info",
+      code: "mineru-footer-badge-suppressed",
+      message: `已从图表导航隐藏 ${hiddenFooterBadgeCount} 个与许可声明严格关联的页脚徽标；正文、源图片和 Markdown 未修改。`
+    });
+  }
+  if (hiddenReportingFormVisualCount) {
+    diagnostics.push({
+      level: "info",
+      code: "mineru-reporting-form-visuals-suppressed",
+      message: `已从图表导航隐藏 ${hiddenReportingFormVisualCount} 个可验证的出版商 reporting form 表格；正文和源文件未修改。`
     });
   }
   return { visuals: repaired.map((item) => item.visual), diagnostics };

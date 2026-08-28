@@ -111,9 +111,9 @@ function decision(candidateId: string, memberIds?: string[]): MinerUVisualReview
 function crossPageFixture() {
   const articleMarkdown = "Body before.\n\nFigure 4. Cross-page result continues\n\nwith panels b and c.\n\nBody after.\n";
   const mineruPayload = [
-    { type: "image", img_path: "images/source.png" },
-    { type: "text", text: "Figure 4. Cross-page result continues" },
-    { type: "text", text: "with panels b and c." }
+    { type: "image", page_idx: 0, bbox: [100, 480, 720, 900], img_path: "images/source.png" },
+    { type: "text", page_idx: 1, bbox: [100, 80, 440, 180], text: "Figure 4. Cross-page result continues" },
+    { type: "text", page_idx: 1, bbox: [460, 80, 800, 180], text: "with panels b and c." }
   ];
   const source = {
     id: "source-visual", source_index: 0, page_order: 0, role: "visual", bbox_norm: [100, 480, 720, 900],

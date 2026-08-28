@@ -15,6 +15,7 @@ export interface PdfCaptionContinuationRequest {
   pageIndex: number;
   bbox: NormalizedBBox;
   anchorText: string;
+  anchorProjected: boolean;
   candidateBlocks: PdfCaptionContinuationBlock[];
 }
 
@@ -22,6 +23,7 @@ export interface RecoveredCaptionContinuation {
   visualId: string;
   sourceBlockId: string;
   anchorText: string;
+  anchorProjected: boolean;
   continuation: string;
   captionText: string;
   captionStatus: "complete" | "partial";
@@ -45,6 +47,10 @@ function strings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim())
     : [];
+}
+
+function normalizedInlineText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function normalizedBBox(value: unknown): NormalizedBBox | undefined {
@@ -74,18 +80,33 @@ function captionAdjacencyScore(captionBbox: [number, number, number, number], vi
   const visualWidth = visualBbox[2] - visualBbox[0];
   const sharedWidth = axisOverlap(captionBbox[0], captionBbox[2], visualBbox[0], visualBbox[2]);
   const overlapRatio = sharedWidth / Math.max(1, Math.min(captionWidth, visualWidth));
-  if (overlapRatio < 0.55) return undefined;
-  let gap: number;
-  if (captionBbox[1] >= visualBbox[3] - 20) {
-    gap = Math.max(0, captionBbox[1] - visualBbox[3]);
-    if (gap > 100) return undefined;
-  } else if (visualBbox[1] >= captionBbox[3] - 20) {
-    gap = Math.max(0, visualBbox[1] - captionBbox[3]);
-    if (gap > 80) return undefined;
-  } else {
-    return undefined;
+  if (overlapRatio >= 0.55) {
+    if (captionBbox[1] >= visualBbox[3] - 20) {
+      const gap = Math.max(0, captionBbox[1] - visualBbox[3]);
+      if (gap <= 100) return gap + (1 - overlapRatio) * 40;
+    } else if (visualBbox[1] >= captionBbox[3] - 20) {
+      const gap = Math.max(0, visualBbox[1] - captionBbox[3]);
+      if (gap <= 80) return gap + (1 - overlapRatio) * 40;
+    }
   }
-  return gap + (1 - overlapRatio) * 40;
+  const captionHeight = captionBbox[3] - captionBbox[1];
+  const visualHeight = visualBbox[3] - visualBbox[1];
+  const sharedHeight = axisOverlap(captionBbox[1], captionBbox[3], visualBbox[1], visualBbox[3]);
+  const verticalOverlapRatio = sharedHeight / Math.max(1, Math.min(captionHeight, visualHeight));
+  const horizontalGap = captionBbox[0] >= visualBbox[2] - 20
+    ? Math.max(0, captionBbox[0] - visualBbox[2])
+    : visualBbox[0] >= captionBbox[2] - 20
+      ? Math.max(0, visualBbox[0] - captionBbox[2])
+      : Number.POSITIVE_INFINITY;
+  const heightRatio = captionHeight / Math.max(1, visualHeight);
+  if (
+    horizontalGap > 80
+    || Math.abs(captionBbox[1] - visualBbox[1]) > 45
+    || verticalOverlapRatio < 0.55
+    || heightRatio < 0.45
+    || heightRatio > 2.2
+  ) return undefined;
+  return horizontalGap + (1 - verticalOverlapRatio) * 40;
 }
 
 function captionItems(block: UnknownRecord): Array<{ text: string; kind: string }> {
@@ -182,35 +203,71 @@ export function collectPdfCaptionContinuationRequests(input: {
   });
   const rawRecords = flattenMinerURecords(input.mineruPayload);
   const markdownRanges = new Map<string, { start: number; end: number }>();
+  const sourceTextByBlockId = new Map<string, string>();
   blockById.forEach((block, id) => {
     const sourceIndex = Number(block.source_index);
     const raw = Number.isInteger(sourceIndex) ? rawRecords[sourceIndex] : undefined;
     const text = typeof raw?.text === "string" ? raw.text.trim() : "";
+    if (text) sourceTextByBlockId.set(id, text);
     const range = uniqueMarkdownRange(input.markdown, text);
     if (range) markdownRanges.set(id, range);
   });
 
   const requests: PdfCaptionContinuationRequest[] = [];
   for (const visual of input.visuals) {
-    if (requests.length >= MAX_RECOVERY_REQUESTS || !visual.memberBlockIds?.length) break;
-    if (visual.captionPageIndex !== undefined) continue;
+    if (requests.length >= MAX_RECOVERY_REQUESTS) break;
+    if (!visual.memberBlockIds?.length) continue;
     const members = visual.memberBlockIds.map((id) => blockById.get(id)).filter((block): block is UnknownRecord => Boolean(block));
     if (members.length !== visual.memberBlockIds.length) continue;
-    const entries = captionPartEntries(members);
-    const formalEntries = entries.filter((entry) => entry.kind === "formal-caption");
-    if (formalEntries.length !== 1) continue;
-    const formal = formalEntries[0];
-    const formalBbox = bboxArray(formal.block.bbox_norm);
+
+    let recoveryPageIndex: number;
+    let formalBlock: UnknownRecord;
+    let formalText: string;
+    if (visual.captionPageIndex === undefined) {
+      const entries = captionPartEntries(members);
+      const formalEntries = entries.filter((entry) => entry.kind === "formal-caption");
+      if (formalEntries.length !== 1) continue;
+      const formal = formalEntries[0];
+      if (entries.some((entry) => entry.order > formal.order && entry.kind === "caption-continuation")) continue;
+      recoveryPageIndex = visual.pageIndex;
+      formalBlock = formal.block;
+      formalText = formal.text;
+    } else {
+      if (
+        visual.captionStatus !== "partial"
+        || visual.captionPageIndex !== visual.pageIndex + 1
+        || typeof visual.captionText !== "string"
+        || !visual.captionText.trim()
+      ) continue;
+      recoveryPageIndex = visual.captionPageIndex;
+      const captionPage = pageByIndex.get(recoveryPageIndex);
+      if (!captionPage || !Array.isArray(captionPage.blocks)) continue;
+      const displayCaption = normalizedInlineText(visual.captionText);
+      const formalCandidates = captionPage.blocks.map(record).filter((block): block is UnknownRecord => {
+        if (!block || typeof block.id !== "string" || !["text", "title"].includes(String(block.role))) return false;
+        const summary = record(block.text);
+        const sourceText = sourceTextByBlockId.get(block.id);
+        return Boolean(
+          summary?.leading_formal_figure_caption_key
+          && sourceText
+          && normalizedInlineText(sourceText) === displayCaption
+        );
+      });
+      if (formalCandidates.length !== 1) continue;
+      formalBlock = formalCandidates[0];
+      formalText = sourceTextByBlockId.get(String(formalBlock.id))!;
+    }
+
+    const formalBbox = bboxArray(formalBlock.bbox_norm);
     if (
       !formalBbox
-      || endsWithTerminalPunctuation(formal.text)
-      || !captionPanelMarkers(formal.text).length
-      || entries.some((entry) => entry.order > formal.order && entry.kind === "caption-continuation")
+      || endsWithTerminalPunctuation(formalText)
+      || !captionPanelMarkers(formalText).length
     ) continue;
-    const page = pageByIndex.get(visual.pageIndex);
+    const page = pageByIndex.get(recoveryPageIndex);
     if (!page || !Array.isArray(page.blocks)) continue;
     const emptyAdjacent = page.blocks.map(record).filter((block): block is UnknownRecord => {
-      if (!block || block.id === formal.block.id || block.role !== "text") return false;
+      if (!block || block.id === formalBlock.id || block.role !== "text") return false;
       const summary = record(block.text);
       const blockBbox = bboxArray(block.bbox_norm);
       return Boolean(
@@ -223,7 +280,7 @@ export function collectPdfCaptionContinuationRequests(input: {
     const recoveryBbox = normalizedBBox(emptyAdjacent[0].bbox_norm);
     if (!recoveryBbox) continue;
     const candidateBlocks: PdfCaptionContinuationBlock[] = [];
-    for (const targetPageIndex of [visual.pageIndex, visual.pageIndex - 1]) {
+    for (const targetPageIndex of [recoveryPageIndex, recoveryPageIndex - 1]) {
       const targetPage = pageByIndex.get(targetPageIndex);
       if (!targetPage || !Array.isArray(targetPage.blocks)) continue;
       targetPage.blocks.map(record).filter((block): block is UnknownRecord => Boolean(block)).forEach((block) => {
@@ -236,9 +293,15 @@ export function collectPdfCaptionContinuationRequests(input: {
     requests.push({
       visualId: visual.id,
       sourceBlockId: emptyAdjacent[0].id,
-      pageIndex: visual.pageIndex,
+      pageIndex: recoveryPageIndex,
       bbox: recoveryBbox,
-      anchorText: formal.text,
+      anchorText: formalText,
+      anchorProjected: (visual.captionSourceRanges ?? []).filter((range) => (
+        range.text === formalText
+        && range.start >= 0
+        && range.end === range.start + formalText.length
+        && input.markdown.slice(range.start, range.end) === formalText
+      )).length === 1,
       candidateBlocks
     });
   }
@@ -302,6 +365,7 @@ export function recoverPdfCaptionContinuation(
     visualId: request.visualId,
     sourceBlockId: request.sourceBlockId,
     anchorText: request.anchorText,
+    anchorProjected: request.anchorProjected,
     continuation,
     captionText: `${request.anchorText.trim()} ${continuation}`.replace(/\s+/g, " ").trim(),
     captionStatus: endsWithTerminalPunctuation(continuation) ? "complete" : "partial"
@@ -313,16 +377,17 @@ export function suppressRecoveredCaptionContinuation(
   projectedMarkdown: string,
   recovery: RecoveredCaptionContinuation
 ): string | undefined {
-  const exactRange = (text: string) => {
+  const exactRanges = (text: string): Array<{ start: number; end: number }> | undefined => {
     const start = projectedMarkdown.indexOf(text);
-    return start >= 0 && projectedMarkdown.indexOf(text, start + text.length) < 0
-      ? { start, end: start + text.length }
-      : undefined;
+    if (start < 0) return [];
+    if (projectedMarkdown.indexOf(text, start + text.length) >= 0) return undefined;
+    return [{ start, end: start + text.length }];
   };
-  const ranges = [exactRange(recovery.anchorText), exactRange(recovery.continuation)];
-  if (ranges.some((range) => !range)) return undefined;
+  const anchorRanges = exactRanges(recovery.anchorText);
+  const continuationRanges = exactRanges(recovery.continuation);
+  if (!anchorRanges || (!anchorRanges.length && !recovery.anchorProjected) || !continuationRanges?.length) return undefined;
+  const ranges = [...anchorRanges, ...continuationRanges];
   return ranges
-    .filter((range): range is { start: number; end: number } => Boolean(range))
     .sort((left, right) => right.start - left.start)
     .reduce((result, range) => `${result.slice(0, range.start)}${result.slice(range.end)}`, projectedMarkdown);
 }

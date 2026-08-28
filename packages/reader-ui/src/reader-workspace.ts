@@ -12,6 +12,7 @@ import {
   type MinerUReviewVerdict,
   type MinerUVisualReview,
   type MinerUVisualReviewDecision,
+  type MinerUVisualReviewSidecar,
   visualReviewSidecarByteLength
 } from "../../../src/model/mineru-visual-review";
 import { bindContractAssets } from "../../../src/render/contract-renderer";
@@ -29,6 +30,8 @@ import { ScrollController, scrollReaderTarget } from "../../../src/sync/scroll-c
 import {
   DEFAULT_READER_VIEW_STATE,
   parseReaderViewState,
+  READER_VIEW_STATE_VERSION,
+  type ReaderArticleAnchor,
   ReaderPersistedViewState,
   readerViewStateKey
 } from "../../../src/sync/reader-view-state";
@@ -57,6 +60,7 @@ export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
   visualReviewStore?: {
     read(candidatePackageSha256: string): Promise<unknown | undefined>;
+    write?(candidatePackageSha256: string, sidecar: MinerUVisualReviewSidecar): Promise<void>;
   };
   visualResolver?: {
     resolve(asset: LoadedAsset, fileSystem: ReaderFileSystem): Promise<string>;
@@ -161,6 +165,8 @@ export class ReaderWorkspace implements ReaderAgentController {
   private splitRatio = DEFAULT_READER_VIEW_STATE.splitRatio;
   private stateKey?: string;
   private stateSaveTimer = 0;
+  private articleLayoutGeneration = 0;
+  private cancelArticleAnchorRevalidation?: () => void;
   private welcomeStatus?: HTMLElement;
   private readonly scrollController = new ScrollController();
   private locale: ReaderLocale = getReaderLocale();
@@ -174,6 +180,7 @@ export class ReaderWorkspace implements ReaderAgentController {
   }
 
   destroy(): void {
+    this.invalidateArticleLayout();
     this.saveViewState();
     if (this.stateSaveTimer) window.clearTimeout(this.stateSaveTimer);
     this.scrollController.disconnect();
@@ -373,7 +380,9 @@ export class ReaderWorkspace implements ReaderAgentController {
   private renderShell(): void {
     this.articleOutline?.destroy();
     this.articleOutline = undefined;
-    this.root.className = `p2md-reader-view p2md-local-reader-view${this.options.figureHost ? " p2md-external-figures" : ""}`;
+    this.root.classList.remove("p2md-external-figures", "p2md-contract-mode");
+    this.root.classList.add("p2md-reader-view", "p2md-local-reader-view");
+    this.root.classList.toggle("p2md-external-figures", Boolean(this.options.figureHost));
     const reader = element("div", "p2md-reader");
     const toolbar = element("header", "p2md-toolbar");
     const leading = element("div", "p2md-toolbar-group");
@@ -427,6 +436,7 @@ export class ReaderWorkspace implements ReaderAgentController {
     readingPane.append(outlineHost, this.articleScroll);
     const activateMarkdownFollowing = () => this.referenceSidebar?.activateMarkdownFollowing();
     const resumeReadingAuthority = () => {
+      this.cancelPendingArticleAnchorRevalidation();
       activateMarkdownFollowing();
       this.figureSidebar.activateReadingFollowing();
     };
@@ -452,7 +462,7 @@ export class ReaderWorkspace implements ReaderAgentController {
         }
       }
     };
-    if (this.options.figureHost) {
+    if (this.options.figureHost && !this.options.pdfRuntime) {
       this.referenceSidebar = undefined;
       this.figureSidebar = new FigureSidebar(figureHost, figureOptions);
     } else {
@@ -482,6 +492,7 @@ export class ReaderWorkspace implements ReaderAgentController {
 
   private async loadPackage(): Promise<void> {
     if (!this.fileSystem) return;
+    const articleLayoutGeneration = this.invalidateArticleLayout();
     if (this.loaded) this.saveViewState();
     this.scrollController.disconnect();
     this.articleOutline?.clear();
@@ -492,9 +503,19 @@ export class ReaderWorkspace implements ReaderAgentController {
     try {
       const loader = new PackageLoader(this.fileSystem);
       let loaded = await loader.loadDetected();
-      let storedSidecar = this.readVisualReviewSidecar(loaded);
-      if (loaded.visualReview && this.options.visualReviewStore) {
-        storedSidecar = await this.options.visualReviewStore.read(loaded.visualReview.packageHash) ?? storedSidecar;
+      let storedSidecar: unknown | undefined;
+      if (loaded.visualReview && this.options.visualReviewStore?.write) {
+        try {
+          storedSidecar = await this.options.visualReviewStore.read(loaded.visualReview.packageHash);
+        } catch {
+          loaded.diagnostics.push({
+            level: "warning",
+            code: "mineru-visual-review-file-store-unavailable",
+            message: "本地视觉修复 sidecar 无法安全读取，已忽略用户决定；正文和已验证视觉投影仍可继续加载。"
+          });
+        }
+      } else {
+        storedSidecar = this.readVisualReviewSidecar(loaded);
       }
       if (storedSidecar !== undefined) loaded = await loader.loadDetected(storedSidecar);
       this.loaded = loaded;
@@ -517,12 +538,30 @@ export class ReaderWorkspace implements ReaderAgentController {
         const recovered = await this.options.visualResolver.recoverText(articleText, loaded.textRecovery, this.fileSystem);
         articleText = recovered.articleText;
         loaded.diagnostics.push(...recovered.diagnostics);
+        const resolvedCaptionBlocks = new Set<string>();
         recovered.captionUpdates?.forEach((update) => {
           const asset = loaded.assets.find((candidate) => candidate.id === update.visualId);
           if (!asset) return;
           asset.captionText = update.captionText;
           asset.captionStatus = update.captionStatus;
+          if (update.captionStatus === "complete") asset.memberBlockIds?.forEach((id) => resolvedCaptionBlocks.add(id));
         });
+        if (resolvedCaptionBlocks.size && loaded.visualReview) {
+          const unresolved = loaded.visualReview.candidates.filter((candidate) => !(
+            candidate.kind === "cross_page_caption"
+            && candidate.visualBlockId
+            && resolvedCaptionBlocks.has(candidate.visualBlockId)
+          ));
+          if (unresolved.length !== loaded.visualReview.candidates.length) {
+            const resolvedCount = loaded.visualReview.candidates.length - unresolved.length;
+            loaded.visualReview = { ...loaded.visualReview, candidates: unresolved };
+            loaded.diagnostics.push({
+              level: "info",
+              code: "mineru-visual-review-runtime-resolved",
+              message: `已由原 PDF 文本层确定性解决 ${resolvedCount} 个跨页图注候选。`
+            });
+          }
+        }
       }
       articleText = injectMinerUPageAnchors(articleText, loaded.pageMap);
       this.updateStatus(loaded);
@@ -546,9 +585,14 @@ export class ReaderWorkspace implements ReaderAgentController {
       });
       this.connectScrollSync(loaded, rendered, pageBlocks, contractUsable);
       this.root.dataset.state = contractUsable ? "ready" : "degraded";
-      this.articleScroll.scrollTop = restoredState.articleScrollTop;
+      const articlePositionRestored = this.articleOutline?.restoreReadingAnchor(restoredState.articleAnchor) ?? false;
+      if (!articlePositionRestored) this.articleScroll.scrollTop = 0;
+      else this.scheduleArticleAnchorRevalidation(restoredState.articleAnchor, articleLayoutGeneration);
       this.articleOutline?.refreshActive();
     } catch (error) {
+      if (articleLayoutGeneration === this.articleLayoutGeneration) {
+        this.cancelPendingArticleAnchorRevalidation();
+      }
       console.error("Paper2MD Reader failed to load", error);
       this.loaded = undefined;
       const message = error instanceof PackageSourceNotFoundError
@@ -617,10 +661,13 @@ export class ReaderWorkspace implements ReaderAgentController {
   }
 
   private updateStatus(loaded: LoadedPaperPackage): void {
+    const hasPartialCaptions = loaded.assets.some((asset) => asset.captionStatus === "partial");
     const status = loaded.state === "mineru" && loaded.packageIntegrity
       ? {
-        label: readerText(this.locale, loaded.packageIntegrity === "verified" ? "statusMineruVerified" : "statusMineruUnverified"),
-        tone: loaded.packageIntegrity === "verified" ? "ok" : "warning"
+        label: readerText(this.locale, loaded.packageIntegrity === "verified"
+          ? hasPartialCaptions ? "statusMineruVerifiedPartial" : "statusMineruVerified"
+          : "statusMineruUnverified"),
+        tone: loaded.packageIntegrity === "verified" && !hasPartialCaptions ? "ok" : "warning"
       }
       : statusCopy(loaded.state, this.locale);
     this.statusLabel.textContent = status.label;
@@ -669,6 +716,134 @@ export class ReaderWorkspace implements ReaderAgentController {
     this.workspaceElement?.style.setProperty("--p2md-article-width", `${value * 100}%`);
   }
 
+  private invalidateArticleLayout(): number {
+    this.articleLayoutGeneration += 1;
+    this.cancelPendingArticleAnchorRevalidation();
+    return this.articleLayoutGeneration;
+  }
+
+  private cancelPendingArticleAnchorRevalidation(): void {
+    this.cancelArticleAnchorRevalidation?.();
+    this.cancelArticleAnchorRevalidation = undefined;
+  }
+
+  /**
+   * Images and web fonts can change heading geometry after the first paint. Reapply
+   * the same verified semantic anchor once after that initial layout settles (or a
+   * bounded timeout), never a raw pixel position. A generation change invalidates
+   * all callbacks from a destroyed Reader or an older package load.
+   */
+  private scheduleArticleAnchorRevalidation(
+    anchor: ReaderArticleAnchor | undefined,
+    generation: number
+  ): void {
+    const outline = this.articleOutline;
+    const article = this.articleContent;
+    const scroll = this.articleScroll;
+    if (!anchor || !outline || generation !== this.articleLayoutGeneration) return;
+
+    this.cancelPendingArticleAnchorRevalidation();
+    const pendingImages = [...article.querySelectorAll<HTMLImageElement>("img")].filter((image) => !image.complete);
+    const imageListeners = new Map<HTMLImageElement, () => void>();
+    let active = true;
+    let completed = false;
+    let imagesSettled = pendingImages.length === 0;
+    let fontsSettled = typeof document.fonts === "undefined";
+    let timeoutId = 0;
+    let firstFrame = 0;
+    let secondFrame = 0;
+
+    const requestFrame = (callback: FrameRequestCallback): number => (
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame(callback)
+        : window.setTimeout(() => callback(Date.now()), 0)
+    );
+    const cancelFrame = (id: number): void => {
+      if (!id) return;
+      if (typeof window.cancelAnimationFrame === "function") window.cancelAnimationFrame(id);
+      else window.clearTimeout(id);
+    };
+    const clearWaiters = (): void => {
+      if (timeoutId) window.clearTimeout(timeoutId);
+      timeoutId = 0;
+      imageListeners.forEach((listener, image) => {
+        image.removeEventListener("load", listener);
+        image.removeEventListener("error", listener);
+      });
+      imageListeners.clear();
+    };
+    const isCurrent = (): boolean => (
+      active
+      && generation === this.articleLayoutGeneration
+      && outline === this.articleOutline
+      && article === this.articleContent
+      && scroll === this.articleScroll
+    );
+    const cancel = (): void => {
+      active = false;
+      clearWaiters();
+      cancelFrame(firstFrame);
+      cancelFrame(secondFrame);
+      firstFrame = 0;
+      secondFrame = 0;
+    };
+    const revalidate = (): void => {
+      if (completed || !isCurrent()) return;
+      completed = true;
+      clearWaiters();
+      firstFrame = requestFrame(() => {
+        firstFrame = 0;
+        if (!isCurrent()) return;
+        secondFrame = requestFrame(() => {
+          secondFrame = 0;
+          if (!isCurrent()) return;
+          active = false;
+          if (this.cancelArticleAnchorRevalidation === cancel) {
+            this.cancelArticleAnchorRevalidation = undefined;
+          }
+          if (!outline.restoreReadingAnchor(anchor)) scroll.scrollTop = 0;
+          outline.refreshActive();
+        });
+      });
+    };
+    const revalidateWhenSettled = (): void => {
+      if (imagesSettled && fontsSettled) revalidate();
+    };
+
+    pendingImages.forEach((image) => {
+      const listener = () => {
+        if (!active || !imageListeners.has(image)) return;
+        image.removeEventListener("load", listener);
+        image.removeEventListener("error", listener);
+        imageListeners.delete(image);
+        imagesSettled = imageListeners.size === 0;
+        revalidateWhenSettled();
+      };
+      imageListeners.set(image, listener);
+      image.addEventListener("load", listener, { once: true });
+      image.addEventListener("error", listener, { once: true });
+    });
+
+    this.cancelArticleAnchorRevalidation = cancel;
+    timeoutId = window.setTimeout(() => {
+      imagesSettled = true;
+      fontsSettled = true;
+      revalidate();
+    }, 1_000);
+    if (typeof document.fonts !== "undefined") {
+      void document.fonts.ready.then(() => {
+        if (!active) return;
+        fontsSettled = true;
+        revalidateWhenSettled();
+      }).catch(() => {
+        if (!active) return;
+        fontsSettled = true;
+        revalidateWhenSettled();
+      });
+    }
+    revalidateWhenSettled();
+  }
+
   private loadViewState(): ReaderPersistedViewState {
     if (!this.stateKey) return { ...DEFAULT_READER_VIEW_STATE };
     try {
@@ -691,9 +866,10 @@ export class ReaderWorkspace implements ReaderAgentController {
     if (!this.stateKey || !this.articleScroll) return;
     const reference = this.referenceSidebar?.getState();
     const state: ReaderPersistedViewState = {
-      version: 1,
+      version: READER_VIEW_STATE_VERSION,
       splitRatio: this.splitRatio,
       articleScrollTop: this.articleScroll.scrollTop,
+      articleAnchor: this.articleOutline?.captureReadingAnchor(),
       referenceMode: reference?.mode ?? "visuals",
       pdfPage: reference?.pdf.page ?? 1,
       pdfZoom: reference?.pdf.zoom ?? 1,
@@ -848,11 +1024,14 @@ export class ReaderWorkspace implements ReaderAgentController {
     decisions.set(decision.candidate_id, decision);
     const sidecar = createVisualReviewSidecar(review.packageHash, [...decisions.values()]);
     try {
-      const serialized = JSON.stringify(sidecar);
       if (visualReviewSidecarByteLength(sidecar) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
         throw new Error("Visual review sidecar exceeds 64 KiB");
       }
-      window.localStorage.setItem(review.storageKey, serialized);
+      if (this.options.visualReviewStore?.write) {
+        await this.options.visualReviewStore.write(review.packageHash, sidecar);
+      } else {
+        window.localStorage.setItem(review.storageKey, JSON.stringify(sidecar));
+      }
     } catch {
       const message = element("p", "p2md-review-error");
       message.setAttribute("role", "alert");
@@ -1073,6 +1252,11 @@ export class ReaderWorkspace implements ReaderAgentController {
       const caption = element("p", "p2md-figure-caption");
       appendSafeCaptionMarkup(caption, figure.captionText);
       content.appendChild(caption);
+    }
+    if (figure.captionStatus === "partial") {
+      const note = element("p", "p2md-figure-caption-note");
+      note.textContent = readerText(this.locale, "partialCaptionNotice");
+      content.appendChild(note);
     }
     this.openDialog(content, readerText(this.locale, "closeNamed", { name: figure.label }), true);
   }

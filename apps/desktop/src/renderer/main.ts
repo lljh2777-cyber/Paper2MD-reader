@@ -8,7 +8,6 @@ import {
   DesktopSelfCheck,
   DesktopLibrarySnapshot,
   DesktopPdfSelection,
-  DesktopRootSelection,
   EvidenceLevel,
   ExtractionProfile,
   LayoutReviewMode,
@@ -32,6 +31,7 @@ import {
 } from "./desktop-copy";
 import { setReaderIcon } from "../../../../src/render/icons";
 import { PdfVisualResolver } from "../../../../src/render/pdf-visual-resolver";
+import { createReferencePaneController } from "./desktop-reference-layout";
 
 const api = window.paper2mdDesktop;
 const root = document.querySelector<HTMLElement>("#desktop-app");
@@ -70,7 +70,9 @@ const taskRail = element("aside", "p2md-desktop-task-rail");
 const appHeader = element("header", "p2md-desktop-app-header");
 const appTitle = element("strong", "p2md-desktop-app-title");
 appTitle.textContent = "Paper2MD";
-appHeader.appendChild(appTitle);
+const appVersion = element("span", "p2md-desktop-app-version");
+appVersion.hidden = true;
+appHeader.append(appTitle, appVersion);
 
 const newExtractionButton = element("button", "p2md-desktop-new-button");
 newExtractionButton.type = "button";
@@ -321,49 +323,34 @@ railContent.append(libraryPanel, taskPanel, settingsPanel);
 taskRail.append(appHeader, newExtractionButton, navigation, railContent);
 
 const readerHost = element("section", "p2md-desktop-reader");
-const rightPane = element("aside", "p2md-desktop-right-pane");
-const rightTabs = element("div", "p2md-desktop-right-tabs");
-rightTabs.setAttribute("role", "tablist");
-const pdfTab = element("button", "p2md-desktop-right-tab");
-pdfTab.type = "button";
-pdfTab.setAttribute("role", "tab");
-pdfTab.id = "p2md-desktop-pdf-tab";
-pdfTab.setAttribute("aria-controls", "p2md-desktop-pdf-view");
-const visualsTab = element("button", "p2md-desktop-right-tab");
-visualsTab.type = "button";
-visualsTab.setAttribute("role", "tab");
-visualsTab.id = "p2md-desktop-visuals-tab";
-visualsTab.setAttribute("aria-controls", "p2md-desktop-visuals-view");
-rightTabs.append(pdfTab, visualsTab);
-
-const pdfView = element("section", "p2md-desktop-right-view p2md-desktop-pdf-view");
-pdfView.id = "p2md-desktop-pdf-view";
-pdfView.setAttribute("role", "tabpanel");
-pdfView.setAttribute("aria-labelledby", pdfTab.id);
-const pdfHeader = element("header", "p2md-desktop-pdf-header");
-const pdfLabel = element("strong");
-pdfLabel.textContent = "PDF preview";
-pdfHeader.appendChild(pdfLabel);
-let pdfContent: HTMLElement = element("div", "p2md-desktop-pdf-empty");
-pdfContent.textContent = "Open an existing result folder with a source PDF, or choose a PDF to start a conversion.";
-pdfView.append(pdfHeader, pdfContent);
-
-const figureHost = element("section", "p2md-desktop-right-view p2md-desktop-visuals-view p2md-figures-host");
-figureHost.id = "p2md-desktop-visuals-view";
-figureHost.setAttribute("role", "tabpanel");
-figureHost.setAttribute("aria-labelledby", visualsTab.id);
-rightPane.append(rightTabs, pdfView, figureHost);
-shell.append(taskRail, readerHost, rightPane);
+const referenceSeparator = element("div", "p2md-desktop-reference-separator");
+referenceSeparator.id = "p2md-desktop-reference-separator";
+referenceSeparator.tabIndex = 0;
+referenceSeparator.setAttribute("role", "separator");
+referenceSeparator.setAttribute("aria-orientation", "vertical");
+referenceSeparator.setAttribute("aria-controls", "p2md-desktop-reference-pane");
+const rightPane = element("aside", "p2md-desktop-right-pane p2md-figures-host");
+rightPane.id = "p2md-desktop-reference-pane";
+shell.append(taskRail, readerHost, referenceSeparator, rightPane);
 root.appendChild(shell);
+
+const referencePaneController = createReferencePaneController({
+  shell,
+  separator: referenceSeparator,
+  pane: rightPane,
+  storage: window.localStorage
+});
 
 const visualResolver = new PdfVisualResolver();
 const workspace = mountReaderWorkspace(readerHost, {
-  picker: new DesktopPackagePicker(api, async (selectedRoot) => {
-    await showPackagePdf(selectedRoot);
-    setRightPaneMode("visuals");
-  }),
+  picker: new DesktopPackagePicker(api),
+  visualReviewStore: {
+    read: (candidatePackageSha256) => api.readVisualReviewSidecar(candidatePackageSha256),
+    write: (candidatePackageSha256, sidecar) => api.writeVisualReviewSidecar(candidatePackageSha256, sidecar)
+  },
   visualResolver,
-  figureHost,
+  pdfRuntime: visualResolver,
+  figureHost: rightPane,
   localizedCopy: {
     en: {
       title: readerText("en", "desktopReaderTitle"),
@@ -388,9 +375,6 @@ const workspace = mountReaderWorkspace(readerHost, {
 
 const tasks = new Map<string, ConversionTask>();
 const taskErrors = new Map<string, string>();
-let pdfUrl: string | undefined;
-let selectedPdfName: string | undefined;
-let pdfEmptyCopyKey: "previewEmpty" | "previewNoSource" | "previewLoadFailed" = "previewEmpty";
 let startButtonsBusy = false;
 let currentRailView: RailView = "library";
 let librarySnapshot: DesktopLibrarySnapshot = { configured: false, documents: [] };
@@ -399,32 +383,6 @@ let libraryError: string | undefined;
 let credentialStatus: MineruCredentialStatus = { configured: false, storage: "os-protected" };
 let selfCheck: DesktopSelfCheck | undefined;
 let selfCheckBusy = true;
-type RightPaneMode = "pdf" | "visuals";
-let rightPaneMode: RightPaneMode = "visuals";
-
-function setRightPaneMode(mode: RightPaneMode): void {
-  rightPaneMode = mode;
-  const pdfSelected = mode === "pdf";
-  pdfTab.dataset.selected = String(pdfSelected);
-  pdfTab.setAttribute("aria-selected", String(pdfSelected));
-  pdfTab.tabIndex = pdfSelected ? 0 : -1;
-  visualsTab.dataset.selected = String(!pdfSelected);
-  visualsTab.setAttribute("aria-selected", String(!pdfSelected));
-  visualsTab.tabIndex = pdfSelected ? -1 : 0;
-  pdfView.hidden = !pdfSelected;
-  figureHost.hidden = pdfSelected;
-}
-
-pdfTab.addEventListener("click", () => setRightPaneMode("pdf"));
-visualsTab.addEventListener("click", () => setRightPaneMode("visuals"));
-rightTabs.addEventListener("keydown", (event) => {
-  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
-  event.preventDefault();
-  const mode = event.key === "ArrowLeft" || event.key === "Home" ? "pdf" : "visuals";
-  setRightPaneMode(mode);
-  (mode === "pdf" ? pdfTab : visualsTab).focus();
-});
-setRightPaneMode(rightPaneMode);
 
 function activateRailView(view: RailView): void {
   currentRailView = view;
@@ -518,9 +476,7 @@ function renderDocuments(): void {
       open.disabled = true;
       libraryError = undefined;
       void api.openLibraryDocument(document.packageId).then(async (selected) => {
-        await showPackagePdf(selected);
         await workspace.attachFileSystem(new ElectronReaderFileSystem(api, selected));
-        setRightPaneMode("visuals");
       }).catch((error) => {
         libraryError = error instanceof Error ? error.message : "Could not open the selected paper";
         renderDocuments();
@@ -824,16 +780,12 @@ function applyDesktopLocale(nextLocale: ReaderLocale): void {
   ]);
   sourcePdfText.textContent = desktopText(locale, "includeSourcePdf");
   rightPane.ariaLabel = desktopText(locale, "rightPane");
-  rightTabs.ariaLabel = desktopText(locale, "rightPane");
-  pdfTab.textContent = desktopText(locale, "originalPdf");
-  visualsTab.textContent = desktopText(locale, "imagesAndCaptions");
+  const referenceSeparatorLabel = locale === "zh-CN"
+    ? "调整参考栏宽度；按回车折叠或展开"
+    : "Resize the reference pane; press Enter to collapse or expand";
+  referenceSeparator.ariaLabel = referenceSeparatorLabel;
+  referenceSeparator.title = referenceSeparatorLabel;
   setStartButtonsDisabled(startButtonsBusy);
-  if (!selectedPdfName) {
-    pdfLabel.textContent = desktopText(locale, "pdfPreview");
-    if (pdfContent.classList.contains("p2md-desktop-pdf-empty")) {
-      pdfContent.textContent = desktopText(locale, pdfEmptyCopyKey);
-    }
-  }
   renderDocuments();
   renderSettings();
   renderTasks();
@@ -903,7 +855,6 @@ function renderTasks(): void {
           ? await api.openLibraryDocument(task.packageId)
           : { id: task.packageRootId!, label: task.outputName };
         await workspace.attachFileSystem(new ElectronReaderFileSystem(api, selected));
-        await showPackagePdf(selected);
       }));
     }
     if (task.artifactRootId) {
@@ -960,50 +911,6 @@ function renderTasks(): void {
   });
 }
 
-function showPdfBytes(name: string, bytes: Uint8Array): void {
-  if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  pdfUrl = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
-  pdfLabel.textContent = name;
-  selectedPdfName = name;
-  pdfEmptyCopyKey = "previewEmpty";
-  const frame = element("iframe", "p2md-desktop-pdf-frame");
-  frame.title = `${desktopText(locale, "pdfPreview")}: ${name}`;
-  frame.src = pdfUrl;
-  pdfContent.replaceWith(frame);
-  pdfContent = frame;
-  setRightPaneMode("pdf");
-}
-
-function clearPdfPreview(copyKey: "previewEmpty" | "previewNoSource" | "previewLoadFailed"): void {
-  if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-  pdfUrl = undefined;
-  selectedPdfName = undefined;
-  pdfEmptyCopyKey = copyKey;
-  pdfLabel.textContent = desktopText(locale, "pdfPreview");
-  const empty = element("div", "p2md-desktop-pdf-empty");
-  empty.textContent = desktopText(locale, copyKey);
-  pdfContent.replaceWith(empty);
-  pdfContent = empty;
-}
-
-async function showPackagePdf(root: DesktopRootSelection): Promise<void> {
-  if (!root.sourcePdf) {
-    clearPdfPreview("previewNoSource");
-    return;
-  }
-  try {
-    const bytes = await api.readPackagePdf(root.id, root.sourcePdf.relativePath);
-    showPdfBytes(root.sourcePdf.name, bytes);
-  } catch {
-    clearPdfPreview("previewLoadFailed");
-  }
-}
-
-async function showPdf(pdf: DesktopPdfSelection): Promise<void> {
-  showPdfBytes(pdf.name, await api.readPdf(pdf.id));
-}
-
 function addRequestError(message: string): void {
   const now = new Date().toISOString();
   const failed: ConversionTask = {
@@ -1024,7 +931,6 @@ function addRequestError(message: string): void {
 async function chooseWorkflowInputs(): Promise<{ pdf: DesktopPdfSelection; outputParentId: string } | undefined> {
   const pdf = await api.choosePdf();
   if (!pdf) return undefined;
-  await showPdf(pdf);
   const outputParent = await api.chooseOutputParent();
   if (!outputParent) return undefined;
   return { pdf, outputParentId: outputParent.id };
@@ -1059,7 +965,6 @@ async function startRemoteMineru(): Promise<void> {
   try {
     const pdf = await api.choosePdf();
     if (!pdf) return;
-    await showPdf(pdf);
     const task = await api.startRemoteMineru({
       pdfId: pdf.id,
       model: mineruModelControl.select.value as "pipeline" | "vlm",
@@ -1138,7 +1043,6 @@ const stopTaskUpdates = api.onTaskUpdate((task) => {
     automaticallyOpenedPackages.add(task.packageId);
     void api.openLibraryDocument(task.packageId).then(async (selected) => {
       await workspace.attachFileSystem(new ElectronReaderFileSystem(api, selected));
-      await showPackagePdf(selected);
       librarySnapshot = await api.getLibrarySnapshot();
       renderDocuments();
       renderSettings();
@@ -1149,6 +1053,12 @@ const stopTaskUpdates = api.onTaskUpdate((task) => {
   }
 });
 const stopDesktopLocale = subscribeReaderLocale((nextLocale) => applyDesktopLocale(nextLocale));
+void api.getAppVersion().then((version) => {
+  appVersion.textContent = `v${version}`;
+  appVersion.hidden = false;
+}).catch(() => {
+  appVersion.hidden = true;
+});
 void api.listTasks().then((existing) => {
   existing.forEach((task) => tasks.set(task.id, task));
   renderTasks();
@@ -1178,6 +1088,6 @@ renderTasks();
 window.addEventListener("beforeunload", () => {
   stopTaskUpdates();
   stopDesktopLocale();
+  referencePaneController.destroy();
   workspace.destroy();
-  if (pdfUrl) URL.revokeObjectURL(pdfUrl);
 }, { once: true });

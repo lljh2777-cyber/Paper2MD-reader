@@ -107,4 +107,28 @@ describe("MinerU Reader display projection", () => {
     expect(projected.markdown).toBe(markdown);
     expect(projected.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-reader-projection-binding-invalid" }));
   });
+
+  it("fails closed when member paths and Markdown image IDs are not a bijection", () => {
+    const markdown = "# Paper\n\n![](images/a.png)\n\n![](images/b.png)\n";
+    const projected = projectMinerUReaderMarkdown({
+      markdown,
+      visuals: [visual({
+        memberAssetPaths: ["images/a.png", "images/b.png"],
+        memberMarkdownImageIds: ["md-img-0000"]
+      })],
+      viewerIndex: {
+        schema_version: 1,
+        inputs: { article: { sha256: "article" }, mineru_result: { sha256: "mineru" } },
+        markdown_images: [
+          imageEntry(markdown, "md-img-0000", "images/a.png"),
+          imageEntry(markdown, "md-img-0001", "images/b.png")
+        ]
+      },
+      articleHash: "article",
+      mineruHash: "mineru"
+    });
+
+    expect(projected.markdown).toBe(markdown);
+    expect(projected.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-reader-projection-skipped" }));
+  });
 });

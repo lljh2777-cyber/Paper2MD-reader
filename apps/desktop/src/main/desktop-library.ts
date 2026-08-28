@@ -3,6 +3,12 @@ import { access, lstat, mkdir, readFile, realpath, rename, unlink, writeFile } f
 import { basename, dirname, isAbsolute, join, parse, relative, sep } from "node:path";
 import { assertOpaqueId } from "../../../../packages/agent-contracts/src/index";
 import { PublishedPackageCatalog } from "../../../processing-service/src/published-package-catalog";
+import {
+  MAX_VISUAL_REVIEW_SIDECAR_BYTES,
+  parseVisualReviewSidecar,
+  type MinerUVisualReviewSidecar,
+  visualReviewSidecarByteLength
+} from "../../../../src/model/mineru-visual-review";
 import type { DesktopLibraryDocument, DesktopLibrarySnapshot } from "../shared/desktop-api";
 import type { RemoteMineruPaths } from "../../../processing-service/src/remote-mineru-workflow";
 
@@ -12,6 +18,7 @@ export const DESKTOP_LIBRARY_PREFERENCES_VERSION = "paper2md-library-preferences
 const MAX_LIBRARY_DOCUMENTS = 500;
 const MAX_PREFERENCES_BYTES = 256 * 1024;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CANONICAL_SHA256 = /^[0-9a-f]{64}$/;
 const LIBRARY_DIRECTORIES = ["packages", "jobs", "staging", "sidecars", "state"] as const;
 
 interface LibraryMarker {
@@ -118,6 +125,17 @@ export function assertContainedLibraryDirectory(
   ) throw new Error("Paper2MD library contains an unsafe fixed directory");
 }
 
+export function assertSafeVisualReviewSidecarFile(
+  info: Pick<Awaited<ReturnType<typeof lstat>>, "isFile" | "isSymbolicLink" | "size">
+): void {
+  if (
+    !info.isFile() ||
+    info.isSymbolicLink() ||
+    info.size < 1 ||
+    info.size > MAX_VISUAL_REVIEW_SIDECAR_BYTES
+  ) throw new Error("Paper2MD visual review sidecar is unsafe or oversized");
+}
+
 async function ensureLibraryDirectory(root: string, name: typeof LIBRARY_DIRECTORIES[number]): Promise<void> {
   const path = join(root, name);
   await mkdir(path).catch((error: NodeJS.ErrnoException) => {
@@ -137,6 +155,28 @@ export class DesktopLibraryManager {
   private selectionPath(): string { return join(this.userDataPath, "desktop-library-selection-v1.json"); }
   private markerPath(root: string): string { return join(root, ".paper2md-library.json"); }
   private preferencesPath(root: string): string { return join(root, "state", "preferences.json"); }
+  private visualReviewSidecarPath(root: string, candidatePackageSha256: string): string {
+    if (typeof candidatePackageSha256 !== "string" || !CANONICAL_SHA256.test(candidatePackageSha256)) {
+      throw new Error("Visual review sidecar key must be a canonical lowercase SHA-256");
+    }
+    return join(root, "sidecars", `visual-review-${candidatePackageSha256}.json`);
+  }
+
+  private async readVisualReviewSidecarAt(path: string, candidatePackageSha256: string): Promise<MinerUVisualReviewSidecar | undefined> {
+    const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!info) return undefined;
+    assertSafeVisualReviewSidecarFile(info);
+    let value: unknown;
+    try {
+      value = JSON.parse(await readFile(path, "utf8")) as unknown;
+    } catch {
+      throw new Error("Paper2MD visual review sidecar is not valid JSON");
+    }
+    return parseVisualReviewSidecar(value, candidatePackageSha256);
+  }
 
   async restore(): Promise<void> {
     const text = await readableJson(this.selectionPath(), MAX_PREFERENCES_BYTES).catch(() => undefined);
@@ -261,6 +301,42 @@ export class DesktopLibraryManager {
     const articlePath = await this.catalog.packageFilePath(id, "article.md");
     if (!articlePath) throw new Error("The selected library document is unavailable or failed validation");
     return dirname(articlePath);
+  }
+
+  async readVisualReviewSidecar(candidatePackageSha256: string): Promise<MinerUVisualReviewSidecar | undefined> {
+    if (!this.root) throw new Error("Choose a Paper2MD library first");
+    const path = this.visualReviewSidecarPath(this.root, candidatePackageSha256);
+    await ensureLibraryDirectory(this.root, "sidecars");
+    return this.readVisualReviewSidecarAt(path, candidatePackageSha256);
+  }
+
+  async writeVisualReviewSidecar(candidatePackageSha256: string, value: unknown): Promise<void> {
+    if (!this.root) throw new Error("Choose a Paper2MD library first");
+    const path = this.visualReviewSidecarPath(this.root, candidatePackageSha256);
+    const sidecar = parseVisualReviewSidecar(value, candidatePackageSha256);
+    const serialized = JSON.stringify(sidecar);
+    if (visualReviewSidecarByteLength(sidecar) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
+      throw new Error("Paper2MD visual review sidecar exceeds 64 KiB");
+    }
+    await ensureLibraryDirectory(this.root, "sidecars");
+    // Never replace an unknown, linked, corrupted, or hash-mismatched file. An
+    // existing valid sidecar may be updated atomically because it is user-owned
+    // derived state, not an immutable extraction output.
+    await this.readVisualReviewSidecarAt(path, candidatePackageSha256);
+    const temporary = join(this.root, "sidecars", `.visual-review-${candidatePackageSha256}-${randomUUID()}.next`);
+    try {
+      await writeFile(temporary, serialized, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      assertSafeVisualReviewSidecarFile(await lstat(temporary));
+      const targetInfo = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (targetInfo) assertSafeVisualReviewSidecarFile(targetInfo);
+      await rename(temporary, path);
+      assertSafeVisualReviewSidecarFile(await lstat(path));
+    } finally {
+      await unlink(temporary).catch(() => undefined);
+    }
   }
 
   async allocateMineruPaths(packageId: string): Promise<RemoteMineruPaths> {

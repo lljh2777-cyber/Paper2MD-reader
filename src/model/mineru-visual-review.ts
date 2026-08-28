@@ -133,6 +133,10 @@ function safeHash(value: unknown): value is string {
   return typeof value === "string" && SHA256.test(value.toLowerCase());
 }
 
+function canonicalHash(value: unknown): value is string {
+  return typeof value === "string" && SHA256.test(value);
+}
+
 function safeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
@@ -665,13 +669,8 @@ function validateCaptionCorrection(
   };
 }
 
-function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVisualReviewCandidate[]): MinerUVisualReviewSidecar {
-  if (value === undefined || value === null) return {
-    schema_version: 1,
-    contract: "paper2md-user-visual-review",
-    candidate_package_sha256: packageHash,
-    decisions: []
-  };
+export function parseVisualReviewSidecar(value: unknown, packageHash: string): MinerUVisualReviewSidecar {
+  if (!canonicalHash(packageHash)) throw new Error("视觉候选文件哈希必须是规范的小写 SHA-256");
   if (visualReviewSidecarByteLength(value) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
     throw new Error("用户视觉修复 sidecar 超过 64 KiB 安全上限");
   }
@@ -681,7 +680,6 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
   }
   if (sidecar.candidate_package_sha256 !== packageHash) throw new Error("用户视觉修复已过期，未绑定当前候选包");
   if (!Array.isArray(sidecar.decisions) || sidecar.decisions.length > MAX_DECISIONS) throw new Error("用户视觉修复决定超过安全上限");
-  const known = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const seen = new Set<string>();
   const decisions: MinerUVisualReviewDecision[] = [];
   for (const [index, rawValue] of sidecar.decisions.entries()) {
@@ -689,8 +687,6 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
     if (!decision || !exactKeys(decision, DECISION_KEYS) || !safeId(decision.candidate_id) || seen.has(decision.candidate_id)) {
       throw new Error(`用户视觉修复决定 ${index + 1} 的结构或 ID 无效`);
     }
-    const candidate = known.get(decision.candidate_id);
-    if (!candidate) throw new Error(`用户视觉修复决定 ${index + 1} 引用了未知候选`);
     if (!["accept", "reject", "abstain"].includes(String(decision.verdict))) throw new Error(`用户视觉修复决定 ${index + 1} 的操作无效`);
     let correction: MinerUVisualReviewDecision["correction"] = null;
     if (decision.correction !== null) {
@@ -700,18 +696,14 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
         if (!exactKeys(value, FRAGMENT_CORRECTION_KEYS) || !memberIds || memberIds.length < 2 || memberIds.length > MAX_GROUP_MEMBERS) {
           throw new Error(`用户视觉修复决定 ${index + 1} 含坐标、路径、正文或其他未允许字段`);
         }
-        if (decision.verdict !== "reject" || candidate.kind !== "fragment_group") {
-          throw new Error("只有拒绝碎图候选时才能提交替代组合");
-        }
+        if (decision.verdict !== "reject") throw new Error("只有拒绝候选时才能提交替代组合");
         correction = { kind: "fragment_group", member_block_ids: memberIds };
       } else if (value?.kind === "cross_page_caption") {
         const captionIds = strings(value.caption_block_ids);
         if (!exactKeys(value, CAPTION_CORRECTION_KEYS) || !safeId(value.visual_block_id) || !captionIds || captionIds.length < 1 || captionIds.length > 2) {
           throw new Error(`用户视觉修复决定 ${index + 1} 含坐标、路径、正文或其他未允许字段`);
         }
-        if (decision.verdict !== "reject" || candidate.kind !== "cross_page_caption") {
-          throw new Error("只有拒绝跨页图注候选时才能提交替代关系");
-        }
+        if (decision.verdict !== "reject") throw new Error("只有拒绝候选时才能提交替代关系");
         correction = {
           kind: "cross_page_caption",
           visual_block_id: value.visual_block_id,
@@ -729,6 +721,28 @@ function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVis
     });
   }
   return { schema_version: 1, contract: "paper2md-user-visual-review", candidate_package_sha256: packageHash, decisions };
+}
+
+function parseSidecar(value: unknown, packageHash: string, candidates: MinerUVisualReviewCandidate[]): MinerUVisualReviewSidecar {
+  if (value === undefined || value === null) return {
+    schema_version: 1,
+    contract: "paper2md-user-visual-review",
+    candidate_package_sha256: packageHash,
+    decisions: []
+  };
+  const sidecar = parseVisualReviewSidecar(value, packageHash);
+  const known = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  for (const [index, decision] of sidecar.decisions.entries()) {
+    const candidate = known.get(decision.candidate_id);
+    if (!candidate) throw new Error(`用户视觉修复决定 ${index + 1} 引用了未知候选`);
+    if (decision.correction?.kind === "fragment_group" && candidate.kind !== "fragment_group") {
+      throw new Error("只有拒绝碎图候选时才能提交替代组合");
+    }
+    if (decision.correction?.kind === "cross_page_caption" && candidate.kind !== "cross_page_caption") {
+      throw new Error("只有拒绝跨页图注候选时才能提交替代关系");
+    }
+  }
+  return sidecar;
 }
 
 export function visualReviewStorageKey(packageHash: string): string {

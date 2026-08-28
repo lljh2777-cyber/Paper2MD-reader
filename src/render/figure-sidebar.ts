@@ -41,6 +41,7 @@ export class FigureSidebar {
   private readonly body: HTMLElement;
   private readonly followInput: HTMLInputElement;
   private readonly locale: ReaderLocale;
+  private renderedSelectedId?: string;
 
   constructor(private readonly container: HTMLElement, private readonly options: FigureSidebarOptions) {
     this.locale = options.locale ?? "en";
@@ -130,8 +131,10 @@ export class FigureSidebar {
   }
 
   private render(): void {
+    const previousRailScrollTop = this.body.querySelector<HTMLElement>(".p2md-thumbnail-rail")?.scrollTop ?? 0;
     this.body.replaceChildren();
     if (!this.figures.length) {
+      this.renderedSelectedId = undefined;
       const empty = element("div", "p2md-figures-empty");
       const heading = element("strong");
       heading.textContent = readerText(this.locale, "noVisuals");
@@ -143,6 +146,8 @@ export class FigureSidebar {
     }
 
     const selected = this.figures.find((figure) => figure.id === this.followState.selected) ?? this.figures[0];
+    const selectionChanged = selected.id !== this.renderedSelectedId;
+    this.renderedSelectedId = selected.id;
     const stage = element("section", "p2md-figure-stage");
     const stageHeader = element("div", "p2md-figure-stage-header");
     const title = element("h3");
@@ -220,6 +225,7 @@ export class FigureSidebar {
 
     const rail = element("nav", "p2md-thumbnail-rail");
     rail.ariaLabel = readerText(this.locale, "paperVisualAssets");
+    let selectedButton: HTMLButtonElement | undefined;
     for (const figure of this.figures) {
       const button = element("button", "p2md-thumbnail");
       button.type = "button";
@@ -245,9 +251,14 @@ export class FigureSidebar {
         this.options.onSelectionChange?.(figure, this.followState.isFollowing);
         this.options.onStateChange?.();
       });
+      if (figure.id === selected.id) selectedButton = button;
       rail.appendChild(button);
     }
 
     this.body.append(stage, rail);
+    rail.scrollTop = previousRailScrollTop;
+    if (selectionChanged && selectedButton && typeof selectedButton.scrollIntoView === "function") {
+      selectedButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
   }
 }

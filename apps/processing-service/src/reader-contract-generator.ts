@@ -963,6 +963,21 @@ function blockCharCount(block: UnknownRecord): number {
   return Number.isInteger(value) ? Math.max(0, Number(value)) : 0;
 }
 
+function runningPageHeader(block: UnknownRecord): boolean {
+  if (block.role !== "title" || blockCharCount(block) <= 0 || blockCharCount(block) > 16) return false;
+  const bbox = contractBbox(block.bbox_norm);
+  const text = record(block.text) ?? {};
+  return Boolean(
+    bbox
+    && bbox[0] <= 200
+    && bbox[1] <= 40
+    && bbox[2] - bbox[0] <= 180
+    && bbox[3] <= 65
+    && !text.leading_figure_key
+    && !text.leading_formal_figure_caption_key
+  );
+}
+
 function scanNextPageCaptionCandidates(targetBlocks: UnknownRecord[], figureKey: string): {
   candidates: UnknownRecord[]; alternateKeys: string[]; boundary: string | null;
 } {
@@ -971,7 +986,7 @@ function scanNextPageCaptionCandidates(targetBlocks: UnknownRecord[], figureKey:
   let boundary: string | null = null;
   for (const block of [...targetBlocks].sort((left, right) => numberValue(left.page_order) - numberValue(right.page_order))) {
     const role = String(block.role);
-    if (role === "marginalia") continue;
+    if (role === "marginalia" || (!candidates.length && runningPageHeader(block))) continue;
     if (role === "visual") { boundary = "visual_boundary"; break; }
     if (!["text", "title"].includes(role)) {
       if (["table", "equation"].includes(role)) { boundary = `${role}_boundary`; break; }

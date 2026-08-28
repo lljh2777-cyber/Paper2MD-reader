@@ -147,6 +147,7 @@ export interface LoadedAsset {
   pageIndex?: number;
   sourceBBox?: NormalizedBBox;
   memberAssetPaths?: string[];
+  memberBlockIds?: string[];
   captionPageIndex?: number;
   captionStatus?: "complete" | "partial";
   display?:
