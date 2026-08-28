@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 const title = "Paper2MD Reader";
-const description = "Read a local Paper2MD paper package with synchronized figures and contract diagnostics.";
+const description = "无需安装或登录，在浏览器中体验本地优先的 Paper2MD 论文阅读；本地文件不上传。";
 
 const metadataBase = new URL(
   process.env.NEXT_PUBLIC_SITE_URL ?? "https://paper2md-reader.lljh2777.chatgpt.site"
@@ -29,7 +29,7 @@ export function generateMetadata(): Metadata {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <head>
         <link rel="icon" href="data:," />
       </head>

@@ -9,6 +9,12 @@ import { configuredProcessingApiBaseUrl, ProcessingClient } from "./processing-c
 import { registerReaderWebMcp } from "./reader-webmcp";
 import { mountPaperIngestPanel } from "./paper-ingest-panel";
 import "./paper-ingest-panel.css";
+import type { ReaderFileSystem } from "../../../src/filesystem/reader-file-system";
+
+export interface WebReaderMountOptions {
+  initialFileSystem?: ReaderFileSystem;
+  enableWebMcp?: boolean;
+}
 
 export function requestedPackageId(pathname: string): string | undefined {
   const match = /^\/reader\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})\/?$/.exec(pathname);
@@ -27,7 +33,7 @@ function webCopy(locale: ReaderLocale, pdfProcessingEnabled: boolean) {
   };
 }
 
-export function mountWebReader(root: HTMLElement): () => void {
+export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions = {}): () => void {
   const ingestHost = document.createElement("div");
   const readerHost = document.createElement("div");
   root.replaceChildren(ingestHost, readerHost);
@@ -50,18 +56,23 @@ export function mountWebReader(root: HTMLElement): () => void {
       "zh-CN": webCopy("zh-CN", pdfProcessingEnabled)
     }
   });
-  const webMcp = registerReaderWebMcp(workspace, document, navigator, processingClient ? {
-    validate: async (candidateId, correction) => {
-      if (!activePackageId) throw new Error("No published package is open");
-      return processingClient.validateVisualCorrection(activePackageId, candidateId, correction);
-    },
-    apply: async (candidateId, correction, validationToken) => {
-      if (!activePackageId) throw new Error("No published package is open");
-      const result = await processingClient.applyVisualCorrection(activePackageId, candidateId, correction, validationToken);
-      await workspace.refreshPackage();
-      return result;
-    }
-  } : undefined);
+  const webMcp = options.enableWebMcp === false ? { dispose: () => undefined } : registerReaderWebMcp(
+    workspace,
+    document,
+    navigator,
+    processingClient ? {
+      validate: async (candidateId, correction) => {
+        if (!activePackageId) throw new Error("No published package is open");
+        return processingClient.validateVisualCorrection(activePackageId, candidateId, correction);
+      },
+      apply: async (candidateId, correction, validationToken) => {
+        if (!activePackageId) throw new Error("No published package is open");
+        const result = await processingClient.applyVisualCorrection(activePackageId, candidateId, correction, validationToken);
+        await workspace.refreshPackage();
+        return result;
+      }
+    } : undefined
+  );
   const disposeIngest = processingClient && !packageId
     ? mountPaperIngestPanel(ingestHost, processingClient, async (readyPackageId, readerUrl) => {
       const fileSystem = await processingClient.openPackage(readyPackageId);
@@ -78,6 +89,11 @@ export function mountWebReader(root: HTMLElement): () => void {
         console.error("Could not open linked Paper2MD package", error);
         root.dataset.state = "error";
       });
+  } else if (options.initialFileSystem) {
+    void workspace.attachFileSystem(options.initialFileSystem).catch((error) => {
+      console.error("Could not open the initial Paper2MD package", error);
+      root.dataset.state = "error";
+    });
   }
   return () => {
     disposeIngest();
