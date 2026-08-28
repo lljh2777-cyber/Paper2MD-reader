@@ -43,6 +43,18 @@ describe("PackageLoader host abstraction", () => {
     expect(loaded.assets.map((asset) => asset.path)).toEqual(["images/figure-0002.png"]);
   });
 
+  it("keeps an explicitly bundled source PDF available beside a Markdown projection", async () => {
+    const fileSystem = new MemoryReaderFileSystem({
+      "article.md": "# Browser-derived projection",
+      "_extraction/source.pdf": new Uint8Array([37, 80, 68, 70, 45])
+    });
+    const loaded = await new PackageLoader(fileSystem).load();
+
+    expect(loaded.state).toBe("reader-missing");
+    expect(loaded.sourceFormat).toBe("markdown");
+    expect(loaded.sourcePdf).toEqual({ path: "_extraction/source.pdf" });
+  });
+
   it("rejects traversal before reading from the selected package", async () => {
     const fileSystem = new MemoryReaderFileSystem({ "article.md": "# Safe" });
     await expect(new PackageLoader(fileSystem).load("../article.md")).rejects.toThrow("Unsafe article path");

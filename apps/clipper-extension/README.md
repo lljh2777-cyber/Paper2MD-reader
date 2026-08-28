@@ -6,9 +6,9 @@ Obsidian and does not call AI.
 
 Deterministic Markdown/image localization rules live in `packages/clipper-core/`.
 This extension remains the browser adapter responsible for the active tab, publisher
-session and per-origin permission prompts. It submits structured clipping parts to the
-loopback processing service for staged validation and atomic publication; ZIP is a
-separate export/backup action.
+session and per-origin permission prompts. Its default Sites-only path builds a bounded
+ZIP locally for download and later import into the web Reader. Sending a clipping to the
+loopback processing service remains an optional desktop workflow.
 
 ## Build and load
 
@@ -22,16 +22,12 @@ Load `apps/clipper-extension/dist/` as an unpacked extension from
 
 ## Workflow
 
-1. In Reader, choose **连接浏览器 Clipper** and create a 10-minute pairing ID/code.
-2. Open the extension, approve only the fixed loopback origin, and redeem that one-time code.
-3. Open a paper full-text page and select **提取、校验并在 Reader 打开**.
-4. Approve only the image origins needed for this page.
-5. The extension submits metadata, extracted Markdown, the source HTML snapshot and localized
-   images as bounded multipart fields. The service rebuilds the package with `clipper-core`,
-   validates it in staging, atomically publishes it and returns an opaque `package_id`.
-6. The extension opens the returned `/reader/{package_id}` URL. No ZIP selection is required.
+1. Open a paper full-text page and select **生成 ZIP 并下载**.
+2. Approve only the image origins needed for this page.
+3. Import the downloaded package into the web Reader. No Paper2MD backend is involved.
 
-Use **导出 ZIP 备份** only when an offline export is desired.
+To send directly into the desktop Reader instead, pair the extension with the loopback
+processing service and use the optional desktop action.
 
 The package contains an immutable `article.md`, localized raster images under
 `images/`, and `_clipping/manifest.json`. Reader display pairing remains a runtime

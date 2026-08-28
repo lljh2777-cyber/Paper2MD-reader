@@ -14,6 +14,7 @@ import type { ReaderFileSystem } from "../../../src/filesystem/reader-file-syste
 export interface WebReaderMountOptions {
   initialFileSystem?: ReaderFileSystem;
   enableWebMcp?: boolean;
+  enableProcessingApi?: boolean;
 }
 
 export function requestedPackageId(pathname: string): string | undefined {
@@ -37,11 +38,11 @@ export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions
   const ingestHost = document.createElement("div");
   const readerHost = document.createElement("div");
   root.replaceChildren(ingestHost, readerHost);
-  const picker = new BrowserPackagePicker();
+  const picker = new BrowserPackagePicker(options.enableProcessingApi !== false);
   const visualResolver = new PdfVisualResolver();
   const pdfProcessingEnabled = Boolean(picker.choosePdfPackage);
   const packageId = requestedPackageId(window.location.pathname);
-  const apiBaseUrl = configuredProcessingApiBaseUrl();
+  const apiBaseUrl = options.enableProcessingApi === false ? undefined : configuredProcessingApiBaseUrl();
   const processingClient = apiBaseUrl ? new ProcessingClient(apiBaseUrl) : undefined;
   let activePackageId = packageId;
   const workspace: ReaderWorkspace = mountReaderWorkspace(readerHost, {

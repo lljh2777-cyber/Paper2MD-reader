@@ -149,6 +149,18 @@ export class PackageLoader {
     const diagnostics: Diagnostic[] = [];
 
     if (!await this.fileSystem.exists(contractRelativePath)) {
+      const sourcePdfPath = "_extraction/source.pdf";
+      const hasSourcePdf = await this.fileSystem.exists(sourcePdfPath);
+      if (hasSourcePdf) {
+        const sourceInfo = await this.fileSystem.fileInfo(sourcePdfPath);
+        if (sourceInfo && sourceInfo.size > PACKAGE_LIMITS.sourcePdfBytes) {
+          throw new PackageLimitError(
+            `source.pdf is ${sourceInfo.size} bytes; the safe limit is ${PACKAGE_LIMITS.sourcePdfBytes}.`,
+            sourceInfo.size,
+            PACKAGE_LIMITS.sourcePdfBytes
+          );
+        }
+      }
       const hasPaper2mdAnchors = anchors.blockIds.length > 0 || anchors.slotIds.length > 0 || anchors.malformedMarkers.length > 0;
       const adapted = hasPaper2mdAnchors
         ? { articleText, visuals: [] }
@@ -171,6 +183,7 @@ export class PackageLoader {
         articleHash,
         anchors: parseAnchorInventory(adapted.articleText),
         assets: pairedAssets.length ? pairedAssets : await this.loadFallbackAssets(),
+        sourcePdf: hasSourcePdf ? { path: sourcePdfPath } : undefined,
         diagnostics
       };
     }

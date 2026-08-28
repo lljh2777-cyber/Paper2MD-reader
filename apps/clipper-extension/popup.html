@@ -13,14 +13,14 @@
         <span>论文网页 → 本地阅读包</span>
       </header>
       <p id="page-title" class="page-title">正在读取当前页面…</p>
-      <p class="privacy-note">内容在浏览器内确定性整理；发布时只提交到你本机的 Paper2MD processing service。图片会按域名请求权限，不调用 AI。</p>
+      <p class="privacy-note">内容在浏览器内确定性整理并可直接下载 ZIP；图片按域名请求权限，不调用 AI，也不会发送到 Paper2MD 云端。</p>
+      <button id="export-button" type="button">生成 ZIP 并下载</button>
+      <button id="clip-button" class="secondary" type="button" disabled>发送到桌面版（需本机配对）</button>
       <section id="pairing" class="pairing" hidden>
         <input id="pairing-id" type="text" placeholder="Reader 中显示的配对 ID" autocomplete="off" />
         <input id="pairing-code" type="text" inputmode="numeric" maxlength="8" placeholder="8 位配对码" autocomplete="one-time-code" />
         <button id="pair-button" class="secondary" type="button">完成本机配对</button>
       </section>
-      <button id="clip-button" type="button" disabled>提取、校验并在 Reader 打开</button>
-      <button id="export-button" class="secondary" type="button" disabled>导出 ZIP 备份</button>
       <div id="status" role="status" aria-live="polite"></div>
     </main>
     <script type="module" src="popup.js"></script>

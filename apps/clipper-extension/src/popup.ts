@@ -41,6 +41,7 @@ const pairingCodeInput = requiredElement<HTMLInputElement>("#pairing-code");
 const pairButton = requiredElement<HTMLButtonElement>("#pair-button");
 
 let activeTab: chrome.tabs.Tab | undefined;
+let pairedWithDesktop = false;
 
 function setStatus(message: string, state: "working" | "error" | "success" = "working"): void {
   statusElement.textContent = message;
@@ -155,6 +156,11 @@ function setActionsDisabled(disabled: boolean): void {
   exportButton.disabled = disabled;
 }
 
+function restoreActions(): void {
+  clipButton.disabled = !pairedWithDesktop;
+  exportButton.disabled = false;
+}
+
 async function downloadArchive(filename: string, bytes: Uint8Array): Promise<void> {
   const blobBytes = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   const blob = new Blob([blobBytes], { type: "application/zip" });
@@ -176,10 +182,10 @@ async function initialize(): Promise<void> {
     return;
   }
   titleElement.textContent = activeTab.title || url;
-  const paired = Boolean(await storedClipperCredential());
-  pairingElement.hidden = paired;
-  setActionsDisabled(!paired);
-  setStatus(paired ? "准备就绪" : "请先在 Reader 创建配对码，再在此完成本机配对。", paired ? "working" : "error");
+  pairedWithDesktop = Boolean(await storedClipperCredential());
+  pairingElement.hidden = pairedWithDesktop;
+  restoreActions();
+  setStatus(pairedWithDesktop ? "可下载 ZIP，也可发送到已配对的桌面版。" : "可直接生成 ZIP；发送到桌面版需要可选的本机配对。", "working");
 }
 
 pairButton.addEventListener("click", () => {
@@ -188,8 +194,9 @@ pairButton.addEventListener("click", () => {
     try {
       if (!await requestProcessingServicePermission()) throw new Error("你没有授权访问本地 Paper2MD processing service。");
       await pairProcessingService(pairingIdInput.value.trim(), pairingCodeInput.value.trim());
+      pairedWithDesktop = true;
       pairingElement.hidden = true;
-      setActionsDisabled(false);
+      restoreActions();
       setStatus("本机配对完成。", "success");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "配对失败。", "error");
@@ -224,7 +231,7 @@ clipButton.addEventListener("click", () => {
         ? "无法连接本地 processing service。请先在 Paper2MD-Reader 运行 npm run reader:dev。"
         : message, "error");
     } finally {
-      setActionsDisabled(false);
+      restoreActions();
     }
   })();
 });
@@ -241,7 +248,7 @@ exportButton.addEventListener("click", () => {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error), "error");
     } finally {
-      setActionsDisabled(false);
+      restoreActions();
     }
   })();
 });

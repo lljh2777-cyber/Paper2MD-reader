@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 const title = "Paper2MD Reader";
-const description = "无需安装或登录，在浏览器中体验本地优先的 Paper2MD 论文阅读；本地文件不上传。";
+const description = "在浏览器内转换、剪藏、临时阅读并导出论文结果；Paper2MD 不提供云端论文库。";
 
 const metadataBase = new URL(
   process.env.NEXT_PUBLIC_SITE_URL ?? "https://paper2md-reader.lljh2777.chatgpt.site"

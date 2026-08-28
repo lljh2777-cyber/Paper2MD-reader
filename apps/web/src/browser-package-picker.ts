@@ -7,6 +7,7 @@ import {
   clippingArchiveRootLabel,
   extractClippingArchiveBytes
 } from "../../../src/model/clipping-archive";
+import { processBrowserPdf } from "./browser-pdf-processor";
 
 type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
@@ -22,7 +23,7 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
     onProgress: (progress: ReaderProcessingProgress) => void
   ) => Promise<BrowserDirectoryReaderFileSystem | import("./remote-package-reader-file-system").RemotePackageReaderFileSystem | undefined>;
 
-  constructor() {
+  constructor(processingApiEnabled = true) {
     this.input = document.createElement("input");
     this.input.type = "file";
     this.input.multiple = true;
@@ -45,12 +46,17 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
     this.pdfInput.accept = ".pdf,application/pdf";
     this.pdfInput.className = "p2md-local-folder-input";
     document.body.appendChild(this.pdfInput);
-    const apiBaseUrl = configuredProcessingApiBaseUrl();
+    const apiBaseUrl = processingApiEnabled ? configuredProcessingApiBaseUrl() : undefined;
     if (apiBaseUrl) {
       const client = new ProcessingClient(apiBaseUrl);
       this.choosePdfPackage = async (onProgress) => {
         const file = await this.chooseSingleFile(this.pdfInput);
         return file ? client.processPdf(file, onProgress) : undefined;
+      };
+    } else {
+      this.choosePdfPackage = async (onProgress) => {
+        const file = await this.chooseSingleFile(this.pdfInput);
+        return file ? (await processBrowserPdf(file, onProgress)).fileSystem : undefined;
       };
     }
   }
