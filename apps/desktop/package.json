@@ -2,6 +2,9 @@
   "name": "@paper2md/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Local-first Paper2MD Reader desktop application.",
+  "author": "Paper2MD contributors",
+  "productName": "Paper2MD Reader",
   "type": "module",
   "main": "dist/main.cjs"
 }

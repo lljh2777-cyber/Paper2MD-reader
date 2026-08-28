@@ -117,5 +117,16 @@ source files or existing target directories. `Remove record` removes completed,
 failed, or cancelled metadata from the task index; it never deletes the PDF,
 workflow directory, review artifacts, or output package.
 
-The phase-one desktop build is a development application, not a signed installer.
-Packaging and code signing should use a dedicated Electron Forge release step.
+## Windows development releases
+
+`npm run desktop:pack` builds and verifies an unpacked Windows x64 application.
+`npm run desktop:dist` builds both an assisted per-user NSIS installer and a portable
+executable under `apps/desktop/out`. Release packaging uses an explicit file allowlist,
+keeps the deterministic contract worker outside ASAR for `worker_threads`, and rejects
+retired Python scripts or source trees in the packaged application.
+
+The resulting executables are intentionally unsigned development artifacts. Windows
+SmartScreen may warn when opening them. The GitHub Actions workflow runs TypeScript
+checks and the deterministic test suite before uploading the two executables; it does
+not publish a release or require a signing certificate. Code signing, branded icons,
+and upgrade compatibility remain separate release-hardening work.

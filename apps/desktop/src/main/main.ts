@@ -49,6 +49,7 @@ const MAX_IPC_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ROI_BYTES = 2 * 1024 * 1024;
 const MAX_LOG_CHARS = 64 * 1024;
 const MAX_CONCURRENT_REMOTE_TASKS = 2;
+const PACKAGING_SMOKE_ARGUMENT = "--paper2md-packaging-smoke";
 const roots = new Map<string, string>();
 const pdfs = new Map<string, string>();
 const tasks = new Map<string, ConversionTask>();
@@ -64,6 +65,20 @@ let libraryManager: DesktopLibraryManager | undefined;
 let credentialStore: DesktopCredentialStore | undefined;
 
 class TaskCancelledError extends Error {}
+
+function readerContractWorkerPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "app.asar.unpacked", "dist", "reader-contract-worker.cjs")
+    : join(__dirname, "reader-contract-worker.cjs");
+}
+
+async function verifyPackagedRuntimeFiles(): Promise<void> {
+  await Promise.all([
+    access(join(__dirname, "preload.cjs")),
+    access(join(__dirname, "renderer", "index.html")),
+    access(readerContractWorkerPath())
+  ]);
+}
 
 function assertTrusted(event: IpcMainInvokeEvent): void {
   const url = event.senderFrame?.url ?? "";
@@ -247,7 +262,7 @@ async function runRemoteExtraction(
       token,
       options,
       paths,
-      contractWorkerPath: join(__dirname, "reader-contract-worker.cjs"),
+      contractWorkerPath: readerContractWorkerPath(),
       timeoutSeconds: 900
     }, {
       isCancelled: () => remoteCancellations.has(taskId),
@@ -849,6 +864,17 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  if (process.argv.includes(PACKAGING_SMOKE_ARGUMENT)) {
+    try {
+      await verifyPackagedRuntimeFiles();
+      app.exit(0);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Packaged runtime verification failed");
+      app.exit(1);
+    }
+    return;
+  }
+  if (process.platform === "win32") app.setAppUserModelId("com.paper2md.reader");
   const userDataPath = app.getPath("userData");
   libraryManager = new DesktopLibraryManager(userDataPath);
   credentialStore = new DesktopCredentialStore(join(userDataPath, "mineru-credential-v1.json"), {

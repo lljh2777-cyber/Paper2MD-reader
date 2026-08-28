@@ -1,0 +1,56 @@
+name: Windows desktop artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check TypeScript
+        run: npm run typecheck
+
+      - name: Run deterministic tests
+        run: npm test -- --run
+
+      - name: Build unsigned installer and portable app
+        run: npm run desktop:dist
+
+      - name: Confirm release executables are unsigned
+        shell: powershell
+        run: |
+          $artifacts = Get-ChildItem -LiteralPath "apps/desktop/out" -Filter "Paper2MD-Reader-*.exe" -File
+          if ($artifacts.Count -ne 2) { throw "Expected exactly two Windows release executables" }
+          foreach ($artifact in $artifacts) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $artifact.FullName
+            if ($signature.Status -eq "Valid") { throw "$($artifact.Name) was unexpectedly signed" }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Paper2MD-Reader-Windows-${{ github.ref_name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            apps/desktop/out/Paper2MD-Reader-Setup-*.exe
+            apps/desktop/out/Paper2MD-Reader-Portable-*.exe
