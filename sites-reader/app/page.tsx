@@ -122,7 +122,7 @@ export default function Home() {
       <section className="site-hero" id="top">
         <p className="site-eyebrow">LOCAL FIRST · CLOUD OPTIONAL</p>
         <h1>把论文留在本地，<br />把阅读体验带到浏览器。</h1>
-        <p className="site-lede">无需安装、登录或配置 Token。先用安全的内置演示理解 Paper2MD Reader，再明确授权浏览器读取你的论文包。</p>
+        <p className="site-lede">在线演示和阅读已处理好的论文包无需安装、登录或 Token。只有在桌面端调用 MinerU 处理新 PDF 时，才需前往 MinerU 官网申请并在本机配置 API Token。</p>
         <div className="site-actions">
           <button className="site-primary" type="button" onClick={() => openView("demo")}>在线体验 <span aria-hidden="true">→</span></button>
           <button className="site-secondary" type="button" onClick={() => openView("local")}>打开本地论文</button>
