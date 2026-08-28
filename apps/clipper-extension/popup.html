@@ -3,17 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Paper2MD Web Clipper</title>
+    <title>After-MinerU Companion</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="clipper-shell">
       <header>
-        <strong>Paper2MD Web Clipper</strong>
-        <span>论文网页 → 本地阅读包</span>
+        <strong>After‑MinerU Companion</strong>
+        <span>网页剪藏与精准转换</span>
       </header>
       <p id="page-title" class="page-title">正在读取当前页面…</p>
       <p class="privacy-note">内容在浏览器内确定性整理并可直接下载 ZIP；图片按域名请求权限，不调用 AI，也不会发送到 Paper2MD 云端。</p>
+      <button id="precision-button" type="button">精准转换 PDF（实验性）</button>
       <button id="export-button" type="button">生成 ZIP 并下载</button>
       <button id="clip-button" class="secondary" type="button" disabled>发送到桌面版（需本机配对）</button>
       <section id="pairing" class="pairing" hidden>

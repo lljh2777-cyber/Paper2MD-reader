@@ -34,6 +34,7 @@ function requiredElement<T extends Element>(selector: string): T {
 const titleElement = requiredElement<HTMLElement>("#page-title");
 const clipButton = requiredElement<HTMLButtonElement>("#clip-button");
 const exportButton = requiredElement<HTMLButtonElement>("#export-button");
+const precisionButton = requiredElement<HTMLButtonElement>("#precision-button");
 const statusElement = requiredElement<HTMLElement>("#status");
 const pairingElement = requiredElement<HTMLElement>("#pairing");
 const pairingIdInput = requiredElement<HTMLInputElement>("#pairing-id");
@@ -154,12 +155,18 @@ async function prepareClipping(tabId: number): Promise<PreparedClipping> {
 function setActionsDisabled(disabled: boolean): void {
   clipButton.disabled = disabled;
   exportButton.disabled = disabled;
+  precisionButton.disabled = disabled;
 }
 
 function restoreActions(): void {
   clipButton.disabled = !pairedWithDesktop;
   exportButton.disabled = false;
+  precisionButton.disabled = false;
 }
+
+precisionButton.addEventListener("click", () => {
+  void chrome.tabs.create({ url: chrome.runtime.getURL("precision.html") });
+});
 
 async function downloadArchive(filename: string, bytes: Uint8Array): Promise<void> {
   const blobBytes = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>After-MinerU 精准转换</title>
+    <link rel="stylesheet" href="precision.css" />
+  </head>
+  <body>
+    <main class="precision-shell">
+      <header>
+        <p>AFTER‑MINERU · EXPERIMENTAL</p>
+        <h1>精准转换</h1>
+        <span>由扩展直接连接 MinerU；Paper2MD 不经手 Token 或 PDF。</span>
+      </header>
+
+      <section class="boundary" aria-labelledby="boundary-title">
+        <h2 id="boundary-title">开始前请确认</h2>
+        <ul>
+          <li>PDF 将按你的选择直接上传到 MinerU 服务。</li>
+          <li>Token 只存在当前扩展页内存；刷新、关闭或任务结束即清除。</li>
+          <li>扩展仅按本次操作请求 MinerU API、签名上传和结果下载域名。</li>
+          <li>下载 ZIP 通过结构与路径校验后仍保持 MinerU 原始结果不变。</li>
+        </ul>
+      </section>
+
+      <section class="form-panel" aria-label="精准转换输入">
+        <label for="mineru-token">临时 MinerU Token</label>
+        <div class="token-row">
+          <input id="mineru-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="仅保存在当前页面内存" />
+          <button id="clear-token-button" class="secondary" type="button">清除</button>
+        </div>
+        <a href="https://mineru.net/apiManage/token" target="_blank" rel="noreferrer">前往 MinerU Token 管理</a>
+
+        <label for="precision-pdf">PDF 文件</label>
+        <input id="precision-pdf" type="file" accept=".pdf,application/pdf" />
+        <p class="hint">实验模式上限 200MB；默认使用 VLM、OCR、公式和表格识别。</p>
+        <button id="convert-button" type="button">授权并开始精准转换</button>
+        <p id="precision-status" role="status" aria-live="polite">尚未选择文件；不会自动上传。</p>
+      </section>
+
+      <footer>独立第三方工具，非 MinerU 官方产品。结果下载后可导入 After‑MinerU 网页 Reader。</footer>
+    </main>
+    <script type="module" src="precision.js"></script>
+  </body>
+</html>

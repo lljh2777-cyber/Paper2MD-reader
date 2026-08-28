@@ -52,4 +52,20 @@ describe("Paper2MD Web Clipper extension boundary", () => {
     expect(imageFetcher).toContain("readResponseBytesWithinLimit");
     expect(imageFetcher).not.toContain("response.arrayBuffer()");
   });
+
+  it("keeps precision credentials out of persistent extension storage and limits transfer hosts", () => {
+    const precisionPage = readFileSync("apps/clipper-extension/src/precision.ts", "utf8");
+    const precisionClient = readFileSync("apps/clipper-extension/src/mineru-precision-client.ts", "utf8");
+    expect(precisionPage).not.toContain("storage.local");
+    expect(precisionPage).not.toContain("storage.sync");
+    expect(precisionPage).not.toContain("storage.session");
+    expect(precisionPage).not.toContain("cookie");
+    expect(precisionPage).not.toContain("localStorage");
+    expect(precisionClient).toContain('"https://mineru.net/*"');
+    expect(precisionClient).toContain('"https://mineru.oss-cn-shanghai.aliyuncs.com/*"');
+    expect(precisionClient).toContain('"https://cdn-mineru.openxlab.org.cn/*"');
+    expect(precisionClient).toContain('credentials: "omit"');
+    expect(precisionClient).toContain('redirect: "error"');
+    expect(precisionClient).toContain("inspectMineruPrecisionArchive");
+  });
 });

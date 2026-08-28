@@ -1,0 +1,35 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "Segoe UI", "PingFang SC", sans-serif;
+  background: #f5f8fc;
+  color: #102641;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+.precision-shell { display: grid; gap: 24px; margin: 0 auto; max-width: 760px; padding: 48px 24px 64px; }
+header p { color: #1762bd; font-size: 12px; font-weight: 800; letter-spacing: .14em; margin: 0 0 10px; }
+header h1 { font-family: Georgia, "Noto Serif SC", serif; font-size: clamp(40px, 8vw, 72px); line-height: 1; margin: 0 0 14px; }
+header span { color: #5f7388; font-size: 16px; line-height: 1.7; }
+.boundary, .form-panel { background: white; border: 1px solid #dbe5ef; border-radius: 18px; box-shadow: 0 14px 40px rgba(16, 38, 65, .06); padding: 24px; }
+.boundary h2 { font-size: 16px; margin: 0 0 12px; }
+.boundary ul { color: #53697e; display: grid; gap: 8px; line-height: 1.6; margin: 0; padding-left: 20px; }
+.form-panel { display: grid; gap: 12px; }
+.form-panel label { font-size: 13px; font-weight: 750; margin-top: 6px; }
+.form-panel input { border: 1px solid #bfcddd; border-radius: 9px; min-height: 44px; padding: 10px 12px; width: 100%; }
+.token-row { display: grid; gap: 8px; grid-template-columns: 1fr auto; }
+.form-panel a { color: #1762bd; font-size: 12px; width: max-content; }
+button { background: #1762bd; border: 0; border-radius: 9px; color: white; cursor: pointer; font: inherit; font-weight: 750; min-height: 46px; padding: 0 18px; }
+button.secondary { background: #eef4fb; color: #173b65; }
+button:disabled { cursor: wait; opacity: .55; }
+.hint, #precision-status, footer { color: #667b90; font-size: 12px; line-height: 1.6; margin: 0; }
+#precision-status { border-left: 3px solid #7d91a6; min-height: 1.6em; padding-left: 10px; }
+#precision-status[data-state="error"] { border-color: #c44236; color: #a52f25; }
+#precision-status[data-state="success"] { border-color: #159356; color: #117342; }
+footer { text-align: center; }
+
+@media (max-width: 520px) {
+  .precision-shell { padding: 28px 14px 44px; }
+  .boundary, .form-panel { border-radius: 13px; padding: 18px; }
+  .token-row { grid-template-columns: 1fr; }
+}
