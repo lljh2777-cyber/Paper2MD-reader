@@ -10,7 +10,7 @@ import { publishMineruPackage } from "./package-publisher";
 const MAX_ARCHIVE_FILES = 1_024;
 const MAX_ARCHIVE_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_TOTAL_BYTES = 512 * 1024 * 1024;
-const ALLOWED_OUTPUT = /(?:^|\/)(?:[^/]+\.md|[^/]*content_list(?:_v2)?\.json|images\/[A-Za-z0-9._/-]+\.(?:bmp|gif|jpe?g|png|webp))$/i;
+const ALLOWED_OUTPUT = /(?:^|\/)(?:[^/]+\.(?:md|json)|images\/[A-Za-z0-9._/-]+\.(?:bmp|gif|jpe?g|png|webp))$/i;
 
 export type RemoteMineruStage = "allocate" | "upload" | "extract" | "download" | "validate" | "publish";
 
@@ -98,7 +98,8 @@ export function inspectMineruArchive(zipBytes: Uint8Array): Record<string, Uint8
   const normalized: Record<string, Uint8Array> = {};
   let actualTotal = 0;
   let markdownCount = 0;
-  let contentListCount = 0;
+  let stableContentListCount = 0;
+  let v2ContentListCount = 0;
   for (const [rawPath, bytes] of Object.entries(entries)) {
     const path = normalizePackagePath(rawPath);
     if (normalized[path]) throw new MineruRemoteError("UNSAFE_ARCHIVE", "MinerU returned duplicate output paths");
@@ -111,18 +112,22 @@ export function inspectMineruArchive(zipBytes: Uint8Array): Record<string, Uint8
       markdownCount += 1;
       new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     }
-    if (/content_list(?:_v2)?\.json$/i.test(path)) {
-      contentListCount += 1;
+    if (extension === ".json") {
       try {
         JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
       } catch {
         throw new MineruRemoteError("INVALID_OUTPUT", "MinerU returned invalid structured JSON");
       }
+      if (/content_list_v2\.json$/i.test(path)) v2ContentListCount += 1;
+      else if (/content_list\.json$/i.test(path)) stableContentListCount += 1;
     }
     normalized[path] = bytes;
   }
-  if (markdownCount !== 1 || contentListCount !== 1) {
-    throw new MineruRemoteError("INVALID_OUTPUT", "MinerU output must contain one Markdown and one content-list JSON file");
+  if (markdownCount !== 1
+    || stableContentListCount > 1
+    || v2ContentListCount > 1
+    || stableContentListCount + v2ContentListCount < 1) {
+    throw new MineruRemoteError("INVALID_OUTPUT", "MinerU output must contain one Markdown and an unambiguous content-list JSON file");
   }
   return normalized;
 }

@@ -42,6 +42,22 @@ describe("remote MinerU archive boundary", () => {
     ]);
   });
 
+  it("accepts official auxiliary JSON and simultaneous stable and v2 content lists", () => {
+    const entries = inspectMineruArchive(resultArchive({
+      "paper/paper_content_list_v2.json": strToU8(JSON.stringify([[{ type: "paragraph", content: {} }]])),
+      "paper/paper_layout.json": strToU8(JSON.stringify({ pdf_info: [] })),
+      "paper/paper_model.json": strToU8(JSON.stringify([[]]))
+    }));
+    expect(Object.keys(entries).sort()).toEqual([
+      "paper/full.md",
+      "paper/images/figure-1.png",
+      "paper/paper_content_list.json",
+      "paper/paper_content_list_v2.json",
+      "paper/paper_layout.json",
+      "paper/paper_model.json"
+    ]);
+  });
+
   it("fails closed on traversal paths and unsupported executable output", () => {
     expect(() => inspectMineruArchive(resultArchive({ "../article.md": strToU8("# Escape") }))).toThrow();
     expect(() => inspectMineruArchive(resultArchive({ "paper/run.exe": new Uint8Array([1]) }))).toThrow(

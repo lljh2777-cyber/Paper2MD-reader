@@ -114,17 +114,30 @@ async function walkFiles(
   return files;
 }
 
-async function findOutputs(extractRoot: string): Promise<{ markdown: string; json: string }> {
+async function findOutputs(extractRoot: string): Promise<{ markdown: string; json: string; jsonFiles: string[] }> {
   const files = await walkFiles(extractRoot);
   const markdown = files.filter((path) => extname(path).toLowerCase() === ".md");
   if (markdown.length !== 1) throw new Error(`Expected one MinerU Markdown output, found ${markdown.length}`);
   const json = files.filter((path) => extname(path).toLowerCase() === ".json");
   const selectPreferred = (marker: string) => json.filter((path) => basename(path).toLowerCase().includes(marker));
   const v2 = selectPreferred("content_list_v2");
-  const stable = selectPreferred("content_list");
-  const selected = v2.length === 1 ? v2[0] : stable.length === 1 ? stable[0] : json.length === 1 ? json[0] : undefined;
+  const stable = selectPreferred("content_list").filter((path) => !basename(path).toLowerCase().includes("content_list_v2"));
+  const selected = stable.length === 1 ? stable[0] : v2.length === 1 ? v2[0] : json.length === 1 ? json[0] : undefined;
   if (!selected) throw new Error(`Expected one unambiguous MinerU JSON output, found ${json.length}`);
-  return { markdown: markdown[0], json: selected };
+  return { markdown: markdown[0], json: selected, jsonFiles: json };
+}
+
+async function preserveMineruJson(extractRoot: string, packageRoot: string, jsonFiles: string[]): Promise<void> {
+  const mineruRoot = join(packageRoot, "mineru");
+  await mkdir(mineruRoot);
+  for (const source of jsonFiles) {
+    if (!inside(extractRoot, source)) throw new Error("MinerU JSON source escapes extraction root");
+    const relativePath = relative(extractRoot, source);
+    const target = resolve(mineruRoot, relativePath);
+    if (!inside(mineruRoot, target)) throw new Error("MinerU JSON target escapes package root");
+    await mkdir(dirname(target), { recursive: true });
+    await cp(source, target, { errorOnExist: true });
+  }
 }
 
 function sha256(data: Uint8Array): string {
@@ -217,6 +230,7 @@ export async function publishMineruPackage(input: {
 }): Promise<PublishedPackageDescriptor> {
   const outputs = await findOutputs(input.extractRoot);
   await mkdir(input.packageStage, { recursive: false });
+  await preserveMineruJson(input.extractRoot, input.packageStage, outputs.jsonFiles);
   await Promise.all([
     cp(outputs.markdown, join(input.packageStage, "article.md"), { errorOnExist: true }),
     cp(outputs.json, join(input.packageStage, "mineru-result.json"), { errorOnExist: true })
