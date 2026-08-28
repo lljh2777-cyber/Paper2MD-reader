@@ -1,6 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { request } from "node:https";
+import { request, type RequestOptions } from "node:https";
 
 const MAX_REDIRECTS = 3;
 
@@ -104,6 +104,19 @@ async function resolvedPublicAddresses(hostname: string, lookup: typeof dnsLooku
   return answers.map((answer) => ({ address: answer.address, family: answer.family as 4 | 6 }));
 }
 
+export function safeAcquisitionConnectionOptions(
+  address: { address: string; family: 4 | 6 }
+): Pick<RequestOptions, "family" | "lookup"> & { autoSelectFamily: false } {
+  return {
+    // Node 20+ may ask custom lookup callbacks for every address by passing
+    // { all: true }. This request already pins one validated public address,
+    // so the legacy single-address callback must opt out of that mode.
+    autoSelectFamily: false,
+    family: address.family,
+    lookup: (_hostname, _lookupOptions, callback) => callback(null, address.address, address.family)
+  };
+}
+
 function singleRequest(url: URL, options: SafeAcquisitionFetchOptions, address: { address: string; family: 4 | 6 }): Promise<{
   status: number;
   headers: Record<string, string | string[] | undefined>;
@@ -113,7 +126,7 @@ function singleRequest(url: URL, options: SafeAcquisitionFetchOptions, address: 
     const requestHandle = request(url, {
       method: "GET",
       headers: { Accept: options.accept.join(","), "User-Agent": "Paper2MD-Reader/0.1" },
-      lookup: (_hostname, _lookupOptions, callback) => callback(null, address.address, address.family)
+      ...safeAcquisitionConnectionOptions(address)
     }, (response) => {
       const chunks: Buffer[] = [];
       let total = 0;

@@ -8,7 +8,11 @@ import { safePdfFilename } from "../apps/processing-service/src/job-manager";
 import { mineruExtractArgs, mineruSpawnSpec, runMineru } from "../apps/processing-service/src/mineru-runner";
 import { flattenMineruElements, normalizePackagePath } from "../apps/processing-service/src/package-publisher";
 import { resolve } from "node:path";
-import { assertSafeAcquisitionUrl, isPublicInternetAddress } from "../apps/processing-service/src/safe-acquisition-fetch";
+import {
+  assertSafeAcquisitionUrl,
+  isPublicInternetAddress,
+  safeAcquisitionConnectionOptions
+} from "../apps/processing-service/src/safe-acquisition-fetch";
 import { ClipperCredentialStore } from "../apps/processing-service/src/clipper-credentials";
 
 describe("standalone processing service security", () => {
@@ -22,6 +26,13 @@ describe("standalone processing service security", () => {
     expect(() => assertSafeAcquisitionUrl("https://user:secret@example.org/paper")).toThrow("credential");
     expect(() => assertSafeAcquisitionUrl("https://127.0.0.1/paper")).toThrow("non-public");
   });
+
+  it("pins a validated download address without Node automatic family lookup", () => {
+    const options = safeAcquisitionConnectionOptions({ address: "1.1.1.1", family: 4 });
+    expect(options).toMatchObject({ autoSelectFamily: false, family: 4 });
+    expect(options.lookup).toBeTypeOf("function");
+  });
+
   it("requires authentication before binding beyond loopback", () => {
     expect(() => loadProcessingServiceConfig({ PAPER2MD_SERVICE_HOST: "0.0.0.0" })).toThrow("SERVICE_TOKEN");
     expect(loadProcessingServiceConfig({
