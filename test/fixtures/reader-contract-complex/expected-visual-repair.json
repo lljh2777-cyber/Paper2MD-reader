@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "algorithm_version": "visual-repair-v1.6",
+  "status": "complete",
+  "viewer_index": "viewer-index.json",
+  "inputs": {
+    "article": {
+      "path": "article.md",
+      "sha256": "9329bf0b7f4b962ca9d32eb43f19188f929e7c823bf330b4bfc31987fef4fa44"
+    },
+    "mineru_result": {
+      "path": "mineru-result.json",
+      "sha256": "3c7f6d5ef9d1dfbfa70e81592a82f300d5af4faae059c5418b4feddb8e54e7a0"
+    }
+  },
+  "render_requirements": {
+    "pdf_crop_requires_original_pdf": true,
+    "fallback": "original_assets"
+  },
+  "summary": {
+    "eligible_visual_count": 4,
+    "group_count": 1,
+    "auto_group_count": 1,
+    "review_group_count": 0,
+    "skipped_group_count": 0,
+    "caption_link_count": 1,
+    "complete_caption_link_count": 1,
+    "partial_caption_link_count": 0
+  },
+  "groups": [
+    {
+      "id": "vr-p0000-g0000",
+      "page_idx": 0,
+      "member_block_ids": [
+        "p0000-s000001",
+        "p0000-s000002",
+        "p0000-s000003"
+      ],
+      "member_asset_paths": [
+        "images/panel-a.png",
+        "images/panel-b.png",
+        "images/panel-c.png"
+      ],
+      "member_markdown_image_ids": [
+        "md-img-0000",
+        "md-img-0001",
+        "md-img-0002"
+      ],
+      "caption_anchor_block_ids": [
+        "p0000-s000003"
+      ],
+      "decision": "auto",
+      "confidence": 0.99,
+      "replacement": {
+        "mode": "pdf_crop",
+        "bbox_norm": [
+          100,
+          150,
+          960,
+          450
+        ],
+        "padding_norm": 6
+      },
+      "signals": {
+        "member_count": 3,
+        "representative_count": 3,
+        "adjacent_pair_count": 2,
+        "caption_char_count": 88,
+        "long_caption_anchor_count": 1,
+        "figure_caption_anchor_count": 1,
+        "panel_label_count": 2,
+        "markdown_references_contiguous": true,
+        "markdown_reference_coverage": 1.0,
+        "max_markdown_gap_chars": 1,
+        "union_area_fraction": 0.258
+      },
+      "reason_codes": [
+        "same_page_connected_visuals",
+        "long_caption_attached",
+        "panel_labels_detected",
+        "markdown_references_contiguous",
+        "plausible_union_area"
+      ],
+      "warning_codes": [],
+      "fallback": "original_assets"
+    }
+  ],
+  "caption_links": [
+    {
+      "visual_block_id": "p0001-s000004",
+      "caption_block_ids": [
+        "p0002-s000005"
+      ],
+      "source_page_idx": 1,
+      "target_page_idx": 2,
+      "figure_key": "figure:2",
+      "relation": "next_page_figure_caption",
+      "status": "complete"
+    }
+  ],
+  "issues": []
+}

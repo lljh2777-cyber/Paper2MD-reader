@@ -211,8 +211,7 @@ export async function publishMineruPackage(input: {
   packageStage: string;
   publishedRoot: string;
   mineruOptions: Record<string, unknown>;
-  pythonCommand?: string;
-  contractScriptPath: string;
+  contractWorkerPath: string;
   contractTimeoutSeconds: number;
   onValidated?: () => void;
 }): Promise<PublishedPackageDescriptor> {
@@ -232,9 +231,8 @@ export async function publishMineruPackage(input: {
   await cp(input.sourcePath, join(extractionRoot, "source.pdf"), { errorOnExist: true });
   const viewerContracts = await buildReaderContracts({
     packageRoot: input.packageStage,
-    timeoutSeconds: input.contractTimeoutSeconds,
-    pythonCommand: input.pythonCommand,
-    scriptPath: input.contractScriptPath
+    workerPath: input.contractWorkerPath,
+    timeoutSeconds: input.contractTimeoutSeconds
   });
   const [sourceBytes, packagedSourceBytes] = await Promise.all([
     readFile(input.sourcePath),

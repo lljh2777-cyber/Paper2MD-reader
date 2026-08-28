@@ -1,0 +1,35 @@
+[
+  {
+    "type": "text",
+    "text": "Review candidate fixture",
+    "text_level": 1,
+    "bbox": [80, 50, 920, 110],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/left.png",
+    "image_caption": ["Fig. 1. A sufficiently long formal caption that identifies this two-fragment figure."],
+    "bbox": [100, 160, 480, 560],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/right.png",
+    "bbox": [490, 160, 900, 560],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/figure-2.png",
+    "image_caption": ["Fig. 2. Caption continued on next page."],
+    "bbox": [120, 180, 880, 720],
+    "page_idx": 1
+  },
+  {
+    "type": "text",
+    "text": "Fig. 2. This formal caption remains deliberately incomplete",
+    "bbox": [100, 80, 900, 180],
+    "page_idx": 2
+  }
+]

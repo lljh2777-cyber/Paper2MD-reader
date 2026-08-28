@@ -26,11 +26,10 @@ npm run reader:dev
 
 该命令会检查并启动网页和处理服务，避免只启动网页或重复占用 `8787` 端口。
 
-先确保 `mineru-open-api` 已安装并完成 CLI 自身认证，同时提供 Python 3.10+ 运行确定性契约生成器。token 只保留在 MinerU CLI 配置或 `MINERU_TOKEN` 环境变量中。
+先确保 `mineru-open-api` 已安装并完成 CLI 自身认证。确定性 Viewer/视觉修复契约由带超时和内存上限的 TypeScript Worker生成，不再需要 Python。token 只保留在 MinerU CLI 配置或 `MINERU_TOKEN` 环境变量中。
 
 ```powershell
 $env:MINERU_CLI_PATH = "C:\path\to\mineru-open-api.cmd"
-$env:PAPER2MD_PYTHON_PATH = "D:\python\python.exe"
 npm run processing:build
 npm run processing:start
 ```
@@ -103,7 +102,7 @@ data root，不能把一个共享 service token 冒充成多用户隔离。
 - Cloudflare Worker / Codex Sites 只适合托管 Reader 前端，不能直接执行本地 MinerU CLI。处理服务应部署在独立的受控 Node 主机或容器中。
 - 当前任务数据不会自动删除，便于失败审计。投入多人使用前需增加明确的保留期和逐任务删除策略。
 
-常用变量：`PAPER2MD_DATA_ROOT`、`PAPER2MD_SERVICE_HOST`、`PAPER2MD_SERVICE_PORT`、`PAPER2MD_ALLOWED_ORIGINS`、`PAPER2MD_ALLOWED_CLIPPER_IDS`、`PAPER2MD_MAX_PDF_BYTES`、`PAPER2MD_MAX_CLIPPING_BYTES`、`PAPER2MD_MAX_ACTIVE_JOBS`、`PAPER2MD_MINERU_TIMEOUT`、`PAPER2MD_PYTHON_PATH`、`PAPER2MD_READER_BASE_URL`、`MINERU_CLI_PATH`、`MINERU_BASE_URL`。
+常用变量：`PAPER2MD_DATA_ROOT`、`PAPER2MD_SERVICE_HOST`、`PAPER2MD_SERVICE_PORT`、`PAPER2MD_ALLOWED_ORIGINS`、`PAPER2MD_ALLOWED_CLIPPER_IDS`、`PAPER2MD_MAX_PDF_BYTES`、`PAPER2MD_MAX_CLIPPING_BYTES`、`PAPER2MD_MAX_ACTIVE_JOBS`、`PAPER2MD_MINERU_TIMEOUT`、`PAPER2MD_READER_BASE_URL`、`MINERU_CLI_PATH`、`MINERU_BASE_URL`。
 
 ## 论文身份解析命令
 

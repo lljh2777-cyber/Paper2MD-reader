@@ -40,8 +40,7 @@ export interface RemoteMineruWorkflowInput {
   token: string;
   options: MineruRemoteOptions;
   paths: RemoteMineruPaths;
-  pythonCommand?: string;
-  contractScriptPath: string;
+  contractWorkerPath: string;
   timeoutSeconds: number;
 }
 
@@ -198,8 +197,7 @@ export async function runRemoteMineruWorkflow(
       table: true,
       timeout_seconds: input.timeoutSeconds
     },
-    pythonCommand: input.pythonCommand,
-    contractScriptPath: input.contractScriptPath,
+    contractWorkerPath: input.contractWorkerPath,
     contractTimeoutSeconds: Math.min(180, input.timeoutSeconds),
     onValidated: () => {
       ensureNotCancelled(dependencies.isCancelled);

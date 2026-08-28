@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract": "mineru-visual-candidates",
+  "status": "empty",
+  "inputs": {
+    "article": {
+      "sha256": "9329bf0b7f4b962ca9d32eb43f19188f929e7c823bf330b4bfc31987fef4fa44"
+    },
+    "mineru_result": {
+      "sha256": "3c7f6d5ef9d1dfbfa70e81592a82f300d5af4faae059c5418b4feddb8e54e7a0"
+    },
+    "viewer_index_sha256": "6b3716eb8da1626e756f5d8b5fb3cbfc18e623f01b7eafa49e7a53ad99bb70f9",
+    "visual_repair_sha256": "6e99f98b20f7f232ec763dd0e32aa589900eb8083d00d417249ad9c7cec15e95"
+  },
+  "policy": {
+    "allowed_verdicts": [
+      "accept",
+      "reject",
+      "abstain"
+    ],
+    "minimum_accept_confidence": 0.85
+  },
+  "candidates": [],
+  "issues": [],
+  "candidate_package_sha256": "964176e0a9191dc6dc0c602c6d32be1ca8a8c8027bcf7c9869cf667ce5b8ee73"
+}

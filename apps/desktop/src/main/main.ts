@@ -247,8 +247,7 @@ async function runRemoteExtraction(
       token,
       options,
       paths,
-      pythonCommand: process.env.PAPER2MD_PYTHON_PATH,
-      contractScriptPath: join(__dirname, "processing-scripts", "build_reader_contracts.py"),
+      contractWorkerPath: join(__dirname, "reader-contract-worker.cjs"),
       timeoutSeconds: 900
     }, {
       isCancelled: () => remoteCancellations.has(taskId),

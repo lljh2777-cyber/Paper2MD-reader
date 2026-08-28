@@ -61,10 +61,10 @@ Remote MinerU processing may still finish after an earlier local cancellation.
 Successful tasks refresh the library and open the package by opaque `package_id`.
 Reading, local package import, and Clipper packages remain Token-free.
 
-The deterministic contract builder currently requires Python. Packaged builds copy
-the required scripts into `dist/processing-scripts`; set `PAPER2MD_PYTHON_PATH` in
-the Electron main-process environment only when the default `python` executable is
-not available. This value is never accepted from renderer content.
+The deterministic Viewer Index, visual-repair plan, and review-candidate packet are
+generated and validated inside a bounded TypeScript worker with a deadline and
+memory limits. Packaged desktop builds do not require a separately installed
+Python interpreter.
 
 ## Reviewed layout workflow
 

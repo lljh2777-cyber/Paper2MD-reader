@@ -71,9 +71,9 @@ Markdown、唯一 content-list JSON 和受支持位图。结果先写入隔离 j
 Markdown、MinerU JSON 和原图保持不可变；只有确定性契约与清单校验通过才原子发布到
 `packages/`，既有完整包不覆盖，失败或歧义一律 fail closed。
 
-当前确定性 Viewer 契约生成仍需要本地 Python 运行时；桌面构建会携带所需脚本，但尚未
-把 Python 解释器本身打入安装包。开发者可在 main 进程设置受信任的
-`PAPER2MD_PYTHON_PATH`，Renderer 无权提供可执行路径。
+确定性 Viewer Index、视觉修复计划与人工审阅候选包均已迁移到共享 TypeScript
+Worker运行时，并用迁移前 Python实现生成的金样本做输出等价测试。Worker具有提前资源
+预算、内存上限和执行期限；桌面构建不再复制脚本，也不要求用户安装或配置 Python解释器。
 
 直接转换目前不会替代 Paper2MD 的视觉复核流程。未来桌面任务层可在独立步骤中
 加入 ROI 确认、`layout-prepare`、视觉 Agent 结果导入、`layout-apply` 和

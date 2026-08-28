@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "algorithm_version": "visual-repair-v1.6",
+  "status": "complete",
+  "viewer_index": "viewer-index.json",
+  "inputs": {
+    "article": {
+      "path": "article.md",
+      "sha256": "948b6c7eb8ae280e921eb2206790d900c663ab65252cacaf1df0b182a3689b81"
+    },
+    "mineru_result": {
+      "path": "mineru-result.json",
+      "sha256": "fb753347b46e53dffbfa099fa51f070e2c372979464a9788da7816e003283fdb"
+    }
+  },
+  "render_requirements": {
+    "pdf_crop_requires_original_pdf": true,
+    "fallback": "original_assets"
+  },
+  "summary": {
+    "eligible_visual_count": 3,
+    "group_count": 1,
+    "auto_group_count": 0,
+    "review_group_count": 1,
+    "skipped_group_count": 0,
+    "caption_link_count": 1,
+    "complete_caption_link_count": 0,
+    "partial_caption_link_count": 1
+  },
+  "groups": [
+    {
+      "id": "vr-p0000-g0000",
+      "page_idx": 0,
+      "member_block_ids": [
+        "p0000-s000001",
+        "p0000-s000002"
+      ],
+      "member_asset_paths": [
+        "images/left.png",
+        "images/right.png"
+      ],
+      "member_markdown_image_ids": [
+        "md-img-0000"
+      ],
+      "caption_anchor_block_ids": [
+        "p0000-s000001"
+      ],
+      "decision": "review",
+      "confidence": 0.83,
+      "replacement": {
+        "mode": "pdf_crop",
+        "bbox_norm": [
+          100,
+          160,
+          900,
+          560
+        ],
+        "padding_norm": 6
+      },
+      "signals": {
+        "member_count": 2,
+        "representative_count": 2,
+        "adjacent_pair_count": 1,
+        "caption_char_count": 84,
+        "long_caption_anchor_count": 1,
+        "figure_caption_anchor_count": 1,
+        "panel_label_count": 0,
+        "markdown_references_contiguous": false,
+        "markdown_reference_coverage": 0.5,
+        "max_markdown_gap_chars": null,
+        "union_area_fraction": 0.32
+      },
+      "reason_codes": [
+        "same_page_connected_visuals",
+        "long_caption_attached",
+        "plausible_union_area"
+      ],
+      "warning_codes": [],
+      "fallback": "original_assets"
+    }
+  ],
+  "caption_links": [
+    {
+      "visual_block_id": "p0001-s000003",
+      "caption_block_ids": [
+        "p0002-s000004"
+      ],
+      "source_page_idx": 1,
+      "target_page_idx": 2,
+      "figure_key": "figure:2",
+      "relation": "next_page_figure_caption",
+      "status": "partial"
+    }
+  ],
+  "issues": [
+    {
+      "code": "partial_next_page_figure_caption",
+      "visual_block_id": "p0001-s000003",
+      "source_page_idx": 1,
+      "target_page_idx": 2,
+      "figure_key": "figure:2",
+      "reason_codes": [
+        "unterminated_caption_anchor"
+      ]
+    }
+  ]
+}

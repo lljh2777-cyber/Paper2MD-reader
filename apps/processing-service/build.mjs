@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname);
 await Promise.all([
   ["server.ts", "server.mjs"],
-  ["mcp-server.ts", "mcp-server.mjs"]
+  ["mcp-server.ts", "mcp-server.mjs"],
+  ["reader-contract-worker.ts", "reader-contract-worker.mjs"]
 ].map(([entry, output]) => build({
   entryPoints: [resolve(root, "src", entry)],
   outfile: resolve(root, "dist", output),

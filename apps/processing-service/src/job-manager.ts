@@ -190,8 +190,7 @@ export class JobManager {
           table: true,
           timeout_seconds: job.options.timeoutSeconds
         },
-        pythonCommand: this.config.pythonCommand,
-        contractScriptPath: resolve(import.meta.dirname, "../scripts/build_reader_contracts.py"),
+        contractWorkerPath: resolve(import.meta.dirname, "../dist/reader-contract-worker.mjs"),
         contractTimeoutSeconds: Math.min(180, job.options.timeoutSeconds),
         onValidated: () => {
           this.update(job, { stage: "publish", message: "校验通过，正在原子发布阅读包…" });

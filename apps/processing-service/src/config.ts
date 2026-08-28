@@ -10,7 +10,6 @@ export interface ProcessingServiceConfig {
   port: number;
   dataRoot: string;
   mineruCommand: string;
-  pythonCommand?: string;
   mineruBaseUrl?: string;
   serviceToken?: string;
   allowedOrigins: Set<string>;
@@ -136,7 +135,6 @@ export function loadProcessingServiceConfig(env: NodeJS.ProcessEnv = process.env
     port,
     dataRoot: resolve(env.PAPER2MD_DATA_ROOT?.trim() || "paper2md-service-data"),
     mineruCommand: env.MINERU_CLI_PATH?.trim() || "mineru-open-api",
-    pythonCommand: env.PAPER2MD_PYTHON_PATH?.trim() || undefined,
     mineruBaseUrl,
     serviceToken,
     allowedOrigins,

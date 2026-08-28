@@ -1,0 +1,398 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "inputs": {
+    "article": {
+      "path": "article.md",
+      "sha256": "948b6c7eb8ae280e921eb2206790d900c663ab65252cacaf1df0b182a3689b81"
+    },
+    "mineru_result": {
+      "path": "mineru-result.json",
+      "sha256": "fb753347b46e53dffbfa099fa51f070e2c372979464a9788da7816e003283fdb"
+    }
+  },
+  "coordinate_system": {
+    "kind": "normalized-page",
+    "extent": 1000,
+    "page_index_base": 0
+  },
+  "pdf_source": {
+    "packaged_path": "_extraction/source.pdf",
+    "manifest_source_fallback": true,
+    "available_at_generation": true
+  },
+  "summary": {
+    "source_element_count": 5,
+    "accepted_block_count": 5,
+    "located_block_count": 5,
+    "page_count": 3,
+    "markdown_image_count": 2
+  },
+  "markdown_images": [
+    {
+      "id": "md-img-0000",
+      "order": 0,
+      "asset_path": "images/left.png",
+      "occurrence": 0,
+      "syntax": "markdown",
+      "char_start": 28,
+      "char_end": 48
+    },
+    {
+      "id": "md-img-0001",
+      "order": 1,
+      "asset_path": "images/figure-2.png",
+      "occurrence": 0,
+      "syntax": "markdown",
+      "char_start": 123,
+      "char_end": 147
+    }
+  ],
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "id": "p0000-s000000",
+          "source_index": 0,
+          "page_order": 0,
+          "source_type": "text",
+          "role": "title",
+          "bbox_norm": [
+            80,
+            50,
+            920,
+            110
+          ],
+          "asset_path": null,
+          "markdown_image_ids": [],
+          "text": {
+            "item_count": 1,
+            "char_count": 24,
+            "sha256": "b115f1a323f6b0d4449ee626d933b018a54786bc7b7ab3e190523baf6aee7c31",
+            "figure_keys": [],
+            "leading_figure_key": null,
+            "formal_figure_caption_keys": [],
+            "leading_formal_figure_caption_key": null,
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "caption": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": [],
+            "items": [],
+            "long_item_count": 0,
+            "figure_anchor_count": 0,
+            "panel_label_count": 0,
+            "figure_keys": [],
+            "leading_figure_key": null,
+            "formal_figure_caption_keys": [],
+            "leading_formal_figure_caption_key": null,
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "footnote": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": []
+          },
+          "metadata": {
+            "text_level": 1
+          }
+        },
+        {
+          "id": "p0000-s000001",
+          "source_index": 1,
+          "page_order": 1,
+          "source_type": "image",
+          "role": "visual",
+          "bbox_norm": [
+            100,
+            160,
+            480,
+            560
+          ],
+          "asset_path": "images/left.png",
+          "markdown_image_ids": [
+            "md-img-0000"
+          ],
+          "text": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "figure_keys": [],
+            "leading_figure_key": null,
+            "formal_figure_caption_keys": [],
+            "leading_formal_figure_caption_key": null,
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "caption": {
+            "item_count": 1,
+            "char_count": 84,
+            "sha256": "7b7b93800540e95056bc0cc5285886a9ab126f876fd6eacf27a900afd9deea3e",
+            "fields": [
+              "image_caption"
+            ],
+            "items": [
+              {
+                "index": 0,
+                "text": "Fig. 1. A sufficiently long formal caption that identifies this two-fragment figure.",
+                "kind": "formal-caption",
+                "figure_key": "figure:1"
+              }
+            ],
+            "long_item_count": 1,
+            "figure_anchor_count": 1,
+            "panel_label_count": 0,
+            "figure_keys": [
+              "figure:1"
+            ],
+            "leading_figure_key": "figure:1",
+            "formal_figure_caption_keys": [
+              "figure:1"
+            ],
+            "leading_formal_figure_caption_key": "figure:1",
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": true
+          },
+          "footnote": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": []
+          },
+          "metadata": {}
+        },
+        {
+          "id": "p0000-s000002",
+          "source_index": 2,
+          "page_order": 2,
+          "source_type": "image",
+          "role": "visual",
+          "bbox_norm": [
+            490,
+            160,
+            900,
+            560
+          ],
+          "asset_path": "images/right.png",
+          "markdown_image_ids": [],
+          "text": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "figure_keys": [],
+            "leading_figure_key": null,
+            "formal_figure_caption_keys": [],
+            "leading_formal_figure_caption_key": null,
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "caption": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": [],
+            "items": [],
+            "long_item_count": 0,
+            "figure_anchor_count": 0,
+            "panel_label_count": 0,
+            "figure_keys": [],
+            "leading_figure_key": null,
+            "formal_figure_caption_keys": [],
+            "leading_formal_figure_caption_key": null,
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "footnote": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": []
+          },
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "page_idx": 1,
+      "blocks": [
+        {
+          "id": "p0001-s000003",
+          "source_index": 3,
+          "page_order": 0,
+          "source_type": "image",
+          "role": "visual",
+          "bbox_norm": [
+            120,
+            180,
+            880,
+            720
+          ],
+          "asset_path": "images/figure-2.png",
+          "markdown_image_ids": [
+            "md-img-0001"
+          ],
+          "text": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "figure_keys": [],
+            "leading_figure_key": null,
+            "formal_figure_caption_keys": [],
+            "leading_formal_figure_caption_key": null,
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "caption": {
+            "item_count": 1,
+            "char_count": 39,
+            "sha256": "0b39a1c43327d0915a8df03dfe9b6b58390efc07ee8f662c1d70121e3bf4ffbf",
+            "fields": [
+              "image_caption"
+            ],
+            "items": [
+              {
+                "index": 0,
+                "text": "Fig. 2. Caption continued on next page.",
+                "kind": "next-page-placeholder",
+                "figure_key": "figure:2"
+              }
+            ],
+            "long_item_count": 1,
+            "figure_anchor_count": 1,
+            "panel_label_count": 0,
+            "figure_keys": [
+              "figure:2"
+            ],
+            "leading_figure_key": "figure:2",
+            "formal_figure_caption_keys": [
+              "figure:2"
+            ],
+            "leading_formal_figure_caption_key": "figure:2",
+            "next_page_marker": true,
+            "next_page_figure_keys": [
+              "figure:2"
+            ],
+            "next_page_placeholders": [
+              {
+                "index": 0,
+                "text": "Fig. 2. Caption continued on next page.",
+                "figure_key": "figure:2"
+              }
+            ],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": true
+          },
+          "footnote": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": []
+          },
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "page_idx": 2,
+      "blocks": [
+        {
+          "id": "p0002-s000004",
+          "source_index": 4,
+          "page_order": 0,
+          "source_type": "text",
+          "role": "text",
+          "bbox_norm": [
+            100,
+            80,
+            900,
+            180
+          ],
+          "asset_path": null,
+          "markdown_image_ids": [],
+          "text": {
+            "item_count": 1,
+            "char_count": 59,
+            "sha256": "2444f0835731aa8f37d1f7306cf66ae97300d9b363c5fec3d0dc638ff6e71bd9",
+            "figure_keys": [
+              "figure:2"
+            ],
+            "leading_figure_key": "figure:2",
+            "formal_figure_caption_keys": [
+              "figure:2"
+            ],
+            "leading_formal_figure_caption_key": "figure:2",
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "caption": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": [],
+            "items": [],
+            "long_item_count": 0,
+            "figure_anchor_count": 0,
+            "panel_label_count": 0,
+            "figure_keys": [],
+            "leading_figure_key": null,
+            "formal_figure_caption_keys": [],
+            "leading_formal_figure_caption_key": null,
+            "next_page_marker": false,
+            "next_page_figure_keys": [],
+            "next_page_placeholders": [],
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false,
+            "ends_with_terminal_punctuation": false
+          },
+          "footnote": {
+            "item_count": 0,
+            "char_count": 0,
+            "sha256": null,
+            "fields": []
+          },
+          "metadata": {}
+        }
+      ]
+    }
+  ],
+  "issues": []
+}

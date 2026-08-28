@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "contract": "mineru-visual-candidates",
+  "status": "ready",
+  "inputs": {
+    "article": {
+      "sha256": "948b6c7eb8ae280e921eb2206790d900c663ab65252cacaf1df0b182a3689b81"
+    },
+    "mineru_result": {
+      "sha256": "fb753347b46e53dffbfa099fa51f070e2c372979464a9788da7816e003283fdb"
+    },
+    "viewer_index_sha256": "933077d3e666fdb515d798e2a2e747bb4015e152cbc3c6a9c648db1e2c649e85",
+    "visual_repair_sha256": "2b47f28923f64f1d913c8ed4ebd5c26273b603b981e406a417039aaed7ceea1a"
+  },
+  "policy": {
+    "allowed_verdicts": [
+      "accept",
+      "reject",
+      "abstain"
+    ],
+    "minimum_accept_confidence": 0.85
+  },
+  "candidates": [
+    {
+      "candidate_id": "caption-c66404f2ece6da2f6d64098e",
+      "kind": "cross_page_caption",
+      "review_state": "partial",
+      "visual_block_id": "p0001-s000003",
+      "source_page_idx": 1,
+      "target_page_idx": 2,
+      "figure_key": "figure:2",
+      "caption_block_ids": [
+        "p0002-s000004"
+      ],
+      "evidence": {
+        "source_geometry": {
+          "block_id": "p0001-s000003",
+          "page_idx": 1,
+          "page_order": 0,
+          "bbox_norm": [
+            120,
+            180,
+            880,
+            720
+          ],
+          "role": "visual"
+        },
+        "caption_geometry": [
+          {
+            "block_id": "p0002-s000004",
+            "page_idx": 2,
+            "page_order": 0,
+            "bbox_norm": [
+              100,
+              80,
+              900,
+              180
+            ],
+            "role": "text"
+          }
+        ],
+        "source_caption_summary": {
+          "char_count": 39,
+          "ends_with_terminal_punctuation": true,
+          "figure_keys": [
+            "figure:2"
+          ],
+          "formal_figure_caption_keys": [
+            "figure:2"
+          ],
+          "item_count": 1,
+          "leading_figure_key": "figure:2",
+          "leading_formal_figure_caption_key": "figure:2",
+          "next_page_figure_keys": [
+            "figure:2"
+          ],
+          "next_page_marker": true,
+          "starts_with_lowercase": false,
+          "starts_with_panel_label": false
+        },
+        "caption_text_summaries": [
+          {
+            "char_count": 59,
+            "ends_with_terminal_punctuation": false,
+            "figure_keys": [
+              "figure:2"
+            ],
+            "formal_figure_caption_keys": [
+              "figure:2"
+            ],
+            "item_count": 1,
+            "leading_figure_key": "figure:2",
+            "leading_formal_figure_caption_key": "figure:2",
+            "next_page_figure_keys": [],
+            "next_page_marker": false,
+            "starts_with_lowercase": false,
+            "starts_with_panel_label": false
+          }
+        ],
+        "issue_code": "partial_next_page_figure_caption"
+      }
+    },
+    {
+      "candidate_id": "fragment-ed2ede33180b5aadde4214ae",
+      "kind": "fragment_group",
+      "review_state": "review",
+      "repair_group_id": "vr-p0000-g0000",
+      "page_idx": 0,
+      "member_block_ids": [
+        "p0000-s000001",
+        "p0000-s000002"
+      ],
+      "replacement_mode": "pdf_crop",
+      "base_confidence": 0.83,
+      "evidence": {
+        "member_geometry": [
+          {
+            "block_id": "p0000-s000001",
+            "page_idx": 0,
+            "page_order": 1,
+            "bbox_norm": [
+              100,
+              160,
+              480,
+              560
+            ],
+            "role": "visual"
+          },
+          {
+            "block_id": "p0000-s000002",
+            "page_idx": 0,
+            "page_order": 2,
+            "bbox_norm": [
+              490,
+              160,
+              900,
+              560
+            ],
+            "role": "visual"
+          }
+        ],
+        "caption_anchor_block_ids": [
+          "p0000-s000001"
+        ],
+        "signals": {
+          "adjacent_pair_count": 1,
+          "caption_anchored_component_count": null,
+          "caption_char_count": 84,
+          "figure_caption_anchor_count": 1,
+          "long_caption_anchor_count": 1,
+          "markdown_reference_coverage": 0.5,
+          "markdown_references_contiguous": false,
+          "max_markdown_gap_chars": null,
+          "member_count": 2,
+          "panel_label_count": 0,
+          "representative_count": 2,
+          "union_area_fraction": 0.32
+        },
+        "reason_codes": [
+          "long_caption_attached",
+          "plausible_union_area",
+          "same_page_connected_visuals"
+        ],
+        "warning_codes": []
+      }
+    }
+  ],
+  "issues": [],
+  "candidate_package_sha256": "e757d8efb600864e007aa560c8cfb9710f581daaef3126865aca877a99b48f3a"
+}

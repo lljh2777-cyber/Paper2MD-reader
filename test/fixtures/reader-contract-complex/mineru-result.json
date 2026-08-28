@@ -1,0 +1,43 @@
+[
+  {
+    "type": "text",
+    "text": "Contract migration fixture",
+    "text_level": 1,
+    "bbox": [80, 50, 920, 110],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/panel-a.png",
+    "image_caption": ["a"],
+    "bbox": [100, 150, 380, 450],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/panel-b.png",
+    "image_caption": ["b"],
+    "bbox": [390, 150, 670, 450],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/panel-c.png",
+    "image_caption": ["Fig. 1. A sufficiently long formal caption describing the complete multi-panel result."],
+    "bbox": [680, 150, 960, 450],
+    "page_idx": 0
+  },
+  {
+    "type": "image",
+    "img_path": "images/figure-2.png",
+    "image_caption": ["Fig. 2. Caption continued on next page."],
+    "bbox": [120, 180, 880, 720],
+    "page_idx": 1
+  },
+  {
+    "type": "text",
+    "text": "Fig. 2. A complete formal caption recovered from the following page.",
+    "bbox": [100, 80, 900, 180],
+    "page_idx": 2
+  }
+]
