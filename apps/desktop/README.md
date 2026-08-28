@@ -45,10 +45,12 @@ conversion. `New extraction` returns to that setup instead of opening a PDF choo
 until both required settings exist.
 
 The system check verifies the library with a unique write probe and cross-directory
-atomic rename, operating-system credential protection, configured Token state,
-reachability of the fixed MinerU API, and optional local CLI availability. Probe
-files use unique reserved names and are removed immediately. Network or optional CLI
-warnings never prevent reading already-published local papers.
+atomic rename, operating-system credential protection, configured Token state, the
+fixed MinerU submission endpoint, and optional local CLI availability. Its unauthenticated
+submission probe cannot preflight the per-job object-storage hostname returned only after
+authorization, so that upload destination is checked during conversion. Probe files use
+unique reserved names and are removed immediately. Network or optional CLI warnings never
+prevent reading already-published local papers.
 
 The conversion page exposes three common presets: recommended VLM for research
 papers, a faster pipeline for simple born-digital English PDFs, and VLM + OCR for
@@ -74,8 +76,10 @@ Token to the storage host, and polls the opaque MinerU task ID. At most two remo
 extractions run concurrently.
 
 Remote failures retain a bounded structured error code and the last completed stage.
-Token, quota, network, upload, archive, and deterministic validation failures are no
-longer collapsed into one generic message; no secret or response body is persisted.
+Upload-address allocation is distinct from the PDF upload, while DNS, TLS, timeout,
+submission-API and object-storage failures have separate safe codes. Token, quota,
+network, upload, archive, and deterministic validation failures are no longer collapsed
+into one generic message; no secret or response body is persisted.
 
 Downloaded results are untrusted input. Paper2MD applies public-HTTPS and DNS checks,
 redirect/MIME/timeout/byte limits, then accepts only a bounded ZIP containing one

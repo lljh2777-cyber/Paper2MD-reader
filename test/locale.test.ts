@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { localizedTaskMessage, localizedTaskState } from "../apps/desktop/src/renderer/desktop-copy";
+import {
+  localizedTaskMessage,
+  localizedTaskStage,
+  localizedTaskState
+} from "../apps/desktop/src/renderer/desktop-copy";
 import { ConversionTask } from "../apps/desktop/src/shared/desktop-api";
 import { normalizeReaderLocale, readerText } from "../src/ui/locale";
 import { statusCopy } from "../src/ui/status-copy";
@@ -22,6 +26,28 @@ describe("Reader locale", () => {
     expect(normalizeReaderLocale("zh-Hans-SG")).toBe("zh-CN");
     expect(normalizeReaderLocale("en-US")).toBe("en");
     expect(normalizeReaderLocale("fr-FR")).toBeUndefined();
+  });
+
+  it("localizes remote transport stages and safe error codes", () => {
+    const task: ConversionTask = {
+      id: "remote-task",
+      pdfName: "paper.pdf",
+      outputName: "paper",
+      workflow: "mineru-remote",
+      stage: "remote-allocate",
+      state: "failed",
+      createdAt: "2026-08-28T00:00:00.000Z",
+      updatedAt: "2026-08-28T00:00:01.000Z",
+      message: "Could not connect to the MinerU submission API; check the network and try again",
+      errorCode: "MINERU_API_CONNECTION_FAILED"
+    };
+    expect(localizedTaskStage(task, "zh-CN")).toBe("申请上传地址");
+    expect(localizedTaskMessage(task, "zh-CN")).toBe("无法连接 MinerU 提交接口；请检查网络后重试");
+
+    task.stage = "remote-upload";
+    task.errorCode = "MINERU_NETWORK_ERROR";
+    expect(localizedTaskStage(task, "zh-CN")).toBe("旧版上传阶段（未细分）");
+    expect(localizedTaskMessage(task, "zh-CN")).toContain("旧版未细分的网络错误");
   });
 
   it("provides translated and interpolated shared UI copy", () => {

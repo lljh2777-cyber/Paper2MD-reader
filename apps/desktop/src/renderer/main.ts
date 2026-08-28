@@ -23,7 +23,13 @@ import {
   ReaderLocale,
   subscribeReaderLocale
 } from "../../../../src/ui/locale";
-import { desktopText, localizedSelfCheck, localizedTaskMessage, localizedTaskState } from "./desktop-copy";
+import {
+  desktopText,
+  localizedSelfCheck,
+  localizedTaskMessage,
+  localizedTaskStage,
+  localizedTaskState
+} from "./desktop-copy";
 import { setReaderIcon } from "../../../../src/render/icons";
 
 const api = window.paper2mdDesktop;
@@ -871,7 +877,7 @@ function renderTasks(): void {
     workflow.textContent = task.workflow === "reviewed-layout"
       ? `${desktopText(locale, "reviewed")} · ${task.stage}${recoveryLabel}`
       : task.workflow === "mineru-remote"
-        ? `${desktopText(locale, "remoteConversion")} · ${task.stage}`
+        ? `${desktopText(locale, "remoteConversion")} · ${localizedTaskStage(task, locale)}`
         : `${desktopText(locale, "directConversion")}${recoveryLabel}`;
     const state = element("span");
     state.textContent = `${localizedTaskState(task, locale)} · ${localizedTaskMessage(task, locale)}`;

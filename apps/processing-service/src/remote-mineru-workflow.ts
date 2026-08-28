@@ -12,7 +12,7 @@ const MAX_ARCHIVE_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_TOTAL_BYTES = 512 * 1024 * 1024;
 const ALLOWED_OUTPUT = /(?:^|\/)(?:[^/]+\.md|[^/]*content_list(?:_v2)?\.json|images\/[A-Za-z0-9._/-]+\.(?:bmp|gif|jpe?g|png|webp))$/i;
 
-export type RemoteMineruStage = "upload" | "extract" | "download" | "validate" | "publish";
+export type RemoteMineruStage = "allocate" | "upload" | "extract" | "download" | "validate" | "publish";
 
 export interface RemoteMineruPaths {
   jobRoot: string;
@@ -23,7 +23,12 @@ export interface RemoteMineruPaths {
 }
 
 export interface RemoteMineruClient {
-  submitPdf(sourcePath: string, filename: string, options: MineruRemoteOptions): Promise<string>;
+  submitPdf(
+    sourcePath: string,
+    filename: string,
+    options: MineruRemoteOptions,
+    onUploadAllocated?: () => void
+  ): Promise<string>;
   getBatch(batchId: string): Promise<Array<{
     state: string;
     errorCode?: string;
@@ -150,8 +155,10 @@ export async function runRemoteMineruWorkflow(
   ensureNotCancelled(dependencies.isCancelled);
   await mkdir(input.paths.jobRoot, { recursive: false });
   await copyFile(input.originalPdfPath, input.paths.sourcePath, constants.COPYFILE_EXCL);
-  onStage("upload", "Uploading the explicitly authorized PDF to MinerU");
-  const batchId = await client.submitPdf(input.paths.sourcePath, input.filename, input.options);
+  onStage("allocate", "Requesting a protected upload destination from MinerU");
+  const batchId = await client.submitPdf(input.paths.sourcePath, input.filename, input.options, () => {
+    onStage("upload", "Uploading the explicitly authorized PDF to MinerU");
+  });
 
   let zipUrl: string | undefined;
   while (!zipUrl) {

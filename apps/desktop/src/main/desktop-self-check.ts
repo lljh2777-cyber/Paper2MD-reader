@@ -76,12 +76,30 @@ export async function runDesktopSelfCheck(dependencies: DesktopSelfCheckDependen
 
 export async function checkMineruReachability(fetchImplementation: typeof fetch = fetch): Promise<boolean> {
   try {
-    await fetchImplementation(MINERU_API_BASE_URL, {
-      method: "HEAD",
+    const response = await fetchImplementation(`${MINERU_API_BASE_URL}/file-urls/batch`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer paper2md-self-check",
+        "Content-Type": "application/json",
+        source: "paper2md-desktop"
+      },
+      body: JSON.stringify({
+        files: [{ name: "paper2md-self-check.pdf", is_ocr: false }],
+        model_version: "vlm",
+        language: "en",
+        enable_formula: true,
+        enable_table: true
+      }),
       redirect: "error",
       signal: AbortSignal.timeout(8_000)
     });
-    return true;
+    if (response.status !== 401 && response.status !== 403) return false;
+    const text = await response.text();
+    if (text.length > 16 * 1024) return false;
+    const value = JSON.parse(text) as unknown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const record = value as Record<string, unknown>;
+    return ["A0202", "A0211"].includes(String(record.code ?? record.msgCode ?? ""));
   } catch {
     return false;
   }

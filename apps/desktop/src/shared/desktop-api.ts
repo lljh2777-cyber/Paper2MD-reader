@@ -82,6 +82,7 @@ export type ConversionTaskState = "queued" | "running" | "awaiting-review" | "su
 export type ConversionWorkflow = "direct" | "reviewed-layout" | "mineru-remote";
 export type ConversionStage =
   | "direct-convert"
+  | "remote-allocate"
   | "remote-upload"
   | "remote-extract"
   | "remote-download"

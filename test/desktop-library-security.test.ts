@@ -79,6 +79,7 @@ describe("desktop MinerU credential boundary", () => {
     expect(validateMineruToken(token)).toBe(token);
     expect(() => validateMineruToken("short")).toThrow("invalid");
     expect(() => validateMineruToken("mineru token with spaces")).toThrow("invalid");
+    expect(() => validateMineruToken("mineru_token_含有非ASCII字符")).toThrow("unsupported characters");
   });
 
   it("accepts only a bounded versioned encrypted envelope", () => {

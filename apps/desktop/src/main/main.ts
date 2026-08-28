@@ -247,6 +247,7 @@ function failTask(taskId: string, error: unknown): void {
 
 function remoteStage(stage: RemoteMineruStage): ConversionTask["stage"] {
   return {
+    allocate: "remote-allocate",
     upload: "remote-upload",
     extract: "remote-extract",
     download: "remote-download",
@@ -294,19 +295,17 @@ async function runRemoteExtraction(
   } catch (error) {
     if (error instanceof RemoteMineruCancelledError || remoteCancellations.has(taskId)) return;
     const task = tasks.get(taskId);
-    const stage = task?.stage ?? "remote-upload";
+    const stage = task?.stage ?? "remote-allocate";
     const failure = error instanceof MineruRemoteError
       ? { code: error.code, message: error.message }
-      : error instanceof TypeError
-        ? { code: "MINERU_NETWORK_ERROR", message: "Could not reach the MinerU service; check the network and try again" }
-        : {
-            code: ["remote-validate", "remote-publish"].includes(stage)
-              ? "PACKAGE_VALIDATION_FAILED"
-              : "REMOTE_WORKFLOW_FAILED",
-            message: error instanceof Error
-              ? error.message.replace(/\s+/gu, " ").slice(0, 2048)
-              : "Remote MinerU extraction failed"
-          };
+      : {
+          code: ["remote-validate", "remote-publish"].includes(stage)
+            ? "PACKAGE_VALIDATION_FAILED"
+            : "REMOTE_WORKFLOW_FAILED",
+          message: error instanceof Error
+            ? error.message.replace(/\s+/gu, " ").slice(0, 2048)
+            : "Remote MinerU extraction failed"
+        };
     updateTask(taskId, {
       state: "failed",
       errorCode: failure.code,
@@ -773,7 +772,7 @@ function installIpcHandlers(): void {
       pdfName: basename(pdfPath),
       outputName: safePaperStem(pdfPath),
       workflow: "mineru-remote",
-      stage: "remote-upload",
+      stage: "remote-allocate",
       state: "running",
       createdAt: now,
       updatedAt: now,

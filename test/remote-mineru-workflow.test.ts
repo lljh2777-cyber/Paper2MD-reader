@@ -2,6 +2,7 @@ import { zipSync, strToU8 } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MineruPrecisionApiClient,
+  mineruTransportError,
   mineruUploadHeaders
 } from "../apps/processing-service/src/mineru-api-client";
 import { inspectMineruArchive } from "../apps/processing-service/src/remote-mineru-workflow";
@@ -98,6 +99,22 @@ describe("MinerU precision API envelope", () => {
     await expect(client.getBatch("batch_123")).rejects.toMatchObject({
       code: "-60018",
       message: "The MinerU account has insufficient quota for this extraction"
+    });
+  });
+
+  it("classifies API and upload transport failures without exposing low-level details", () => {
+    const dns = new TypeError("fetch failed", { cause: Object.assign(new Error("private detail"), { code: "ENOTFOUND" }) });
+    expect(mineruTransportError("api", dns)).toMatchObject({
+      code: "MINERU_API_DNS_ERROR",
+      message: "Could not resolve the MinerU submission API; check DNS or network filtering"
+    });
+    expect(mineruTransportError("upload", Object.assign(new Error("private detail"), { code: "ETIMEDOUT" })))
+      .toMatchObject({
+        code: "MINERU_UPLOAD_TIMEOUT",
+        message: "Connection to the MinerU upload destination timed out"
+      });
+    expect(mineruTransportError("api", new DOMException("private detail", "TimeoutError"))).toMatchObject({
+      code: "MINERU_API_TIMEOUT"
     });
   });
 });

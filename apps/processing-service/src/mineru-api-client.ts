@@ -38,6 +38,40 @@ export class MineruRemoteError extends Error {
   }
 }
 
+type MineruTransport = "api" | "upload";
+
+function transportCauseCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const cause = "cause" in error && error.cause && typeof error.cause === "object"
+    ? error.cause as Record<string, unknown>
+    : error as Record<string, unknown>;
+  return typeof cause.code === "string" ? cause.code.toUpperCase() : undefined;
+}
+
+function transportErrorName(error: unknown): string | undefined {
+  return error && typeof error === "object" && "name" in error && typeof error.name === "string"
+    ? error.name
+    : undefined;
+}
+
+export function mineruTransportError(transport: MineruTransport, error: unknown): MineruRemoteError {
+  if (error instanceof MineruRemoteError) return error;
+  const prefix = transport === "api" ? "MINERU_API" : "MINERU_UPLOAD";
+  const subject = transport === "api" ? "MinerU submission API" : "MinerU upload destination";
+  const code = transportCauseCode(error);
+  const name = transportErrorName(error);
+  if (code && ["ENOTFOUND", "EAI_AGAIN", "EAI_FAIL", "WSAHOST_NOT_FOUND"].includes(code)) {
+    return new MineruRemoteError(`${prefix}_DNS_ERROR`, `Could not resolve the ${subject}; check DNS or network filtering`);
+  }
+  if (code && (code.includes("CERT") || code.includes("TLS") || code.includes("SSL"))) {
+    return new MineruRemoteError(`${prefix}_TLS_ERROR`, `Could not establish a trusted TLS connection to the ${subject}`);
+  }
+  if (name === "TimeoutError" || (code && ["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT"].includes(code))) {
+    return new MineruRemoteError(`${prefix}_TIMEOUT`, `Connection to the ${subject} timed out`);
+  }
+  return new MineruRemoteError(`${prefix}_CONNECTION_FAILED`, `Could not connect to the ${subject}; check the network and try again`);
+}
+
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
@@ -110,7 +144,8 @@ async function parseApiResponse(response: Response): Promise<Record<string, unkn
 }
 
 async function publicUploadAddress(url: URL): Promise<{ address: string; family: 4 | 6 }> {
-  const answers = await dnsLookup(url.hostname, { all: true, verbatim: true });
+  const answers = await dnsLookup(url.hostname, { all: true, verbatim: true })
+    .catch((error) => { throw mineruTransportError("upload", error); });
   if (!answers.length || answers.some((answer) => !isPublicInternetAddress(answer.address))) {
     throw new MineruRemoteError("UNSAFE_UPLOAD_URL", "MinerU returned a non-public upload destination");
   }
@@ -156,11 +191,12 @@ async function uploadPdf(urlValue: string, sourcePath: string): Promise<void> {
     });
     handle.once("error", (error) => {
       source.destroy();
-      reject(error);
+      reject(mineruTransportError("upload", error));
     });
     source.once("error", (error) => {
-      handle.destroy();
-      reject(error);
+      const failure = new MineruRemoteError("INVALID_SOURCE", "The selected PDF could not be read safely");
+      handle.destroy(failure);
+      reject(failure);
     });
     source.pipe(handle);
   });
@@ -198,7 +234,7 @@ function parseBatchItem(value: unknown): MineruBatchItem {
 
 export class MineruPrecisionApiClient {
   constructor(private readonly token: string, private readonly baseUrl = MINERU_API_BASE_URL) {
-    if (token.length < 16 || token.length > 4096 || /\s/u.test(token)) {
+    if (token.length < 16 || token.length > 4096 || !/^[A-Za-z0-9._~+/=-]+$/u.test(token)) {
       throw new MineruRemoteError("INVALID_TOKEN", "The saved MinerU Token is invalid");
     }
     if (baseUrl !== MINERU_API_BASE_URL) throw new Error("The desktop MinerU endpoint is fixed");
@@ -215,11 +251,16 @@ export class MineruPrecisionApiClient {
       },
       redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLISECONDS)
-    });
+    }).catch((error) => { throw mineruTransportError("api", error); });
     return parseApiResponse(response);
   }
 
-  async submitPdf(sourcePath: string, filename: string, options: MineruRemoteOptions): Promise<string> {
+  async submitPdf(
+    sourcePath: string,
+    filename: string,
+    options: MineruRemoteOptions,
+    onUploadAllocated: () => void = () => undefined
+  ): Promise<string> {
     const safeName = basename(filename).slice(0, 240);
     if (!safeName.toLowerCase().endsWith(".pdf")) throw new MineruRemoteError("INVALID_SOURCE", "Only PDF files can be submitted");
     const data = await this.api("/file-urls/batch", {
@@ -236,6 +277,7 @@ export class MineruPrecisionApiClient {
     if (!Array.isArray(data.file_urls) || data.file_urls.length !== 1 || typeof data.file_urls[0] !== "string") {
       throw new MineruRemoteError("INVALID_RESPONSE", "MinerU returned an invalid upload allocation");
     }
+    onUploadAllocated();
     await uploadPdf(data.file_urls[0], sourcePath);
     return batchId;
   }

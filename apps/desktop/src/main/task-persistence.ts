@@ -5,6 +5,7 @@ export const DESKTOP_TASK_STORE_VERSION = "paper2md-desktop-task-store-v0.1";
 const TASK_STATES = new Set(["queued", "running", "awaiting-review", "succeeded", "failed", "cancelled"]);
 const TASK_STAGES = new Set([
   "direct-convert",
+  "remote-allocate",
   "remote-upload",
   "remote-extract",
   "remote-download",

@@ -50,15 +50,32 @@ describe("desktop first-run self-check", () => {
     ]);
   });
 
-  it("treats any HTTP response from the fixed MinerU endpoint as reachable", async () => {
+  it("probes the fixed MinerU submission endpoint without creating a task", async () => {
     let requestedUrl = "";
-    const reachable = await checkMineruReachability((async (input) => {
+    let requestedInit: RequestInit | undefined;
+    const reachable = await checkMineruReachability((async (input, init) => {
       requestedUrl = String(input);
-      return new Response(null, { status: 404 });
+      requestedInit = init;
+      return new Response(JSON.stringify({ msgCode: "A0202", data: null }), {
+        status: 401,
+        headers: { "content-type": "application/json" }
+      });
     }) as typeof fetch);
 
     expect(reachable).toBe(true);
-    expect(requestedUrl).toBe("https://mineru.net/api/v4");
+    expect(requestedUrl).toBe("https://mineru.net/api/v4/file-urls/batch");
+    expect(requestedInit).toMatchObject({ method: "POST", redirect: "error" });
+    expect(requestedInit?.headers).toMatchObject({
+      Authorization: "Bearer paper2md-self-check",
+      source: "paper2md-desktop"
+    });
+  });
+
+  it("does not mark an unrelated HTTP response as a healthy submission API", async () => {
+    await expect(checkMineruReachability((async () => new Response(null, { status: 404 })) as typeof fetch))
+      .resolves.toBe(false);
+    await expect(checkMineruReachability((async () => new Response("blocked", { status: 403 })) as typeof fetch))
+      .resolves.toBe(false);
   });
 
   it("resolves only an accessible configured Paper2MD command", async () => {

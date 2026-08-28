@@ -280,8 +280,8 @@ const SELF_CHECK_ENGLISH: Record<DesktopSelfCheckItem["code"], string> = {
   TOKEN_READY: "MinerU Token is configured",
   TOKEN_NOT_CONFIGURED: "Add a MinerU Token",
   TOKEN_UNREADABLE: "The saved Token cannot be read securely",
-  MINERU_REACHABLE: "MinerU API is reachable",
-  MINERU_UNREACHABLE: "MinerU API cannot be reached right now",
+  MINERU_REACHABLE: "MinerU submission API is reachable; the upload destination is checked during conversion",
+  MINERU_UNREACHABLE: "MinerU submission API cannot be reached right now",
   ATOMIC_PUBLISH_READY: "Staging and atomic publishing are available",
   ATOMIC_PUBLISH_UNAVAILABLE: "Atomic publication check failed",
   LOCAL_CLI_READY: "Optional local Paper2MD CLI is available",
@@ -297,8 +297,8 @@ const SELF_CHECK_CHINESE: Record<DesktopSelfCheckItem["code"], string> = {
   TOKEN_READY: "MinerU Token 已配置",
   TOKEN_NOT_CONFIGURED: "请添加 MinerU Token",
   TOKEN_UNREADABLE: "无法安全读取已保存的 Token",
-  MINERU_REACHABLE: "可以连接 MinerU API",
-  MINERU_UNREACHABLE: "当前无法连接 MinerU API",
+  MINERU_REACHABLE: "MinerU 提交接口可连接；上传地址会在转换时验证",
+  MINERU_UNREACHABLE: "当前无法连接 MinerU 提交接口",
   ATOMIC_PUBLISH_READY: "暂存与原子发布可用",
   ATOMIC_PUBLISH_UNAVAILABLE: "原子发布检查失败",
   LOCAL_CLI_READY: "可选的本地 Paper2MD CLI 可用",
@@ -322,6 +322,7 @@ const CHINESE_MESSAGES: Record<string, string> = {
   "Retrying layout validation and package build": "正在重试布局校验和内容包构建",
   "Paper2MD is processing the PDF": "Paper2MD 正在处理 PDF",
   "Preparing the authorized PDF for remote MinerU extraction": "正在准备已获授权的 PDF，以进行远程 MinerU 提取",
+  "Requesting a protected upload destination from MinerU": "正在向 MinerU 申请受保护的上传地址",
   "Uploading the explicitly authorized PDF to MinerU": "正在将明确授权的 PDF 上传到 MinerU",
   "Waiting for MinerU to start the extraction": "正在等待 MinerU 启动提取任务",
   "MinerU accepted the PDF and is extracting its contents": "MinerU 已接收 PDF，正在提取内容",
@@ -359,7 +360,23 @@ const CHINESE_MESSAGES: Record<string, string> = {
 };
 
 export function localizedTaskMessage(task: ConversionTask, locale: ReaderLocale): string {
+  if (task.errorCode === "MINERU_NETWORK_ERROR") {
+    return locale === "zh-CN"
+      ? "这是旧版未细分的网络错误；移除记录并重新转换后可获得精确诊断"
+      : "This earlier attempt stored only a generic network error; remove it and start a new conversion for precise diagnostics";
+  }
   if (locale === "en") return task.message;
+  const transportErrors: Record<string, string> = {
+    MINERU_API_DNS_ERROR: "无法解析 MinerU 提交接口；请检查 DNS 或网络过滤",
+    MINERU_API_TLS_ERROR: "无法与 MinerU 提交接口建立可信 TLS 连接",
+    MINERU_API_TIMEOUT: "连接 MinerU 提交接口超时",
+    MINERU_API_CONNECTION_FAILED: "无法连接 MinerU 提交接口；请检查网络后重试",
+    MINERU_UPLOAD_DNS_ERROR: "无法解析 MinerU 上传地址；请检查 DNS 或网络过滤",
+    MINERU_UPLOAD_TLS_ERROR: "无法与 MinerU 上传地址建立可信 TLS 连接",
+    MINERU_UPLOAD_TIMEOUT: "连接 MinerU 上传地址超时",
+    MINERU_UPLOAD_CONNECTION_FAILED: "无法连接 MinerU 上传地址；请检查网络后重试"
+  };
+  if (task.errorCode && transportErrors[task.errorCode]) return transportErrors[task.errorCode];
   const exact = CHINESE_MESSAGES[task.message];
   if (exact) return exact;
   const ready = task.message.match(/^(\d+) page review tasks are ready; add final-layout\.json to every page$/);
@@ -371,6 +388,21 @@ export function localizedTaskMessage(task: ConversionTask, locale: ReaderLocale)
   const mineruProgress = task.message.match(/^MinerU is extracting page (\d+) of (\d+)$/);
   if (mineruProgress) return `MinerU 正在提取第 ${mineruProgress[1]}/${mineruProgress[2]} 页`;
   return task.message;
+}
+
+export function localizedTaskStage(task: ConversionTask, locale: ReaderLocale): string {
+  if (task.workflow === "mineru-remote" && task.errorCode === "MINERU_NETWORK_ERROR") {
+    return locale === "zh-CN" ? "旧版上传阶段（未细分）" : "legacy upload stage (not differentiated)";
+  }
+  const stages: Partial<Record<ConversionTask["stage"], { en: string; "zh-CN": string }>> = {
+    "remote-allocate": { en: "requesting upload address", "zh-CN": "申请上传地址" },
+    "remote-upload": { en: "uploading PDF", "zh-CN": "上传 PDF" },
+    "remote-extract": { en: "extracting", "zh-CN": "提取中" },
+    "remote-download": { en: "downloading result", "zh-CN": "下载结果" },
+    "remote-validate": { en: "validating package", "zh-CN": "校验内容包" },
+    "remote-publish": { en: "publishing package", "zh-CN": "发布内容包" }
+  };
+  return stages[task.stage]?.[locale] ?? task.stage;
 }
 
 export function localizedTaskState(task: ConversionTask, locale: ReaderLocale): string {

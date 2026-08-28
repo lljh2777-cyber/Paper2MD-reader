@@ -18,8 +18,8 @@ export interface MineruCredentialStatus {
 export function validateMineruToken(value: unknown): string {
   if (typeof value !== "string") throw new Error("MinerU Token must be a string");
   const token = value.trim();
-  if (token.length < 16 || token.length > 4096 || /[\s\u0000-\u001f\u007f]/u.test(token)) {
-    throw new Error("MinerU Token has an invalid length or contains whitespace/control characters");
+  if (token.length < 16 || token.length > 4096 || !/^[A-Za-z0-9._~+/=-]+$/u.test(token)) {
+    throw new Error("MinerU Token has an invalid length or contains unsupported characters");
   }
   return token;
 }
