@@ -573,7 +573,8 @@ export class ReaderWorkspace implements ReaderAgentController {
           imageSrc = this.options.visualResolver
             ? await this.options.visualResolver.resolve(asset, this.fileSystem)
             : await this.fileSystem.resolveAssetUrl(asset.path);
-        } catch {
+        } catch (error) {
+          console.error(`Could not reconstruct visual ${asset.id}; the incomplete source fragment will remain hidden`, error);
           imageSrc = "";
         }
       }

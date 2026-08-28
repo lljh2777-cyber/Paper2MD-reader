@@ -5,7 +5,7 @@ module.exports = {
   electronVersion: "43.2.0",
   directories: {
     app: "apps/desktop",
-    output: "apps/desktop/out"
+    output: process.env.PAPER2MD_DESKTOP_OUTPUT || "apps/desktop/out"
   },
   files: [
     "package.json",

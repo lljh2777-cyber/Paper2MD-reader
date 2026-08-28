@@ -5,7 +5,9 @@ import { resolve } from "node:path";
 
 const desktopRoot = resolve(import.meta.dirname);
 const distRoot = resolve(desktopRoot, "dist");
-const outputRoot = resolve(desktopRoot, "out");
+const outputRoot = process.env.PAPER2MD_DESKTOP_OUTPUT
+  ? resolve(process.env.PAPER2MD_DESKTOP_OUTPUT)
+  : resolve(desktopRoot, "out");
 
 async function requireNonEmpty(path, label) {
   const info = await stat(path).catch(() => undefined);
@@ -54,6 +56,12 @@ async function verifyBuild() {
   }
   if (/assets\/index-[A-Za-z0-9_-]+\.(?:js|css)/.test(html)) {
     throw new Error("Desktop renderer entry still references historical hashed assets");
+  }
+
+  const renderer = await readFile(resolve(distRoot, "renderer/assets/index.js"), "utf8");
+  if (renderer.includes("pdf.worker.min.mjs")) throw new Error("Desktop renderer still depends on an external PDF.js worker");
+  if (/new URL\([`"]pdf\.js[`"],\s*import\.meta\.url\)/.test(renderer)) {
+    throw new Error("Desktop renderer still loads PDF.js from a runtime-only dynamic chunk");
   }
 
   const fonts = (await readdir(resolve(distRoot, "renderer/assets"), { withFileTypes: true }))

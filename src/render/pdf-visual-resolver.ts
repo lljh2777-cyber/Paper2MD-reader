@@ -1,5 +1,6 @@
-import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import { WorkerMessageHandler } from "pdfjs-dist/legacy/build/pdf.worker.min.mjs";
 import { ReaderFileSystem } from "../filesystem/reader-file-system";
 import {
   recoverPdfCaptionContinuation,
@@ -145,8 +146,7 @@ export class PdfVisualResolver implements PdfReferenceRuntime {
         this.urls.add(url);
         return url;
       } catch (error) {
-        console.warn("Fragment-set reconstruction failed; using the first packaged asset", error);
-        return fileSystem.resolveAssetUrl(asset.path);
+        throw new Error("Fragment-set reconstruction failed; refusing to show an incomplete visual", { cause: error });
       }
     }
     if (asset.display?.mode !== "pdf-crop") return fileSystem.resolveAssetUrl(asset.path);
@@ -179,8 +179,7 @@ export class PdfVisualResolver implements PdfReferenceRuntime {
       this.urls.add(url);
       return url;
     } catch (error) {
-      console.warn("PDF crop reconstruction failed; using the packaged MinerU asset", error);
-      return fileSystem.resolveAssetUrl(asset.path);
+      throw new Error("PDF crop reconstruction failed; refusing to show an incomplete visual", { cause: error });
     }
   }
 
@@ -346,10 +345,15 @@ export class PdfVisualResolver implements PdfReferenceRuntime {
       this.fileSystem = fileSystem;
       this.pdfPath = pdfPath;
       this.documentPromise = fileSystem.readBinary(pdfPath)
-        .then(async (bytes) => {
-          const pdfjs = await import("pdfjs-dist");
-          pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-          this.loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+        .then((bytes) => {
+          const scope = globalThis as typeof globalThis & {
+            pdfjsWorker?: { WorkerMessageHandler: typeof WorkerMessageHandler };
+          };
+          scope.pdfjsWorker ??= { WorkerMessageHandler };
+          this.loadingTask = pdfjs.getDocument({
+            data: new Uint8Array(bytes),
+            verbosity: pdfjs.VerbosityLevel.ERRORS
+          });
           return this.loadingTask.promise;
         })
         .then((document) => {
