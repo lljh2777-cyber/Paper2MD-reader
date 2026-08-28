@@ -7,9 +7,9 @@ import type { ReaderFileSystem } from "../../src/filesystem/reader-file-system";
 type ReaderView = "demo" | "local" | "workbench";
 type WorkbenchStatus = { tone: "working" | "error" | "ready"; message: string };
 
-const DEMO_MARKDOWN = `# 浏览器内的 Paper2MD 工作台
+const DEMO_MARKDOWN = `# 浏览器内的 After‑MinerU 工作台
 
-Paper2MD Reader 把**大纲、正文、图表与原 PDF 参考视图**放在同一阅读空间。这个示例完全在浏览器内运行。
+After‑MinerU by Paper2MD 把**大纲、正文、图表与原 PDF 参考视图**放在同一阅读空间。这个示例完全在浏览器内运行。
 
 ## 1. 文件边界
 
@@ -144,7 +144,7 @@ export default function Home() {
     return (
       <main className="site-reader-shell">
         <div className="site-reader-bar">
-          <button type="button" onClick={() => setReaderView(null)} aria-label="返回首页">← Paper2MD Reader</button><span>{label}</span>
+          <button type="button" onClick={() => setReaderView(null)} aria-label="返回首页">← After‑MinerU</button><span>{label}</span>
           <div className="reader-bar-actions">
             {readerView === "workbench" && pdfResult ? <><button type="button" onClick={() => void downloadResult()}>下载 ZIP</button><button type="button" onClick={() => void writeResult()} disabled={!directorySupported}>写入目录</button></> : <button type="button" onClick={() => openReader(readerView === "demo" ? "local" : "demo")}>{readerView === "demo" ? "打开本地论文" : "查看演示"}</button>}
           </div>
@@ -157,17 +157,17 @@ export default function Home() {
 
   return (
     <main className="site-home">
-      <header className="site-nav"><a className="site-brand" href="#top" aria-label="Paper2MD Reader 首页">Paper2MD <span>Reader</span></a><nav aria-label="主要导航"><a href="#quick">快速转换</a><a href="#precision">精准转换</a><button className="site-nav-local" type="button" onClick={() => openReader("local")}>打开本地论文</button><a href="#clipper">网页剪藏</a><a href="#desktop">下载桌面版</a><a href="#docs">文档</a></nav></header>
+      <header className="site-nav"><a className="site-brand" href="#top" aria-label="After-MinerU 首页">After‑<span>MinerU</span><small>by Paper2MD</small></a><nav aria-label="主要导航"><a href="#quick">快速转换</a><a href="#precision">精准转换</a><button className="site-nav-local" type="button" onClick={() => openReader("local")}>打开本地论文</button><a href="#clipper">网页剪藏</a><a href="#desktop">下载桌面版</a><a href="#docs">文档</a></nav></header>
 
       <section className="site-hero" id="top"><p className="site-eyebrow">LOCAL PROCESSING WORKBENCH</p><h1>在线转换、临时阅读，<br />结果仍由你带走。</h1><p className="site-lede">在浏览器内打开 PDF、Markdown、ZIP 或论文目录，生成派生阅读投影并导出。Paper2MD 不提供云端论文库，也不长期保存你的论文。</p><div className="site-actions"><a className="site-primary" href="#quick">处理一篇 PDF <span aria-hidden="true">→</span></a><button className="site-secondary" type="button" onClick={() => openReader("local")}>打开本地论文</button></div><p className="site-boundary"><span aria-hidden="true">●</span> 浏览器本地解析不上传；MinerU 在线处理只有在你选择且直连能力通过时才会上传。</p></section>
 
-      <section className="site-entry-grid" aria-label="工作台入口"><a href="#quick"><span>01</span><b>快速转换</b><small>本地文本投影可用；MinerU Agent 暂停</small></a><a href="#precision"><span>02</span><b>精准转换</b><small>实验性 Token 路径暂未启用</small></a><button type="button" onClick={() => openReader("local")}><span>03</span><b>打开本地论文</b><small>目录、Markdown、ZIP / 论文包</small></button><a href="#clipper"><span>04</span><b>网页剪藏</b><small>扩展读取当前标签页并导出 ZIP</small></a><a href="#desktop"><span>05</span><b>下载桌面版</b><small>安全凭据、索引与长期论文库</small></a><a href="#docs"><span>06</span><b>使用文档</b><small>能力、隐私与兼容性说明</small></a></section>
+      <section className="site-entry-grid" aria-label="工作台入口"><a href="#quick"><span>01</span><b>快速转换</b><small>本地文本投影可用；MinerU Agent 暂停</small></a><a href="#precision"><span>02</span><b>精准转换</b><small>本地链路已验证；网页直连待开放</small></a><button type="button" onClick={() => openReader("local")}><span>03</span><b>打开本地论文</b><small>目录、Markdown、ZIP / 论文包</small></button><a href="#clipper"><span>04</span><b>网页剪藏</b><small>扩展读取当前标签页并导出 ZIP</small></a><a href="#desktop"><span>05</span><b>下载桌面版</b><small>安全凭据、索引与长期论文库</small></a><a href="#docs"><span>06</span><b>使用文档</b><small>能力、隐私与兼容性说明</small></a></section>
 
       <section className="site-workbench" id="quick" aria-labelledby="quick-title"><div className="workbench-copy"><p className="site-kicker">快速转换</p><h2 id="quick-title">先在本机生成文本投影，再进入 Reader。</h2><p>当前可用路径直接在浏览器内读取 PDF 文本层，保留原 PDF 作为参考，并执行现有 Reader 的安全校验。它不会猜测复杂图注或视觉关系；扫描件、复杂表格和无文本层页面请使用桌面版。</p><label className="site-primary file-action">选择 PDF<input type="file" accept=".pdf,application/pdf" onChange={(event) => { void processPdf(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} /></label>{status ? <p className={`workbench-status ${status.tone}`} role="status">{status.message}</p> : null}</div><div className="conversion-rail"><div className="conversion-option available"><span>可用</span><h3>浏览器本地 PDF 投影</h3><p>≤64MB、≤200页；生成 Markdown、保留 source.pdf，可下载 ZIP 或写入授权目录。</p></div><div className="conversion-option blocked"><span>直连检测未通过</span><h3>MinerU Agent 轻量接口</h3><p>官方限制为单文件、10MB、20页、仅 Markdown。2026-08-28 实测 API 跨域预检返回 405，因此未启用上传。</p></div></div></section>
 
-      <section className="site-precision" id="precision" aria-labelledby="precision-title"><div><p className="site-kicker">精准转换 · 实验性</p><h2 id="precision-title">Token 不应在一条未经验证的浏览器链路里冒险。</h2><p>MinerU 精准 API 需要用户自己的 Token，并会把所选 PDF 直接上传到 MinerU。实测带 Authorization 的跨域预检未通过，所以网页不显示 Token 输入框、不收集 Token，也没有增加 Paper2MD 云代理。</p><a href="https://mineru.net/apiManage/token" target="_blank" rel="noreferrer">查看 MinerU Token 管理</a></div><aside><b>当前状态：安全关闭</b><ol><li>API 跨域申请：未通过</li><li>OSS 签名 PUT：未执行</li><li>轮询与 ZIP 下载：未执行</li></ol><p>任一环节不能验证，整个精准链路就不会启用。完整精准提取与安全 Token 存储仍属于桌面版。</p></aside></section>
+      <section className="site-precision" id="precision" aria-labelledby="precision-title"><div><p className="site-kicker">精准转换 · 实验性</p><h2 id="precision-title">本地完整链路已验证，网页入口仍安全关闭。</h2><p>MinerU 精准 API 需要用户自己的 Token，并会把所选 PDF 直接上传到 MinerU。2026-08-28 使用官方 13 页示例在桌面本地完成签名上传、轮询、ZIP 下载与结构校验；但带 Authorization 的浏览器跨域预检仍返回 405，所以网页不显示 Token 输入框、不收集 Token，也没有增加 Paper2MD 云代理。</p><a href="https://mineru.net/apiManage/token" target="_blank" rel="noreferrer">查看 MinerU Token 管理</a></div><aside><b>本地验证：通过 · 网页直连：关闭</b><ol><li>本地签名 PUT：通过</li><li>本地轮询与 ZIP 下载：通过</li><li>结果校验：1 Markdown / 4 JSON / 20 图片</li><li>浏览器 API 预检：未通过</li></ol><p>本地成功不能替代浏览器 CORS 验证。完整精准提取与安全 Token 存储仍属于桌面版。</p></aside></section>
 
-      <section className="site-preview" aria-label="阅读器能力预览"><div className="site-preview-copy"><p className="site-kicker">临时阅读</p><h2>大纲、正文与图表并排，原 PDF 可作参考。</h2><p>导入具备 MinerU JSON、Reader contract 或 sidecar 的论文包时，网页会复用现有确定性投影和视觉修复；冲突或证据不足时保留原始显示。</p><button type="button" onClick={() => openReader("demo")}>打开内置示例 <span aria-hidden="true">↗</span></button></div><div className="site-preview-ui" aria-hidden="true"><div className="preview-chrome"><i></i><i></i><i></i><b>Paper2MD Reader</b></div><div className="preview-workspace"><div className="preview-outline"><b>Outline</b><em>摘要</em><em className="active">方法</em><em>结果</em><em>讨论</em></div><div className="preview-paper"><small>METHODS</small><b>Structured reading</b><span></span><span></span><span></span><div className="preview-inline-figure"></div><span></span></div><div className="preview-figure"><b>Figures / PDF</b><div></div><small>Figure 1</small></div></div></div></section>
+      <section className="site-preview" aria-label="阅读器能力预览"><div className="site-preview-copy"><p className="site-kicker">临时阅读</p><h2>大纲、正文与图表并排，原 PDF 可作参考。</h2><p>导入具备 MinerU JSON、Reader contract 或 sidecar 的论文包时，网页会复用现有确定性投影和视觉修复；冲突或证据不足时保留原始显示。</p><button type="button" onClick={() => openReader("demo")}>打开内置示例 <span aria-hidden="true">↗</span></button></div><div className="site-preview-ui" aria-hidden="true"><div className="preview-chrome"><i></i><i></i><i></i><b>After‑MinerU Reader</b></div><div className="preview-workspace"><div className="preview-outline"><b>Outline</b><em>摘要</em><em className="active">方法</em><em>结果</em><em>讨论</em></div><div className="preview-paper"><small>METHODS</small><b>Structured reading</b><span></span><span></span><span></span><div className="preview-inline-figure"></div><span></span></div><div className="preview-figure"><b>Figures / PDF</b><div></div><small>Figure 1</small></div></div></div></section>
 
       <section className="site-clipper" id="clipper" aria-labelledby="clipper-title"><div><p className="site-kicker">网页剪藏</p><h2 id="clipper-title">扩展读取当前论文标签页，网页本身不越权。</h2><p>Paper2MD Web Clipper 只在你点击扩展时读取当前标签页，复用 clipper-core 在本地生成 Markdown、图片和清单，然后导出 ZIP，再由你打开到网页 Reader。</p></div><ul><li>不绕过登录、付费墙、验证码或网站权限</li><li>网页不能跨源读取其他标签页</li><li>图片按来源逐项授权并省略不安全资源</li><li>ZIP 是本地交付，不进入 Paper2MD 云端论文库</li></ul></section>
 
@@ -181,7 +181,7 @@ export default function Home() {
 
       <section className="site-privacy" id="privacy" aria-labelledby="privacy-title"><p className="site-kicker">隐私与数据边界</p><h2 id="privacy-title">Paper2MD 不托管，也不长期保存你的论文。</h2><div><p><b>本地路径</b><span>目录、Markdown、ZIP 和浏览器本地 PDF 投影仅在当前设备处理；默认不写 IndexedDB。</span></p><p><b>MinerU 路径</b><span>未来若直连能力通过，只有你主动选择时 PDF 才会直接上传 MinerU；Paper2MD 不经手。</span></p><p><b>临时 Token</b><span>当前因跨域检测失败而不提供输入。未来实验模式也只允许页面内存，并明确低于桌面凭据库安全级别。</span></p><p><b>源文件不可变</b><span>修复只生成派生投影或 sidecar；契约冲突、证据不足或链路不完整时安全关闭。</span></p></div></section>
 
-      <footer className="site-footer"><a className="site-brand" href="#top">Paper2MD <span>Reader</span></a><p>Online conversion, local reading, portable results.</p><button type="button" onClick={() => openReader("demo")}>查看演示 →</button></footer>
+      <footer className="site-footer"><a className="site-brand" href="#top">After‑<span>MinerU</span><small>by Paper2MD</small></a><p>独立第三方工具，非 MinerU 官方产品。Online conversion, local reading, portable results.</p><button type="button" onClick={() => openReader("demo")}>查看演示 →</button></footer>
     </main>
   );
 }

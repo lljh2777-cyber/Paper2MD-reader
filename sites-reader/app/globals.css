@@ -19,6 +19,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #7eb5ff; outline-offs
 .site-nav { align-items: center; display: flex; justify-content: space-between; margin: 0 auto; max-width: 1240px; padding: 22px 32px; }
 .site-brand { color: var(--site-ink); font-family: var(--p2md-serif); font-size: 24px; font-weight: 700; text-decoration: none; }
 .site-brand span { color: var(--site-blue); }
+.site-brand small { color: #71859a; display: block; font-family: var(--p2md-sans); font-size: 9px; font-weight: 700; letter-spacing: .12em; line-height: 1; text-transform: uppercase; }
 .site-nav nav { align-items: center; display: flex; gap: 26px; }
 .site-nav nav a, .site-nav nav button { background: none; border: 0; color: #476078; cursor: pointer; font-size: 13px; padding: 8px 0; text-decoration: none; }
 .site-nav nav a:hover, .site-nav nav button:hover { color: var(--site-blue); }
