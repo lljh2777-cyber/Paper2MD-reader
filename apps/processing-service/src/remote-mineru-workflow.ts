@@ -10,7 +10,7 @@ import { publishMineruPackage } from "./package-publisher";
 const MAX_ARCHIVE_FILES = 1_024;
 const MAX_ARCHIVE_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_ARCHIVE_TOTAL_BYTES = 512 * 1024 * 1024;
-const ALLOWED_OUTPUT = /(?:^|\/)(?:[^/]+\.(?:md|json)|images\/[A-Za-z0-9._/-]+\.(?:bmp|gif|jpe?g|png|webp))$/i;
+const ALLOWED_OUTPUT = /(?:^|\/)(?:[^/]+\.(?:md|json)|[^/]*(?:origin|layout|spans?)\.pdf|images\/[A-Za-z0-9._/-]+\.(?:bmp|gif|jpe?g|png|webp))$/i;
 
 export type RemoteMineruStage = "allocate" | "upload" | "extract" | "download" | "validate" | "publish";
 
@@ -89,7 +89,9 @@ export function inspectMineruArchive(zipBytes: Uint8Array): Record<string, Uint8
       }
       const path = normalizePackagePath(entry.name);
       if (!ALLOWED_OUTPUT.test(path) || path.split("/").length > 16) {
-        throw new MineruRemoteError("UNSAFE_ARCHIVE", "MinerU returned an unsupported output path");
+        const extension = extname(path).toLowerCase();
+        const kind = /^\.[a-z0-9]{1,12}$/i.test(extension) ? extension : "unrecognized";
+        throw new MineruRemoteError("UNSAFE_ARCHIVE", `MinerU returned an unsupported ${kind} output`);
       }
       return true;
     }
