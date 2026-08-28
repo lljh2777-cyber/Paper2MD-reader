@@ -31,6 +31,25 @@ const job = {
 };
 
 describe("desktop task persistence", () => {
+  it("preserves bounded structured failure codes", () => {
+    const parsed = parseTaskStoreJson(taskStoreJson([{
+      task: {
+        id: "123e4567-e89b-42d3-a456-426614174000",
+        pdfName: "paper.pdf",
+        outputName: "paper",
+        workflow: "mineru-remote",
+        stage: "remote-upload",
+        state: "failed",
+        createdAt: "2026-08-28T00:00:00.000Z",
+        updatedAt: "2026-08-28T00:00:01.000Z",
+        message: "MinerU rejected the saved Token; update it in Settings",
+        errorCode: "A0202"
+      },
+      job: { kind: "mineru-remote", packageId: "123e4567-e89b-42d3-a456-426614174000" }
+    }]));
+
+    expect(parsed.entries[0]?.task.errorCode).toBe("A0202");
+  });
   it("round-trips a versioned task while stripping process-local tokens", () => {
     const text = taskStoreJson([{ task: persistentTask(task), job }]);
     expect(text).toContain(DESKTOP_TASK_STORE_VERSION);

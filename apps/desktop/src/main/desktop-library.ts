@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { access, lstat, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, parse, relative, sep } from "node:path";
 import { assertOpaqueId } from "../../../../packages/agent-contracts/src/index";
 import { PublishedPackageCatalog } from "../../../processing-service/src/published-package-catalog";
@@ -227,6 +227,32 @@ export class DesktopLibraryManager {
       documents,
       truncated: Boolean(cursor)
     };
+  }
+
+  async health(): Promise<{ configured: boolean; writable: boolean; atomicPublish: boolean }> {
+    if (!this.root) return { configured: false, writable: false, atomicPublish: false };
+    const probeId = randomUUID();
+    const stagingProbe = join(this.root, "staging", `.paper2md-health-${probeId}.next`);
+    const packageProbe = join(this.root, "packages", `.paper2md-health-${probeId}.ok`);
+    let writable = false;
+    let atomicPublish = false;
+    try {
+      await Promise.all([
+        ensureLibraryDirectory(this.root, "staging"),
+        ensureLibraryDirectory(this.root, "packages")
+      ]);
+      await writeFile(stagingProbe, "paper2md-health\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
+      writable = true;
+      await rename(stagingProbe, packageProbe);
+      atomicPublish = true;
+    } catch {
+      // The caller only needs a fail-closed capability result. Probe paths are
+      // unique and never overlap user packages.
+    } finally {
+      await unlink(stagingProbe).catch(() => undefined);
+      await unlink(packageProbe).catch(() => undefined);
+    }
+    return { configured: true, writable, atomicPublish };
   }
 
   async packageRoot(packageId: string): Promise<string> {

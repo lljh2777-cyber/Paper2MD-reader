@@ -5,6 +5,7 @@ import "./desktop.css";
 import { mountReaderWorkspace } from "../../../../packages/reader-ui/src/index";
 import {
   ConversionTask,
+  DesktopSelfCheck,
   DesktopLibrarySnapshot,
   DesktopPdfSelection,
   DesktopRootSelection,
@@ -22,7 +23,7 @@ import {
   ReaderLocale,
   subscribeReaderLocale
 } from "../../../../src/ui/locale";
-import { desktopText, localizedTaskMessage, localizedTaskState } from "./desktop-copy";
+import { desktopText, localizedSelfCheck, localizedTaskMessage, localizedTaskState } from "./desktop-copy";
 import { setReaderIcon } from "../../../../src/render/icons";
 
 const api = window.paper2mdDesktop;
@@ -127,8 +128,24 @@ taskTitle.textContent = "Paper2MD tasks";
 const taskCopy = element("p");
 taskCopy.textContent = "Use your MinerU account for remote precision extraction, or run a local reviewed workflow.";
 
+const readinessBanner = element("div", "p2md-desktop-readiness");
+const readinessTitle = element("strong");
+const readinessCopy = element("p");
+const readinessAction = element("button", "p2md-desktop-quiet-button");
+readinessAction.type = "button";
+readinessBanner.append(readinessTitle, readinessCopy, readinessAction);
+
 const mineruNotice = element("p", "p2md-desktop-privacy-notice");
 mineruNotice.textContent = "Starting MinerU extraction uploads the selected PDF only after a separate confirmation.";
+type ConversionPreset = "recommended" | "fast" | "scanned" | "custom";
+const presetControl = optionSelect<ConversionPreset>("Conversion preset", [
+  { value: "recommended", label: "Recommended for research papers" },
+  { value: "fast", label: "Faster for simple digital PDFs" },
+  { value: "scanned", label: "Scanned or Chinese PDFs" },
+  { value: "custom", label: "Custom" }
+]);
+presetControl.wrapper.classList.add("p2md-desktop-preset");
+const presetDescription = element("p", "p2md-desktop-preset-description");
 const mineruOptions = element("div", "p2md-desktop-options p2md-desktop-mineru-options");
 const mineruModelControl = optionSelect<"pipeline" | "vlm">("MinerU model", [
   { value: "pipeline", label: "Pipeline (standard documents)" },
@@ -148,6 +165,12 @@ mineruOptions.append(mineruModelControl.wrapper, mineruLanguageControl.wrapper, 
 const remoteMineruButton = element("button", "p2md-desktop-process-button");
 remoteMineruButton.type = "button";
 remoteMineruButton.textContent = "Extract with MinerU";
+
+const advancedOptions = element("details", "p2md-desktop-advanced");
+const advancedSummary = element("summary");
+advancedSummary.textContent = "Advanced settings";
+const advancedRemoteTitle = element("h3");
+advancedRemoteTitle.textContent = "MinerU details";
 
 const optionsPanel = element("div", "p2md-desktop-options p2md-desktop-local-options");
 const profileControl = optionSelect<ExtractionProfile>("Extraction", [
@@ -190,13 +213,42 @@ const processButton = element("button", "p2md-desktop-process-button");
 processButton.type = "button";
 processButton.dataset.tone = "secondary";
 processButton.textContent = "Process PDF (direct)";
+const localTools = element("section", "p2md-desktop-local-tools");
+const localToolsTitle = element("h3");
+const localToolsCopy = element("p");
+localTools.append(localToolsTitle, localToolsCopy, optionsPanel, reviewedButton, processButton);
+advancedOptions.append(advancedSummary, advancedRemoteTitle, mineruOptions, localTools);
 const taskList = element("div", "p2md-desktop-task-list");
-taskHeader.append(taskTitle, taskCopy, mineruNotice, mineruOptions, remoteMineruButton, optionsPanel, reviewedButton, processButton);
+taskHeader.append(
+  taskTitle,
+  taskCopy,
+  readinessBanner,
+  presetControl.wrapper,
+  presetDescription,
+  mineruNotice,
+  remoteMineruButton,
+  advancedOptions
+);
 taskPanel.append(taskHeader, taskList);
 
 const settingsPanel = element("section", "p2md-desktop-rail-panel p2md-desktop-settings-panel");
 const settingsHeading = element("h2", "p2md-desktop-settings-heading");
 settingsHeading.textContent = "Settings";
+const setupIntro = element("p", "p2md-desktop-setup-intro");
+const setupSteps = element("ol", "p2md-desktop-setup-steps");
+const setupLibraryStep = element("li");
+const setupLibraryStepTitle = element("strong");
+const setupLibraryStepCopy = element("span");
+setupLibraryStep.append(setupLibraryStepTitle, setupLibraryStepCopy);
+const setupTokenStep = element("li");
+const setupTokenStepTitle = element("strong");
+const setupTokenStepCopy = element("span");
+setupTokenStep.append(setupTokenStepTitle, setupTokenStepCopy);
+const setupConvertStep = element("li");
+const setupConvertStepTitle = element("strong");
+const setupConvertStepCopy = element("span");
+setupConvertStep.append(setupConvertStepTitle, setupConvertStepCopy);
+setupSteps.append(setupLibraryStep, setupTokenStep, setupConvertStep);
 const librarySettings = element("section", "p2md-desktop-settings-section");
 const librarySettingsTitle = element("h3");
 librarySettingsTitle.textContent = "Local library";
@@ -248,7 +300,15 @@ mineruSettings.append(
   tokenActions,
   settingsFeedback
 );
-settingsPanel.append(settingsHeading, librarySettings, mineruSettings);
+const selfCheckSection = element("section", "p2md-desktop-settings-section p2md-desktop-self-check");
+const selfCheckHeader = element("div", "p2md-desktop-self-check-header");
+const selfCheckTitle = element("h3");
+const rerunSelfCheckButton = element("button", "p2md-desktop-quiet-button");
+rerunSelfCheckButton.type = "button";
+selfCheckHeader.append(selfCheckTitle, rerunSelfCheckButton);
+const selfCheckList = element("ul", "p2md-desktop-self-check-list");
+selfCheckSection.append(selfCheckHeader, selfCheckList);
+settingsPanel.append(settingsHeading, setupIntro, setupSteps, librarySettings, mineruSettings, selfCheckSection);
 
 railContent.append(libraryPanel, taskPanel, settingsPanel);
 taskRail.append(appHeader, newExtractionButton, navigation, railContent);
@@ -328,6 +388,8 @@ let librarySnapshot: DesktopLibrarySnapshot = { configured: false, documents: []
 let libraryBusy = true;
 let libraryError: string | undefined;
 let credentialStatus: MineruCredentialStatus = { configured: false, storage: "os-protected" };
+let selfCheck: DesktopSelfCheck | undefined;
+let selfCheckBusy = true;
 type RightPaneMode = "pdf" | "visuals";
 let rightPaneMode: RightPaneMode = "visuals";
 
@@ -493,6 +555,7 @@ async function chooseLibrary(): Promise<void> {
       libraryBusy = false;
       renderDocuments();
       renderSettings();
+      void refreshSelfCheck();
     }
   } catch (error) {
     libraryError = error instanceof Error ? error.message : "Could not choose the Paper2MD library";
@@ -514,6 +577,23 @@ async function revealLibrary(): Promise<void> {
 
 function renderSettings(): void {
   settingsHeading.textContent = desktopText(locale, "settings");
+  setupIntro.textContent = desktopText(locale, "setupIntro");
+  const setupConfigured = librarySnapshot.configured && credentialStatus.configured;
+  setupLibraryStep.dataset.status = librarySnapshot.configured ? "ready" : "action-required";
+  setupLibraryStepTitle.textContent = desktopText(locale, "setupLibraryTitle");
+  setupLibraryStepCopy.textContent = `${desktopText(locale, "setupLibraryCopy")} · ${desktopText(
+    locale, librarySnapshot.configured ? "setupComplete" : "setupRequired"
+  )}`;
+  setupTokenStep.dataset.status = credentialStatus.configured ? "ready" : "action-required";
+  setupTokenStepTitle.textContent = desktopText(locale, "setupTokenTitle");
+  setupTokenStepCopy.textContent = `${desktopText(locale, "setupTokenCopy")} · ${desktopText(
+    locale, credentialStatus.configured ? "setupComplete" : "setupRequired"
+  )}`;
+  setupConvertStep.dataset.status = setupConfigured ? "ready" : "action-required";
+  setupConvertStepTitle.textContent = desktopText(locale, "setupConvertTitle");
+  setupConvertStepCopy.textContent = `${desktopText(locale, "setupConvertCopy")} · ${desktopText(
+    locale, setupConfigured ? "setupComplete" : "setupRequired"
+  )}`;
   librarySettingsTitle.textContent = desktopText(locale, "librarySettings");
   librarySettingsCopy.textContent = desktopText(locale, "librarySettingsCopy");
   librarySettingsStatus.textContent = librarySnapshot.configured
@@ -533,6 +613,68 @@ function renderSettings(): void {
   saveTokenButton.textContent = desktopText(locale, "saveToken");
   removeTokenButton.textContent = desktopText(locale, "removeToken");
   removeTokenButton.disabled = !credentialStatus.configured;
+  renderSelfCheck();
+  renderConversionReadiness();
+}
+
+function renderSelfCheck(): void {
+  selfCheckTitle.textContent = desktopText(locale, "selfCheck");
+  rerunSelfCheckButton.textContent = desktopText(locale, selfCheckBusy ? "checkingSelfCheck" : "rerunSelfCheck");
+  rerunSelfCheckButton.disabled = selfCheckBusy;
+  selfCheckList.replaceChildren();
+  if (!selfCheck) {
+    const pending = element("li");
+    pending.dataset.status = "checking";
+    pending.textContent = desktopText(locale, "checkingSelfCheck");
+    selfCheckList.appendChild(pending);
+    return;
+  }
+  selfCheck.items.forEach((check) => {
+    const row = element("li");
+    row.dataset.status = check.status;
+    const marker = element("span", "p2md-desktop-check-marker");
+    marker.setAttribute("aria-hidden", "true");
+    const label = element("span");
+    label.textContent = localizedSelfCheck(check, locale);
+    row.append(marker, label);
+    selfCheckList.appendChild(row);
+  });
+}
+
+function renderConversionReadiness(): void {
+  const configured = librarySnapshot.configured && credentialStatus.configured;
+  const warning = configured && selfCheck && !selfCheck.readyForMineru;
+  readinessBanner.dataset.status = !configured ? "action-required" : warning ? "warning" : "ready";
+  readinessTitle.textContent = desktopText(
+    locale,
+    !configured ? "readinessRequiredTitle" : warning ? "readinessWarningTitle" : "readinessReadyTitle"
+  );
+  readinessCopy.textContent = desktopText(
+    locale,
+    !configured ? "readinessRequiredCopy" : warning ? "readinessWarningCopy" : "readinessReadyCopy"
+  );
+  readinessAction.textContent = desktopText(locale, "openSetup");
+  readinessAction.hidden = configured;
+  localToolsTitle.textContent = desktopText(locale, "localTools");
+  localToolsCopy.textContent = desktopText(
+    locale,
+    selfCheck?.localCliAvailable ? "localToolsReady" : "localToolsUnavailable"
+  );
+  setStartButtonsDisabled(startButtonsBusy);
+}
+
+async function refreshSelfCheck(): Promise<void> {
+  selfCheckBusy = true;
+  renderSelfCheck();
+  try {
+    selfCheck = await api.getSelfCheck();
+  } catch {
+    selfCheck = undefined;
+  } finally {
+    selfCheckBusy = false;
+    renderSelfCheck();
+    renderConversionReadiness();
+  }
 }
 
 navButtons.forEach((button, view) => button.addEventListener("click", () => activateRailView(view)));
@@ -542,6 +684,8 @@ settingsChooseLibraryButton.addEventListener("click", () => void chooseLibrary()
 revealLibraryButton.addEventListener("click", () => void revealLibrary());
 settingsRevealLibraryButton.addEventListener("click", () => void revealLibrary());
 createMineruTokenButton.addEventListener("click", () => void api.openMineruTokenPage());
+readinessAction.addEventListener("click", () => activateRailView("settings"));
+rerunSelfCheckButton.addEventListener("click", () => void refreshSelfCheck());
 saveTokenButton.addEventListener("click", () => {
   const token = tokenInput.value;
   saveTokenButton.disabled = true;
@@ -552,6 +696,7 @@ saveTokenButton.addEventListener("click", () => {
     tokenInput.value = "";
     settingsFeedback.textContent = desktopText(locale, "tokenSaved");
     renderSettings();
+    void refreshSelfCheck();
   }).catch((error) => {
     settingsFeedback.dataset.tone = "error";
     settingsFeedback.textContent = error instanceof Error ? error.message : desktopText(locale, "settingsError");
@@ -565,6 +710,7 @@ removeTokenButton.addEventListener("click", () => {
     tokenInput.value = "";
     settingsFeedback.textContent = desktopText(locale, "tokenRemoved");
     renderSettings();
+    void refreshSelfCheck();
   }).catch((error) => {
     settingsFeedback.dataset.tone = "error";
     settingsFeedback.textContent = error instanceof Error ? error.message : desktopText(locale, "settingsError");
@@ -584,6 +730,43 @@ function updateOptionControl(
   });
 }
 
+function renderPreset(): void {
+  const copyKey = {
+    recommended: "presetRecommendedCopy",
+    fast: "presetFastCopy",
+    scanned: "presetScannedCopy",
+    custom: "presetCustomCopy"
+  }[presetControl.select.value as ConversionPreset] as
+    | "presetRecommendedCopy"
+    | "presetFastCopy"
+    | "presetScannedCopy"
+    | "presetCustomCopy";
+  presetDescription.textContent = desktopText(locale, copyKey);
+}
+
+function applyConversionPreset(preset: ConversionPreset): void {
+  presetControl.select.value = preset;
+  if (preset === "recommended") {
+    mineruModelControl.select.value = "vlm";
+    mineruLanguageControl.select.value = "en";
+    mineruOcrInput.checked = false;
+  } else if (preset === "fast") {
+    mineruModelControl.select.value = "pipeline";
+    mineruLanguageControl.select.value = "en";
+    mineruOcrInput.checked = false;
+  } else if (preset === "scanned") {
+    mineruModelControl.select.value = "vlm";
+    mineruLanguageControl.select.value = "ch";
+    mineruOcrInput.checked = true;
+  }
+  renderPreset();
+}
+
+function markPresetCustom(): void {
+  presetControl.select.value = "custom";
+  renderPreset();
+}
+
 function applyDesktopLocale(nextLocale: ReaderLocale): void {
   locale = nextLocale;
   document.title = readerText(locale, "desktopReaderTitle");
@@ -599,9 +782,18 @@ function applyDesktopLocale(nextLocale: ReaderLocale): void {
     const label = button.querySelector("span");
     if (label) label.textContent = navigationLabels[view];
   });
-  taskTitle.textContent = desktopText(locale, "tasks");
-  taskCopy.textContent = desktopText(locale, "taskCopy");
+  taskTitle.textContent = desktopText(locale, "conversionTitle");
+  taskCopy.textContent = desktopText(locale, "conversionCopy");
+  updateOptionControl(presetControl, desktopText(locale, "conversionPreset"), [
+    desktopText(locale, "presetRecommended"),
+    desktopText(locale, "presetFast"),
+    desktopText(locale, "presetScanned"),
+    desktopText(locale, "presetCustom")
+  ]);
+  renderPreset();
   mineruNotice.textContent = desktopText(locale, "remotePrivacy");
+  advancedSummary.textContent = desktopText(locale, "advancedSettings");
+  advancedRemoteTitle.textContent = desktopText(locale, "mineruDetails");
   updateOptionControl(mineruModelControl, desktopText(locale, "remoteModel"), [
     desktopText(locale, "pipelineModel"), desktopText(locale, "vlmModel")
   ]);
@@ -684,6 +876,11 @@ function renderTasks(): void {
     const state = element("span");
     state.textContent = `${localizedTaskState(task, locale)} · ${localizedTaskMessage(task, locale)}`;
     item.append(name, workflow, state);
+    if (task.errorCode) {
+      const errorCode = element("code", "p2md-desktop-task-error-code");
+      errorCode.textContent = task.errorCode;
+      item.appendChild(errorCode);
+    }
     const actionError = taskErrors.get(task.id);
     if (actionError) {
       const error = element("span", "p2md-desktop-task-error");
@@ -731,7 +928,8 @@ function renderTasks(): void {
         await api.cancelTask(task.id);
       }, "quiet"));
     }
-    if (managedTask && task.workflow !== "mineru-remote" && (task.state === "failed" || task.state === "cancelled")) {
+    if (managedTask && selfCheck?.localCliAvailable && task.workflow !== "mineru-remote"
+      && (task.state === "failed" || task.state === "cancelled")) {
       actions.appendChild(actionButton(desktopText(locale, "retry"), async () => {
         const updated = await api.resumeTask(task.id);
         taskErrors.delete(task.id);
@@ -844,6 +1042,10 @@ async function startDirectConversion(): Promise<void> {
 }
 
 async function startRemoteMineru(): Promise<void> {
+  if (!librarySnapshot.configured || !credentialStatus.configured) {
+    activateRailView("settings");
+    return;
+  }
   setStartButtonsDisabled(true, desktopText(locale, "selecting"));
   try {
     const pdf = await api.choosePdf();
@@ -892,9 +1094,9 @@ async function startReviewedLayout(): Promise<void> {
 
 function setStartButtonsDisabled(disabled: boolean, temporaryLabel?: string): void {
   startButtonsBusy = disabled;
-  reviewedButton.disabled = disabled;
-  processButton.disabled = disabled;
-  remoteMineruButton.disabled = disabled;
+  reviewedButton.disabled = disabled || !selfCheck?.localCliAvailable;
+  processButton.disabled = disabled || !selfCheck?.localCliAvailable;
+  remoteMineruButton.disabled = disabled || !librarySnapshot.configured || !credentialStatus.configured;
   newExtractionButton.disabled = disabled;
   const busyLabel = disabled ? desktopText(locale, "selecting") : undefined;
   reviewedButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "startReviewed");
@@ -902,12 +1104,20 @@ function setStartButtonsDisabled(disabled: boolean, temporaryLabel?: string): vo
   remoteMineruButton.textContent = temporaryLabel ?? busyLabel ?? desktopText(locale, "startRemote");
 }
 
+presetControl.select.addEventListener("change", () => applyConversionPreset(presetControl.select.value as ConversionPreset));
+mineruModelControl.select.addEventListener("change", markPresetCustom);
+mineruLanguageControl.select.addEventListener("change", markPresetCustom);
+mineruOcrInput.addEventListener("change", markPresetCustom);
 processButton.addEventListener("click", () => void startDirectConversion());
 reviewedButton.addEventListener("click", () => void startReviewedLayout());
 remoteMineruButton.addEventListener("click", () => void startRemoteMineru());
 newExtractionButton.addEventListener("click", () => {
-  activateRailView("tasks");
-  void startRemoteMineru();
+  if (!librarySnapshot.configured || !credentialStatus.configured) {
+    activateRailView("settings");
+  } else {
+    activateRailView("tasks");
+    void startRemoteMineru();
+  }
 });
 const automaticallyOpenedPackages = new Set<string>();
 const stopTaskUpdates = api.onTaskUpdate((task) => {
@@ -944,6 +1154,8 @@ void Promise.all([
   libraryError = undefined;
   renderDocuments();
   renderSettings();
+  if (!snapshot.configured || !status.configured) activateRailView("settings");
+  void refreshSelfCheck();
 }).catch((error) => {
   libraryBusy = false;
   libraryError = error instanceof Error ? error.message : "Could not load desktop settings";
@@ -951,6 +1163,7 @@ void Promise.all([
   renderSettings();
 });
 applyDesktopLocale(locale);
+applyConversionPreset("recommended");
 renderTasks();
 
 window.addEventListener("beforeunload", () => {

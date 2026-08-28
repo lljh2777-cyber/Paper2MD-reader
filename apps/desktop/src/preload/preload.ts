@@ -9,6 +9,7 @@ import {
 } from "../shared/desktop-api";
 
 const api: Paper2MDDesktopApi = {
+  getSelfCheck: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSelfCheck),
   getLibrarySnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getLibrarySnapshot),
   chooseLibrary: () => ipcRenderer.invoke(DESKTOP_CHANNELS.chooseLibrary),
   openLibraryDocument: (packageId) => ipcRenderer.invoke(DESKTOP_CHANNELS.openLibraryDocument, packageId),

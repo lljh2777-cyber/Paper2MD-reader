@@ -109,6 +109,9 @@ function parseTask(value: unknown): PersistentConversionTask | undefined {
     return undefined;
   }
   if (candidate.artifactLabel !== undefined && !boundedString(candidate.artifactLabel, 1024)) return undefined;
+  if (candidate.errorCode !== undefined && (
+    !boundedString(candidate.errorCode, 128) || !/^[A-Z0-9_-]+$/u.test(candidate.errorCode)
+  )) return undefined;
   return {
     id: candidate.id,
     pdfName: candidate.pdfName,
@@ -119,6 +122,7 @@ function parseTask(value: unknown): PersistentConversionTask | undefined {
     createdAt: candidate.createdAt,
     updatedAt: candidate.updatedAt,
     message: candidate.message,
+    ...(candidate.errorCode ? { errorCode: candidate.errorCode as string } : {}),
     ...(candidate.artifactLabel ? { artifactLabel: candidate.artifactLabel as string } : {})
   };
 }

@@ -53,6 +53,10 @@ export class DesktopCredentialStore {
     if (!this.protector.available()) throw new Error("Operating-system protected credential storage is unavailable");
   }
 
+  protectionAvailable(): boolean {
+    return this.protector.available();
+  }
+
   private async readToken(): Promise<string | undefined> {
     const info = await lstat(this.path).catch(() => undefined);
     if (!info) return undefined;

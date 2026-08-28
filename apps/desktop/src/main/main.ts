@@ -36,6 +36,11 @@ import {
 } from "./desktop-task-store";
 import { DesktopLibraryManager } from "./desktop-library";
 import { DesktopCredentialStore } from "./desktop-credential-store";
+import {
+  checkMineruReachability,
+  resolvePaper2mdCommand,
+  runDesktopSelfCheck
+} from "./desktop-self-check";
 import { MineruRemoteError, type MineruRemoteOptions } from "../../../processing-service/src/mineru-api-client";
 import {
   RemoteMineruCancelledError,
@@ -194,12 +199,16 @@ async function assertPathAbsent(path: string): Promise<void> {
   }
 }
 
-function paper2mdCommand(): string {
-  return process.env.PAPER2MD_EXECUTABLE || (process.platform === "win32" ? "paper2md.exe" : "paper2md");
+async function requirePaper2mdExecutable(): Promise<string> {
+  const command = await resolvePaper2mdCommand();
+  if (!command) {
+    throw new Error("Local Paper2MD CLI is not installed. Use MinerU extraction, or configure PAPER2MD_EXECUTABLE in an advanced development environment.");
+  }
+  return command;
 }
 
-function runPaper2md(taskId: string, args: string[]): Promise<string> {
-  const child = spawn(paper2mdCommand(), args, { windowsHide: true, shell: false });
+async function runPaper2md(taskId: string, args: string[]): Promise<string> {
+  const child = spawn(await requirePaper2mdExecutable(), args, { windowsHide: true, shell: false });
   processes.set(taskId, child);
   let log = "";
   let settled = false;
@@ -284,11 +293,24 @@ async function runRemoteExtraction(
     });
   } catch (error) {
     if (error instanceof RemoteMineruCancelledError || remoteCancellations.has(taskId)) return;
+    const task = tasks.get(taskId);
+    const stage = task?.stage ?? "remote-upload";
+    const failure = error instanceof MineruRemoteError
+      ? { code: error.code, message: error.message }
+      : error instanceof TypeError
+        ? { code: "MINERU_NETWORK_ERROR", message: "Could not reach the MinerU service; check the network and try again" }
+        : {
+            code: ["remote-validate", "remote-publish"].includes(stage)
+              ? "PACKAGE_VALIDATION_FAILED"
+              : "REMOTE_WORKFLOW_FAILED",
+            message: error instanceof Error
+              ? error.message.replace(/\s+/gu, " ").slice(0, 2048)
+              : "Remote MinerU extraction failed"
+          };
     updateTask(taskId, {
       state: "failed",
-      message: error instanceof MineruRemoteError
-        ? error.message
-        : "Remote extraction or deterministic package validation failed; no incomplete package was published"
+      errorCode: failure.code,
+      message: failure.message
     });
   } finally {
     activeRemoteTasks.delete(taskId);
@@ -430,6 +452,16 @@ function validateReviewedOptions(request: StartReviewedLayoutRequest): ReviewedL
 }
 
 function installIpcHandlers(): void {
+  ipcMain.handle(DESKTOP_CHANNELS.getSelfCheck, async (event) => {
+    assertTrusted(event);
+    return runDesktopSelfCheck({
+      libraryHealth: () => requireLibraryManager().health(),
+      credentialsAvailable: () => requireCredentialStore().protectionAvailable(),
+      credentialConfigured: async () => (await requireCredentialStore().status()).configured,
+      mineruReachable: () => checkMineruReachability(),
+      localCliAvailable: async () => Boolean(await resolvePaper2mdCommand())
+    });
+  });
   ipcMain.handle(DESKTOP_CHANNELS.getLibrarySnapshot, async (event) => {
     assertTrusted(event);
     return requireLibraryManager().snapshot();
@@ -611,6 +643,7 @@ function installIpcHandlers(): void {
     if (!["failed", "cancelled"].includes(task.state)) throw new Error("Only failed or cancelled tasks can be retried");
     const direct = directJobs.get(taskId);
     if (direct) {
+      await requirePaper2mdExecutable();
       if (!await availablePdf(direct.pdfPath, MAX_PDF_BYTES)) throw new Error("Source PDF is unavailable");
       await assertPathAbsent(direct.outputPath);
       const next = updateTask(taskId, {
@@ -671,6 +704,7 @@ function installIpcHandlers(): void {
     if (request.backend !== "pdfium" || !["off", "auto"].includes(request.regionRenderMode)) {
       throw new Error("Unsupported conversion options");
     }
+    await requirePaper2mdExecutable();
     const pdfPath = requirePdf(request.pdfId);
     const outputParent = requireRoot(request.outputParentId);
     const outputPath = join(outputParent, `${safePaperStem(pdfPath)}-paper2md`);
@@ -758,6 +792,7 @@ function installIpcHandlers(): void {
   });
   ipcMain.handle(DESKTOP_CHANNELS.startReviewedLayout, async (event, request: StartReviewedLayoutRequest) => {
     assertTrusted(event);
+    await requirePaper2mdExecutable();
     const options = validateReviewedOptions(request);
     const pdfPath = requirePdf(request.pdfId);
     const paths = reviewedWorkflowPaths(pdfPath, requireRoot(request.outputParentId));

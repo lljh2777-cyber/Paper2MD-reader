@@ -1,6 +1,9 @@
 import { zipSync, strToU8 } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MineruPrecisionApiClient } from "../apps/processing-service/src/mineru-api-client";
+import {
+  MineruPrecisionApiClient,
+  mineruUploadHeaders
+} from "../apps/processing-service/src/mineru-api-client";
 import { inspectMineruArchive } from "../apps/processing-service/src/remote-mineru-workflow";
 
 function resultArchive(extra: Record<string, Uint8Array> = {}): Uint8Array {
@@ -13,6 +16,11 @@ function resultArchive(extra: Record<string, Uint8Array> = {}): Uint8Array {
 }
 
 describe("remote MinerU archive boundary", () => {
+  it("keeps pre-signed MinerU uploads free of a Content-Type header", () => {
+    expect(mineruUploadHeaders(1024)).toEqual({ "Content-Length": "1024" });
+    expect(mineruUploadHeaders(1024)).not.toHaveProperty("Content-Type");
+  });
+
   it("accepts only the expected Markdown, content-list, and raster image outputs", () => {
     const entries = inspectMineruArchive(resultArchive());
     expect(Object.keys(entries).sort()).toEqual([

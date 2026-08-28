@@ -138,7 +138,9 @@ async function uploadPdf(urlValue: string, sourcePath: string): Promise<void> {
     const source = createReadStream(sourcePath);
     const handle = request(url, {
       method: "PUT",
-      headers: { "Content-Length": String(info.size), "Content-Type": "application/pdf" },
+      // MinerU's pre-signed upload contract requires a raw PUT without a
+      // Content-Type header. Adding one can invalidate the object-store signature.
+      headers: mineruUploadHeaders(info.size),
       lookup: (_hostname, _options, callback) => callback(null, address.address, address.family),
       signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MILLISECONDS)
     }, (response) => {
@@ -162,6 +164,13 @@ async function uploadPdf(urlValue: string, sourcePath: string): Promise<void> {
     });
     source.pipe(handle);
   });
+}
+
+export function mineruUploadHeaders(size: number): Record<string, string> {
+  if (!Number.isSafeInteger(size) || size < 1 || size > MAX_RESULT_ZIP_BYTES) {
+    throw new MineruRemoteError("INVALID_SOURCE", "The selected PDF size is invalid");
+  }
+  return { "Content-Length": String(size) };
 }
 
 function parseBatchItem(value: unknown): MineruBatchItem {

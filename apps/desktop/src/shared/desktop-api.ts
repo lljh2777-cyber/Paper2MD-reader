@@ -40,6 +40,44 @@ export interface MineruCredentialStatus {
   maskedToken?: string;
 }
 
+export type DesktopSelfCheckId =
+  | "library"
+  | "credentials"
+  | "token"
+  | "mineru-network"
+  | "atomic-publish"
+  | "local-cli";
+
+export type DesktopSelfCheckStatus = "ready" | "action-required" | "unavailable";
+
+export interface DesktopSelfCheckItem {
+  id: DesktopSelfCheckId;
+  status: DesktopSelfCheckStatus;
+  code:
+    | "LIBRARY_READY"
+    | "LIBRARY_NOT_CONFIGURED"
+    | "LIBRARY_NOT_WRITABLE"
+    | "CREDENTIALS_READY"
+    | "CREDENTIALS_UNAVAILABLE"
+    | "TOKEN_READY"
+    | "TOKEN_NOT_CONFIGURED"
+    | "TOKEN_UNREADABLE"
+    | "MINERU_REACHABLE"
+    | "MINERU_UNREACHABLE"
+    | "ATOMIC_PUBLISH_READY"
+    | "ATOMIC_PUBLISH_UNAVAILABLE"
+    | "LOCAL_CLI_READY"
+    | "LOCAL_CLI_UNAVAILABLE";
+  optional?: boolean;
+}
+
+export interface DesktopSelfCheck {
+  checkedAt: string;
+  readyForMineru: boolean;
+  localCliAvailable: boolean;
+  items: DesktopSelfCheckItem[];
+}
+
 export type ConversionTaskState = "queued" | "running" | "awaiting-review" | "succeeded" | "failed" | "cancelled";
 export type ConversionWorkflow = "direct" | "reviewed-layout" | "mineru-remote";
 export type ConversionStage =
@@ -72,6 +110,7 @@ export interface ConversionTask {
   artifactLabel?: string;
   recovered?: boolean;
   packageId?: string;
+  errorCode?: string;
 }
 
 export interface StartConversionRequest {
@@ -105,6 +144,7 @@ export interface StartReviewedLayoutRequest {
 }
 
 export interface Paper2MDDesktopApi {
+  getSelfCheck(): Promise<DesktopSelfCheck>;
   getLibrarySnapshot(): Promise<DesktopLibrarySnapshot>;
   chooseLibrary(): Promise<DesktopLibrarySnapshot | undefined>;
   openLibraryDocument(packageId: string): Promise<DesktopRootSelection>;
@@ -138,6 +178,7 @@ export interface Paper2MDDesktopApi {
 }
 
 export const DESKTOP_CHANNELS = {
+  getSelfCheck: "paper2md:get-self-check",
   getLibrarySnapshot: "paper2md:get-library-snapshot",
   chooseLibrary: "paper2md:choose-library",
   openLibraryDocument: "paper2md:open-library-document",

@@ -30,9 +30,30 @@ Opening an existing result defaults to images and captions; selecting a PDF for 
 conversion switches to the PDF tab. The visual selection and article scroll position
 are retained across tab changes.
 
-The app expects `paper2md` to be installed on `PATH`. Developers may set
-`PAPER2MD_EXECUTABLE` in the Electron main-process environment to a trusted
-Paper2MD executable path. This value is never accepted from renderer content.
+The normal desktop workflow does not require a separately installed `paper2md`
+executable. Optional local reviewed-layout developer tools detect `paper2md` on
+`PATH`; developers may set `PAPER2MD_EXECUTABLE` in the Electron main-process
+environment to a trusted executable path. When no CLI is available, those advanced
+controls are disabled instead of starting a task that will fail with `ENOENT`. This
+value is never accepted from renderer content.
+
+## First-run setup and system check
+
+When the library or MinerU Token is missing, the desktop opens Settings and presents
+one ordered path: choose a local library, create/store a MinerU Token, then start a
+conversion. `New extraction` returns to that setup instead of opening a PDF chooser
+until both required settings exist.
+
+The system check verifies the library with a unique write probe and cross-directory
+atomic rename, operating-system credential protection, configured Token state,
+reachability of the fixed MinerU API, and optional local CLI availability. Probe
+files use unique reserved names and are removed immediately. Network or optional CLI
+warnings never prevent reading already-published local papers.
+
+The conversion page exposes three common presets: recommended VLM for research
+papers, a faster pipeline for simple born-digital English PDFs, and VLM + OCR for
+scanned or Chinese PDFs. Individual MinerU parameters and local developer workflows
+remain under Advanced settings.
 
 ## MinerU Token onboarding
 
@@ -47,9 +68,14 @@ state and a four-character mask. Removing the Token deletes only that credential
 `New extraction` can now use the official remote MinerU API. Before every upload,
 the main process shows a separate warning dialog whose safe default is Cancel. After
 confirmation it decrypts the Token only in request memory, obtains a signed upload
-URL from the fixed MinerU endpoint, uploads the selected PDF without forwarding the
+URL from the fixed MinerU endpoint, uploads the selected PDF as the raw PUT required
+by MinerU's signed-upload contract without forwarding the
 Token to the storage host, and polls the opaque MinerU task ID. At most two remote
 extractions run concurrently.
+
+Remote failures retain a bounded structured error code and the last completed stage.
+Token, quota, network, upload, archive, and deterministic validation failures are no
+longer collapsed into one generic message; no secret or response body is persisted.
 
 Downloaded results are untrusted input. Paper2MD applies public-HTTPS and DNS checks,
 redirect/MIME/timeout/byte limits, then accepts only a bounded ZIP containing one
