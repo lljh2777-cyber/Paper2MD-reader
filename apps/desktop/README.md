@@ -75,6 +75,10 @@ by MinerU's signed-upload contract without forwarding the
 Token to the storage host, and polls the opaque MinerU task ID. At most two remote
 extractions run concurrently.
 
+The upload client pins the already validated public DNS answer to prevent rebinding.
+Because Node 20 and later otherwise requests all address families from a custom lookup
+callback, automatic family selection is disabled for this single pinned connection.
+
 Remote failures retain a bounded structured error code and the last completed stage.
 Upload-address allocation is distinct from the PDF upload, while DNS, TLS, timeout,
 submission-API and object-storage failures have separate safe codes. Token, quota,

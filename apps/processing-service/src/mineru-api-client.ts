@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { lstat, open } from "node:fs/promises";
-import { request } from "node:https";
+import { request, type RequestOptions } from "node:https";
 import { basename } from "node:path";
 import { assertSafeAcquisitionUrl, isPublicInternetAddress, safeAcquire } from "./safe-acquisition-fetch";
 
@@ -175,8 +175,7 @@ async function uploadPdf(urlValue: string, sourcePath: string): Promise<void> {
       method: "PUT",
       // MinerU's pre-signed upload contract requires a raw PUT without a
       // Content-Type header. Adding one can invalidate the object-store signature.
-      headers: mineruUploadHeaders(info.size),
-      lookup: (_hostname, _options, callback) => callback(null, address.address, address.family),
+      ...mineruUploadConnectionOptions(address, info.size),
       signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MILLISECONDS)
     }, (response) => {
       response.resume();
@@ -207,6 +206,21 @@ export function mineruUploadHeaders(size: number): Record<string, string> {
     throw new MineruRemoteError("INVALID_SOURCE", "The selected PDF size is invalid");
   }
   return { "Content-Length": String(size) };
+}
+
+export function mineruUploadConnectionOptions(
+  address: { address: string; family: 4 | 6 },
+  size: number
+): Pick<RequestOptions, "family" | "headers" | "lookup"> & { autoSelectFamily: false } {
+  return {
+    // Node 20+ enables automatic family selection by default and then invokes
+    // custom lookup callbacks with { all: true }. This upload pins one already
+    // validated public address, so disable that second lookup mode explicitly.
+    autoSelectFamily: false,
+    family: address.family,
+    headers: mineruUploadHeaders(size),
+    lookup: (_hostname, _options, callback) => callback(null, address.address, address.family)
+  };
 }
 
 function parseBatchItem(value: unknown): MineruBatchItem {

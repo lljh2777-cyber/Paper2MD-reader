@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MineruPrecisionApiClient,
   mineruTransportError,
+  mineruUploadConnectionOptions,
   mineruUploadHeaders
 } from "../apps/processing-service/src/mineru-api-client";
 import { inspectMineruArchive } from "../apps/processing-service/src/remote-mineru-workflow";
@@ -20,6 +21,16 @@ describe("remote MinerU archive boundary", () => {
   it("keeps pre-signed MinerU uploads free of a Content-Type header", () => {
     expect(mineruUploadHeaders(1024)).toEqual({ "Content-Length": "1024" });
     expect(mineruUploadHeaders(1024)).not.toHaveProperty("Content-Type");
+  });
+
+  it("pins one validated upload address without Node automatic family lookup", () => {
+    const options = mineruUploadConnectionOptions({ address: "203.0.113.10", family: 4 }, 1024);
+    expect(options).toMatchObject({
+      autoSelectFamily: false,
+      family: 4,
+      headers: { "Content-Length": "1024" }
+    });
+    expect(options.lookup).toBeTypeOf("function");
   });
 
   it("accepts only the expected Markdown, content-list, and raster image outputs", () => {
