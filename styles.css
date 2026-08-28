@@ -159,6 +159,7 @@
   grid-template-columns: minmax(0, var(--p2md-article-width, 68%)) 7px minmax(300px, 1fr);
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .p2md-reader-splitter {
@@ -307,6 +308,7 @@
 .p2md-article-scroll {
   background: var(--p2md-paper);
   flex: 1 1 auto;
+  min-height: 0;
   min-width: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -323,7 +325,17 @@
   min-width: 0;
   min-height: 100%;
   padding: clamp(34px, 5vw, 70px) clamp(28px, 4.5vw, 64px) 100px;
-  width: 100%;
+  width: auto;
+}
+
+.p2md-article.markdown-rendered table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.p2md-article.markdown-rendered a {
+  overflow-wrap: anywhere;
 }
 
 .p2md-article.markdown-rendered h1,
@@ -726,6 +738,7 @@ button.p2md-pdf-layout-box { cursor: pointer; pointer-events: auto; }
   flex: 1 1 auto;
   grid-template-columns: minmax(0, 1fr) 104px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .p2md-figure-stage {
@@ -733,6 +746,7 @@ button.p2md-pdf-layout-box { cursor: pointer; pointer-events: auto; }
   flex-direction: column;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 16px;
   scrollbar-gutter: stable;
 }
@@ -844,6 +858,7 @@ button.p2md-pdf-layout-box { cursor: pointer; pointer-events: auto; }
   gap: 9px;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 9px;
   scrollbar-width: thin;
 }

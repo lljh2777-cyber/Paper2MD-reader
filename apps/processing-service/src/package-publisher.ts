@@ -11,6 +11,28 @@ const HTML_IMAGE_RE = /<img\b[^>]*\bsrc=["']([^"']+)["']/gi;
 const MAX_PACKAGE_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 512 * 1024 * 1024;
 const MAX_PACKAGE_FILES = 1_024;
+const DERIVED_CONTRACT_PATHS = new Set([
+  "_extraction/viewer-index.json",
+  "_extraction/visual-repair.json",
+  "_extraction/visual-candidates.json"
+]);
+
+export function partitionPackageManifestFiles(indexedFiles: PublishedPackageFile[]): {
+  outputs: PublishedPackageFile[];
+  derivedContracts: PublishedPackageFile[];
+} {
+  const outputs = indexedFiles.filter((entry) => !DERIVED_CONTRACT_PATHS.has(entry.path));
+  const derivedContracts = indexedFiles.filter((entry) => DERIVED_CONTRACT_PATHS.has(entry.path));
+  const derivedPaths = new Set(derivedContracts.map((entry) => entry.path));
+  if (
+    derivedContracts.length !== DERIVED_CONTRACT_PATHS.size
+    || derivedPaths.size !== DERIVED_CONTRACT_PATHS.size
+    || [...DERIVED_CONTRACT_PATHS].some((path) => !derivedPaths.has(path))
+  ) {
+    throw new Error("Reader derived contract set is incomplete");
+  }
+  return { outputs, derivedContracts };
+}
 
 interface MineruElement {
   record: Record<string, unknown>;
@@ -258,7 +280,8 @@ export async function publishMineruPackage(input: {
   await assertPackageLimits(input.packageStage);
   const validation = await validatePackage(input.packageStage, viewerContracts);
   const generatedPaths = await walkFiles(input.packageStage);
-  const outputsIndex = await Promise.all(generatedPaths.map((path) => fileRecord(path, input.packageStage)));
+  const indexedFiles = await Promise.all(generatedPaths.map((path) => fileRecord(path, input.packageStage)));
+  const { outputs: outputsIndex, derivedContracts } = partitionPackageManifestFiles(indexedFiles);
   const manifest = {
     schema_version: 1,
     extractor: "mineru-open-api",
@@ -275,7 +298,8 @@ export async function publishMineruPackage(input: {
       notice: "Document content was transmitted to the configured MinerU service; the source PDF is retained inside the published reading package for deterministic visual reconstruction."
     },
     options: input.mineruOptions,
-    outputs: outputsIndex
+    outputs: outputsIndex,
+    derived_contracts: derivedContracts
   };
   await Promise.all([
     writeFile(join(extractionRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { encoding: "utf8", flag: "wx" }),

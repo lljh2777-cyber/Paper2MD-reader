@@ -70,6 +70,45 @@ export class ScrollController {
   }
 }
 
+export type ReaderScrollBlock = "start" | "center";
+
+export function readerScrollTopForTarget(input: {
+  currentScrollTop: number;
+  containerTop: number;
+  containerHeight: number;
+  targetTop: number;
+  targetHeight: number;
+  maximumScrollTop: number;
+  block: ReaderScrollBlock;
+}): number {
+  const alignment = input.block === "center"
+    ? input.targetTop + input.targetHeight / 2 - (input.containerTop + input.containerHeight / 2)
+    : input.targetTop - input.containerTop;
+  return Math.max(0, Math.min(input.maximumScrollTop, input.currentScrollTop + alignment));
+}
+
+/** Scroll only the article viewport; never let scrollIntoView move the desktop shell. */
+export function scrollReaderTarget(
+  container: HTMLElement,
+  target: HTMLElement,
+  options: { behavior?: ScrollBehavior; block?: ReaderScrollBlock } = {}
+): void {
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  container.scrollTo({
+    top: readerScrollTopForTarget({
+      currentScrollTop: container.scrollTop,
+      containerTop: containerRect.top,
+      containerHeight: containerRect.height,
+      targetTop: targetRect.top,
+      targetHeight: targetRect.height,
+      maximumScrollTop: Math.max(0, container.scrollHeight - container.clientHeight),
+      block: options.block ?? "start"
+    }),
+    behavior: options.behavior ?? "smooth"
+  });
+}
+
 export interface ReaderViewportBlock {
   pageNumber: number;
   top: number;

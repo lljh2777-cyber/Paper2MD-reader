@@ -7,28 +7,33 @@
 
 html,
 body,
-#desktop-app { height: 100%; margin: 0; }
+#desktop-app { height: 100%; margin: 0; max-height: 100%; overflow: hidden; width: 100%; }
 
 body { color: var(--text-normal); overflow: hidden; }
 
 .p2md-desktop-shell {
   display: grid;
-  grid-template-columns: 304px minmax(560px, 1fr) minmax(320px, 36vw);
+  grid-template-columns: 270px minmax(640px, 1fr) minmax(340px, 32vw);
   height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .p2md-desktop-task-rail,
 .p2md-desktop-right-pane {
   background: var(--p2md-desktop-rail);
   border-right: 1px solid var(--p2md-desktop-border);
+  box-sizing: border-box;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .p2md-desktop-task-rail { display: flex; flex-direction: column; overflow: hidden; padding: 16px 14px 12px; }
 .p2md-desktop-right-pane { border-left: 1px solid var(--p2md-desktop-border); border-right: 0; display: flex; flex-direction: column; }
-.p2md-desktop-reader { min-width: 0; overflow: hidden; }
-.p2md-desktop-reader > .p2md-reader-view { height: 100%; }
+.p2md-desktop-reader { min-height: 0; min-width: 0; overflow: hidden; }
+.p2md-desktop-reader > .p2md-reader-view { height: 100%; min-height: 0; }
 
 .p2md-desktop-app-header { align-items: center; display: flex; min-height: 40px; padding: 0 4px 8px; }
 .p2md-desktop-app-title { color: var(--text-normal); font: 700 19px/1.2 system-ui, sans-serif; letter-spacing: -0.035em; }
@@ -336,7 +341,7 @@ body { color: var(--text-normal); overflow: hidden; }
 .p2md-desktop-pdf-frame { border: 0; flex: 1; min-height: 0; width: 100%; }
 
 @media (max-width: 1180px) {
-  .p2md-desktop-shell { grid-template-columns: 272px minmax(520px, 1fr); }
+  .p2md-desktop-shell { grid-template-columns: 260px minmax(520px, 1fr); }
   .p2md-desktop-right-pane { display: none; }
 }
 

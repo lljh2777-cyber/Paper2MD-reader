@@ -166,8 +166,9 @@ describe("PackageLoader host abstraction", () => {
   });
 
   it("projects a unique next-page formal caption from the original MinerU payload without editing article.md", async () => {
+    const placeholder = "Fig. 2 | See next page for caption";
     const caption = "Fig. 2. Caption begins on the next PDF page.";
-    const article = `# MinerU paper\n\n![](images/a.png)\n\n![](images/b.png)\n\n${caption}\n\nBody remains.\n`;
+    const article = `# MinerU paper\n\n![](images/a.png)\n\n${placeholder}\np\nq\n![](images/b.png)\n\n${caption}\n\nBody remains.\n`;
     const mineruPayload = [
       { type: "image", page_idx: 0, bbox: [50, 200, 450, 700], img_path: "images/a.png" },
       { type: "image", page_idx: 0, bbox: [460, 200, 950, 700], img_path: "images/b.png" },
@@ -194,7 +195,18 @@ describe("PackageLoader host abstraction", () => {
           page_idx: 0,
           blocks: [
             { id: "p0000-s000000", source_index: 0, page_order: 0, role: "visual", asset_path: "images/a.png", markdown_image_ids: ["md-img-0000"], caption: { items: [] } },
-            { id: "p0000-s000001", source_index: 1, page_order: 1, role: "visual", asset_path: "images/b.png", markdown_image_ids: ["md-img-0001"], caption: { items: [] } }
+            {
+              id: "p0000-s000001", source_index: 1, page_order: 1, role: "visual", asset_path: "images/b.png", markdown_image_ids: ["md-img-0001"],
+              caption: {
+                items: [
+                  { kind: "next-page-placeholder", text: placeholder },
+                  { kind: "panel-label", text: "p" },
+                  { kind: "panel-label", text: "q" }
+                ],
+                next_page_marker: true,
+                next_page_figure_keys: ["figure:2"]
+              }
+            }
           ]
         },
         {
@@ -237,7 +249,9 @@ describe("PackageLoader host abstraction", () => {
     const loaded = await new PackageLoader(fileSystem).loadDetected();
 
     expect(article).toContain(caption);
+    expect(article).toContain(placeholder);
     expect(loaded.articleText).not.toContain(caption);
+    expect(loaded.articleText).not.toContain(placeholder);
     expect(loaded.articleText).not.toContain("![](images/a.png)");
     expect(loaded.articleText).toContain("Body remains.");
     expect(loaded.assets).toEqual([expect.objectContaining({

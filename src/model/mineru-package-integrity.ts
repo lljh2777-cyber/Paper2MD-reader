@@ -6,6 +6,11 @@ import { PACKAGE_LIMITS, PackageLimitError } from "./package-limits";
 const SHA256 = /^[a-f0-9]{64}$/;
 const MANIFEST_PATH = "_extraction/manifest.json";
 const VALIDATION_PATH = "_extraction/validation.json";
+const LEGACY_DERIVED_PATHS = [
+  "_extraction/viewer-index.json",
+  "_extraction/visual-repair.json",
+  "_extraction/visual-candidates.json"
+] as const;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -135,8 +140,20 @@ export async function inspectMinerUPackageIntegrity(input: {
   if (manifest.processing_depth !== "conversion-only") {
     throw new MinerUPackageIntegrityError("manifest.json processing_depth 必须为 conversion-only");
   }
-  const outputs = manifestRecords(manifest.outputs, "outputs", PACKAGE_LIMITS.assetCount + 2);
+  const outputs = manifestRecords(manifest.outputs, "outputs", PACKAGE_LIMITS.assetCount + 8);
   const derived = manifestRecords(manifest.derived_contracts ?? [], "derived_contracts", 32);
+  // Desktop 0.1.0 briefly bound the three generated Reader contracts inside
+  // `outputs` instead of `derived_contracts`. Those records are still
+  // immutable and SHA-256-bound, so accept only the exact historical paths.
+  // Arbitrary output files never gain derived-contract authority.
+  for (const path of LEGACY_DERIVED_PATHS) {
+    const legacy = outputs.get(path);
+    const current = derived.get(path);
+    if (legacy && current && (legacy.size !== current.size || legacy.sha256 !== current.sha256)) {
+      throw new MinerUPackageIntegrityError(`manifest.json 对派生文件的登记冲突：${path}`);
+    }
+    if (legacy && !current) derived.set(path, legacy);
+  }
   const articleRecord = outputs.get(input.articlePath);
   const mineruRecord = outputs.get(input.mineruPath);
   if (!articleRecord || !mineruRecord) {

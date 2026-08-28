@@ -1,5 +1,6 @@
 import { readerText, type ReaderLocale } from "../ui/locale";
 import { setReaderIcon } from "./icons";
+import { scrollReaderTarget } from "../sync/scroll-controller";
 
 const OUTLINE_COLLAPSED_STORAGE_KEY = "paper2md-reader:outline-collapsed";
 
@@ -124,7 +125,7 @@ export class ArticleOutline {
       item.addEventListener("click", () => {
         this.options.onNavigate?.();
         this.setActive(entry.element);
-        entry.element.scrollIntoView({ behavior: "smooth", block: "start" });
+        scrollReaderTarget(this.scrollContainer, entry.element, { behavior: "smooth", block: "start" });
       });
       this.buttons.set(entry.element, item);
       this.list.appendChild(item);
@@ -158,7 +159,7 @@ export class ArticleOutline {
     if (!entry) return undefined;
     this.options.onNavigate?.();
     this.setActive(entry.element);
-    entry.element.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollReaderTarget(this.scrollContainer, entry.element, { behavior: "smooth", block: "start" });
     return { id: entry.targetId, label: entry.label, level: entry.level, active: true };
   }
 

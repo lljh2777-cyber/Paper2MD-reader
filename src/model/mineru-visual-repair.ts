@@ -332,6 +332,56 @@ function samePagePanelLabelRanges(
   return result.sort((left, right) => left.start - right.start);
 }
 
+function nextPagePlaceholderRanges(
+  blocks: UnknownRecord[],
+  viewer: UnknownRecord,
+  markdown: string
+): Array<{ start: number; end: number; text: string }> {
+  if (!markdown) return [];
+  const placeholders = captionPartEntries(blocks).filter((entry) => (
+    (entry.kind === "next-page-placeholder" || entry.kind === "formal-caption")
+    && record(entry.block.caption)?.next_page_marker === true
+  ));
+  const occurrences = markdownImageOccurrences(viewer, markdown);
+  const byBlock = new Map<UnknownRecord, CaptionPartEntry[]>();
+  placeholders.forEach((entry) => byBlock.set(entry.block, [...(byBlock.get(entry.block) ?? []), entry]));
+  const result: Array<{ start: number; end: number; text: string }> = [];
+  for (const [block, blockPlaceholders] of byBlock) {
+    if (blockPlaceholders.length !== 1) continue;
+    const ids = strings(block.markdown_image_ids);
+    const assetPath = typeof block.asset_path === "string" ? decodedMarkdownPath(block.asset_path) : undefined;
+    if (ids.length !== 1 || !assetPath) continue;
+    const occurrence = occurrences.get(ids[0]);
+    if (!occurrence || occurrence.assetPath !== assetPath) continue;
+    // MinerU often places panel labels between the next-page marker and the
+    // associated image. Match the complete local sequence so the marker is
+    // still required to be structurally adjacent, then suppress only the
+    // marker. Panel labels are handled by samePagePanelLabelRanges.
+    const localEntries = captionPartEntries([block]).filter((entry) => (
+      entry.kind === "panel-label"
+      || entry.kind === "next-page-placeholder"
+      || (entry.kind === "formal-caption" && record(entry.block.caption)?.next_page_marker === true)
+    ));
+    const ranges = adjacentCaptionRanges(markdown, occurrence, localEntries.map((entry) => entry.text));
+    if (!ranges || ranges.length !== localEntries.length) continue;
+    localEntries.forEach((entry, index) => {
+      if (
+        entry.text === blockPlaceholders[0].text
+        && (entry.kind === "next-page-placeholder" || entry.kind === "formal-caption")
+      ) result.push(ranges[index]);
+    });
+  }
+  return result.sort((left, right) => left.start - right.start);
+}
+
+function uniqueSourceRanges(
+  ...groups: Array<Array<{ start: number; end: number; text: string }>>
+): Array<{ start: number; end: number; text: string }> {
+  const unique = new Map<string, { start: number; end: number; text: string }>();
+  groups.flat().forEach((range) => unique.set(`${range.start}:${range.end}:${range.text}`, range));
+  return [...unique.values()].sort((left, right) => left.start - right.start);
+}
+
 function bestCaption(blocks: UnknownRecord[], visuals: MinerUVisual[]): string | undefined {
   const items = blocks.flatMap(captionItems);
   const formal = items.filter((item) => item.kind === "formal-caption").map((item) => item.text);
@@ -610,7 +660,10 @@ export function applyMinerUVisualRepair(input: {
         if (start >= 0 && input.articleMarkdown.indexOf(caption, start + caption.length) < 0) {
           return {
             caption,
-            captionSourceRanges: [{ start, end: start + caption.length, text: caption }],
+            captionSourceRanges: [
+              ...nextPagePlaceholderRanges(blocks, viewer, input.articleMarkdown),
+              { start, end: start + caption.length, text: caption }
+            ],
             captionPageIndex: pageIndex + 1,
             captionStatus: "complete" as const,
             panelLabels: panelLabels(blocks)
@@ -647,7 +700,10 @@ export function applyMinerUVisualRepair(input: {
       .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
     return {
       caption: caption || undefined,
-      captionSourceRanges: ranges.filter((range): range is NonNullable<typeof range> => Boolean(range)),
+      captionSourceRanges: [
+        ...nextPagePlaceholderRanges(blocks, viewer, input.articleMarkdown ?? ""),
+        ...ranges.filter((range): range is NonNullable<typeof range> => Boolean(range))
+      ],
       captionPageIndex: Number(link.target_page_idx),
       captionStatus: String(link.status) as "complete" | "partial",
       panelLabels: panelLabels(blocks)
@@ -706,10 +762,11 @@ export function applyMinerUVisualRepair(input: {
     const localPanelRanges = input.articleMarkdown
       ? samePagePanelLabelRanges(blocks, viewer, input.articleMarkdown)
       : [];
-    const captionSourceRanges = [
-      ...(linkedCaption.captionSourceRanges ?? []),
-      ...localPanelRanges
-    ].sort((left, right) => left.start - right.start);
+    const captionSourceRanges = uniqueSourceRanges(
+      linkedCaption.captionSourceRanges ?? [],
+      input.articleMarkdown ? nextPagePlaceholderRanges(blocks, viewer, input.articleMarkdown) : [],
+      localPanelRanges
+    );
     const captionText = linkedCaption.caption || bestCaption(captionBlocks, memberVisuals);
     const pageIndex = Number.isInteger(group.page_idx) ? Number(group.page_idx) : anchor.pageIndex;
     memberPaths.forEach((path) => consumed.add(path));
@@ -750,10 +807,11 @@ export function applyMinerUVisualRepair(input: {
     const localPanelRanges = input.articleMarkdown
       ? samePagePanelLabelRanges([block], viewer, input.articleMarkdown)
       : [];
-    const captionSourceRanges = [
-      ...(linkedCaption.captionSourceRanges ?? []),
-      ...localPanelRanges
-    ].sort((left, right) => left.start - right.start);
+    const captionSourceRanges = uniqueSourceRanges(
+      linkedCaption.captionSourceRanges ?? [],
+      input.articleMarkdown ? nextPagePlaceholderRanges([block], viewer, input.articleMarkdown) : [],
+      localPanelRanges
+    );
     const captionText = linkedCaption.caption || bestCaption([block], [visual]) || visual.captionText;
     repaired.push({
       order: index,

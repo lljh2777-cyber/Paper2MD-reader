@@ -25,7 +25,12 @@ function canonical(value: unknown): string {
   return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`;
 }
 
-async function fixture(options: { staleArticle?: boolean; staleDerived?: boolean; validationStatus?: string } = {}) {
+async function fixture(options: {
+  staleArticle?: boolean;
+  staleDerived?: boolean;
+  validationStatus?: string;
+  legacyDerivedInOutputs?: boolean;
+} = {}) {
   const article = "# Verified paper\n\n![](images/a.png)\n";
   const mineru = JSON.stringify([{ type: "image", page_idx: 0, bbox: [20, 30, 900, 700], img_path: "images/a.png" }]);
   const image = new Uint8Array([137, 80, 78, 71]);
@@ -73,8 +78,8 @@ async function fixture(options: { staleArticle?: boolean; staleDerived?: boolean
     processing_depth: "conversion-only",
     source: { size: 100, sha256: "a".repeat(64) },
     options: { include_source_pdf: false },
-    outputs,
-    derived_contracts: derived
+    outputs: options.legacyDerivedInOutputs ? [...outputs, ...derived] : outputs,
+    ...(options.legacyDerivedInOutputs ? {} : { derived_contracts: derived })
   });
   const files: Record<string, string | Uint8Array> = {
     "article.md": article,
@@ -109,6 +114,28 @@ describe("MinerU formal package integrity", () => {
       "_extraction/viewer-index.json",
       integrity.derived.get("_extraction/viewer-index.json")
     )).resolves.toEqual(expect.objectContaining({ schema_version: 1 }));
+  });
+
+  it("reads the three hash-bound contracts from legacy outputs without trusting arbitrary files", async () => {
+    const built = await fixture({ legacyDerivedInOutputs: true });
+    const fileSystem = new MemoryReaderFileSystem(built.files);
+    const integrity = await inspectMinerUPackageIntegrity({
+      fileSystem,
+      articlePath: "article.md",
+      articleBytes: new TextEncoder().encode(built.article),
+      mineruPath: "mineru-result.json",
+      mineruBytes: new TextEncoder().encode(built.mineru),
+      sourcePdfPath: "_extraction/source.pdf"
+    });
+
+    expect([...integrity.derived.keys()].sort()).toEqual([
+      "_extraction/viewer-index.json",
+      "_extraction/visual-candidates.json",
+      "_extraction/visual-repair.json"
+    ]);
+    const loaded = await new PackageLoader(fileSystem).loadDetected();
+    expect(loaded.contractVersion).toBe("mineru-viewer-index-v1");
+    expect(loaded.diagnostics).not.toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-invalid" }));
   });
 
   it("refuses a formal package when validation failed or a core hash is stale", async () => {

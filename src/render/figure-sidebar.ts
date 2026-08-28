@@ -1,6 +1,7 @@
 import { setReaderIcon } from "./icons";
 import { FigureFollowState } from "../sync/figure-follow-state";
 import { readerText, ReaderLocale } from "../ui/locale";
+import { appendSafeCaptionMarkup } from "./caption-markup";
 
 export interface FigurePresentation {
   id: string;
@@ -183,7 +184,7 @@ export class FigureSidebar {
       delete clone.dataset.p2mdAssetId;
       caption.appendChild(clone);
     } else if (selected.captionText) {
-      caption.textContent = selected.captionText;
+      appendSafeCaptionMarkup(caption, selected.captionText);
     } else {
       caption.textContent = selected.label;
     }
@@ -211,7 +212,7 @@ export class FigureSidebar {
       const backLabel = element("span");
       backLabel.textContent = readerText(this.locale, "backToPosition");
       backButton.appendChild(backLabel);
-      backButton.addEventListener("click", () => selected.slotElement?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      backButton.addEventListener("click", () => this.options.onSelectionChange?.(selected, true));
       actions.appendChild(backButton);
     }
 

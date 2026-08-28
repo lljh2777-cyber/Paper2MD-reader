@@ -24,7 +24,8 @@ import { materializeReaderPageOwnership } from "../../../src/render/page-ownersh
 import { setReaderIcon } from "../../../src/render/icons";
 import { renderLocalArticle } from "../../../src/render/local-article-renderer";
 import { UnsafeMarkdownResourceError } from "../../../src/render/markdown-resource-policy";
-import { ScrollController } from "../../../src/sync/scroll-controller";
+import { appendSafeCaptionMarkup } from "../../../src/render/caption-markup";
+import { ScrollController, scrollReaderTarget } from "../../../src/sync/scroll-controller";
 import {
   DEFAULT_READER_VIEW_STATE,
   parseReaderViewState,
@@ -446,7 +447,9 @@ export class ReaderWorkspace implements ReaderAgentController {
       locale: this.locale,
       onOpenImage: (figure) => this.openLightbox(figure),
       onSelectionChange: (figure, followingReading) => {
-        if (followingReading) figure.slotElement?.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (followingReading && figure.slotElement) {
+          scrollReaderTarget(this.articleScroll, figure.slotElement, { behavior: "smooth", block: "center" });
+        }
       }
     };
     if (this.options.figureHost) {
@@ -1067,7 +1070,7 @@ export class ReaderWorkspace implements ReaderAgentController {
       content.appendChild(figure.captionElement.cloneNode(true));
     } else if (figure.captionText) {
       const caption = element("p", "p2md-figure-caption");
-      caption.textContent = figure.captionText;
+      appendSafeCaptionMarkup(caption, figure.captionText);
       content.appendChild(caption);
     }
     this.openDialog(content, readerText(this.locale, "closeNamed", { name: figure.label }), true);

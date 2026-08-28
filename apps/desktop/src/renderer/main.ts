@@ -31,6 +31,7 @@ import {
   localizedTaskState
 } from "./desktop-copy";
 import { setReaderIcon } from "../../../../src/render/icons";
+import { PdfVisualResolver } from "../../../../src/render/pdf-visual-resolver";
 
 const api = window.paper2mdDesktop;
 const root = document.querySelector<HTMLElement>("#desktop-app");
@@ -355,11 +356,13 @@ rightPane.append(rightTabs, pdfView, figureHost);
 shell.append(taskRail, readerHost, rightPane);
 root.appendChild(shell);
 
+const visualResolver = new PdfVisualResolver();
 const workspace = mountReaderWorkspace(readerHost, {
   picker: new DesktopPackagePicker(api, async (selectedRoot) => {
     await showPackagePdf(selectedRoot);
     setRightPaneMode("visuals");
   }),
+  visualResolver,
   figureHost,
   localizedCopy: {
     en: {
