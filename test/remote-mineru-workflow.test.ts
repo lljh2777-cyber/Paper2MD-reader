@@ -72,7 +72,7 @@ describe("remote MinerU archive boundary", () => {
 describe("MinerU precision API envelope", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("keeps authentication in the request header and returns opaque task state", async () => {
+  it("accepts the documented batch result shape without a single-task task_id", async () => {
     let capturedInit: RequestInit | undefined;
     const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       capturedInit = init;
@@ -80,7 +80,7 @@ describe("MinerU precision API envelope", () => {
       code: 0,
       data: {
         extract_result: [{
-          task_id: "task_123",
+          file_name: "paper.pdf",
           state: "running",
           extract_progress: { extracted_pages: 3, total_pages: 12 }
         }]
@@ -92,7 +92,7 @@ describe("MinerU precision API envelope", () => {
     const client = new MineruPrecisionApiClient(token);
 
     await expect(client.getBatch("batch_123")).resolves.toEqual([{
-      taskId: "task_123",
+      filename: "paper.pdf",
       state: "running",
       progress: { extractedPages: 3, totalPages: 12 }
     }]);
@@ -111,6 +111,28 @@ describe("MinerU precision API envelope", () => {
       code: "-60018",
       message: "The MinerU account has insufficient quota for this extraction"
     });
+  });
+
+  it("accepts a completed documented batch result and exposes only its validated archive URL", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      code: 0,
+      data: {
+        batch_id: "batch_123",
+        extract_result: [{
+          file_name: "paper.pdf",
+          state: "done",
+          err_msg: "",
+          full_zip_url: "https://cdn-mineru.openxlab.org.cn/pdf/result.zip"
+        }]
+      }
+    }), { status: 200 })));
+    const client = new MineruPrecisionApiClient("test_token_1234567890");
+
+    await expect(client.getBatch("batch_123")).resolves.toEqual([{
+      filename: "paper.pdf",
+      state: "done",
+      zipUrl: "https://cdn-mineru.openxlab.org.cn/pdf/result.zip"
+    }]);
   });
 
   it("classifies API and upload transport failures without exposing low-level details", () => {

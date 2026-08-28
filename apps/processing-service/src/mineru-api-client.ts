@@ -23,7 +23,6 @@ export interface MineruRemoteOptions {
 }
 
 export interface MineruBatchItem {
-  taskId: string;
   state: string;
   filename?: string;
   errorCode?: string;
@@ -226,11 +225,12 @@ export function mineruUploadConnectionOptions(
 function parseBatchItem(value: unknown): MineruBatchItem {
   const item = object(value);
   if (!item) throw new MineruRemoteError("INVALID_RESPONSE", "MinerU returned an invalid task result");
-  const taskId = boundedIdentifier(item.task_id, "task ID");
   const state = typeof item.state === "string" && /^[a-z_-]{1,64}$/i.test(item.state)
     ? item.state.toLowerCase()
     : "unknown";
-  const result: MineruBatchItem = { taskId, state };
+  // The batch result contract is keyed by the enclosing batch_id. Unlike the
+  // single-task endpoint, extract_result entries do not contain task_id.
+  const result: MineruBatchItem = { state };
   if (typeof item.file_name === "string") result.filename = basename(item.file_name).slice(0, 512);
   if (item.err_code !== undefined && item.err_code !== null) result.errorCode = String(item.err_code).slice(0, 64);
   if (typeof item.full_zip_url === "string") result.zipUrl = assertSafeAcquisitionUrl(item.full_zip_url).href;
