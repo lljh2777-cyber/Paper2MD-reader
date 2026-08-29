@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "After-MinerU Converter — Unofficial"
+  },
+  "extensionShortName": {
+    "message": "After-MinerU"
+  },
+  "extensionDescription": {
+    "message": "Send a selected PDF directly to MinerU, then validate and download the original result ZIP locally."
+  },
+  "actionTitle": {
+    "message": "Open After-MinerU precision conversion"
+  }
+}

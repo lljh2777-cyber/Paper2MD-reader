@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "After-MinerU Converter — Unofficial"
+  },
+  "extensionShortName": {
+    "message": "After-MinerU"
+  },
+  "extensionDescription": {
+    "message": "将用户选择的 PDF 直传 MinerU，并在本地校验和下载原始结果 ZIP。"
+  },
+  "actionTitle": {
+    "message": "打开 After-MinerU 精准转换"
+  }
+}

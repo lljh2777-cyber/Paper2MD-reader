@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "store:build": "node build-store.mjs",
+    "store:verify": "node verify-store-package.mjs",
+    "store:package": "npm run store:build && npm run store:verify",
+    "store:unpack": "npm run store:verify && node unpack-store.mjs"
   }
 }

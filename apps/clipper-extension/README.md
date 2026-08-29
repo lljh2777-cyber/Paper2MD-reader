@@ -6,11 +6,20 @@ Obsidian and does not call AI.
 
 The companion also contains an experimental precision-conversion page. That page
 asks for three explicit MinerU transfer origins, keeps the pasted MinerU Token only
-in the live extension page, uploads the selected PDF directly to MinerU's signed
-object-storage URL, validates the downloaded ZIP, and downloads the immutable
-result for explicit import into the web Reader. Closing or refreshing the page, or
-finishing the task, clears the Token input. No Paper2MD backend receives the Token
-or PDF.
+in the live extension page, and uploads the selected PDF directly to MinerU's signed
+object-storage URL for processing by MinerU. It validates the result downloaded from
+MinerU/OpenXLab and saves the immutable ZIP for explicit import into the web Reader.
+Closing or refreshing the page, or finishing the task, clears the Token input. No
+Paper2MD backend receives or retains the Token, PDF, or result. Users must not upload
+files containing confidential information, personal data, or material they are not
+authorized to process.
+
+The Chrome Web Store release is a separate, single-purpose build named
+**After-MinerU Converter — Unofficial**. It contains only the precision page,
+its archive-validation worker, a minimal toolbar service worker, fixed MinerU
+optional host permissions, bundled fflate code, icons, locales, and third-party
+notices. It does not contain web clipping, active-tab access, desktop pairing,
+persistent storage, or the Companion's pinned developer key.
 
 Deterministic Markdown/image localization rules live in `packages/clipper-core/`.
 This extension remains the browser adapter responsible for the active tab, publisher
@@ -27,6 +36,18 @@ npm run clipper:build
 
 Load `apps/clipper-extension/dist/` as an unpacked extension from
 `chrome://extensions` or `edge://extensions`.
+
+Build and verify the Store upload ZIP separately:
+
+```powershell
+npm run clipper:store:package
+```
+
+Run `npm run clipper:store:unpack`, then load the hash-isolated unpacked
+directory printed by the command for final testing. The exact verified upload
+artifact is `output/after-mineru-converter-0.2.0.zip`. Store listing fields,
+privacy declarations, reviewer instructions, and asset paths are documented in
+`apps/clipper-extension/STORE_SUBMISSION.md`.
 
 ## Workflow
 

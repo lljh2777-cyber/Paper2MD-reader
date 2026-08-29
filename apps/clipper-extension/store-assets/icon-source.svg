@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">After-MinerU Converter</title>
+  <g transform="translate(12 12) scale(.8125)">
+    <rect width="128" height="128" rx="28" fill="#1762bd"/>
+    <path d="M36 22h39l19 19v60a7 7 0 0 1-7 7H36a7 7 0 0 1-7-7V29a7 7 0 0 1 7-7Z" fill="#fff"/>
+    <path d="M75 22v19h19" fill="#dceafb"/>
+    <path d="M75 22v19h19" fill="none" stroke="#1762bd" stroke-linejoin="round" stroke-width="6"/>
+    <path d="M45 57h32M45 70h22" fill="none" stroke="#1762bd" stroke-linecap="round" stroke-width="7"/>
+    <circle cx="79" cy="84" r="21" fill="#13975d" stroke="#fff" stroke-width="5"/>
+    <path d="m68 84 7 7 15-17" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"/>
+  </g>
+</svg>

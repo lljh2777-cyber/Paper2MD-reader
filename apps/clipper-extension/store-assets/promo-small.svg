@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 280" role="img" aria-labelledby="title desc">
+  <title id="title">After-MinerU Converter</title>
+  <desc id="desc">Chrome Web Store small promotional tile</desc>
+  <rect width="440" height="280" fill="#f5f8fc"/>
+  <circle cx="384" cy="42" r="112" fill="#dceafb"/>
+  <circle cx="40" cy="276" r="88" fill="#e3f5ec"/>
+  <g transform="translate(44 42) scale(.72)">
+    <rect width="128" height="128" rx="28" fill="#1762bd"/>
+    <path d="M36 22h39l19 19v60a7 7 0 0 1-7 7H36a7 7 0 0 1-7-7V29a7 7 0 0 1 7-7Z" fill="#fff"/>
+    <path d="M75 22v19h19" fill="#dceafb"/>
+    <path d="M75 22v19h19" fill="none" stroke="#1762bd" stroke-linejoin="round" stroke-width="6"/>
+    <path d="M45 57h32M45 70h22" fill="none" stroke="#1762bd" stroke-linecap="round" stroke-width="7"/>
+    <circle cx="79" cy="84" r="21" fill="#13975d" stroke="#fff" stroke-width="5"/>
+    <path d="m68 84 7 7 15-17" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"/>
+  </g>
+  <text x="44" y="170" fill="#102641" font-family="Inter, Segoe UI, sans-serif" font-size="32" font-weight="760">After-MinerU</text>
+  <text x="44" y="205" fill="#1762bd" font-family="Inter, Segoe UI, sans-serif" font-size="20" font-weight="700">精准 PDF 转换</text>
+  <text x="44" y="235" fill="#5f7388" font-family="Inter, Segoe UI, sans-serif" font-size="14">直连 MinerU · 本地校验 · ZIP 导出</text>
+  <text x="348" y="254" fill="#5f7388" font-family="Inter, Segoe UI, sans-serif" font-size="10" text-anchor="end">UNOFFICIAL</text>
+</svg>

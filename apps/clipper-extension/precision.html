@@ -11,35 +11,45 @@
       <header>
         <p>AFTER‑MINERU · EXPERIMENTAL</p>
         <h1>精准转换</h1>
-        <span>由扩展直接连接 MinerU；Paper2MD 不经手 Token 或 PDF。</span>
+        <span>扩展只在你明确选择文件并授权后直连 MinerU；Paper2MD 服务器不接收或保存 Token、PDF 或转换结果。</span>
       </header>
 
       <section class="boundary" aria-labelledby="boundary-title">
         <h2 id="boundary-title">开始前请确认</h2>
         <ul>
-          <li>PDF 将按你的选择直接上传到 MinerU 服务。</li>
+          <li>这个扩展只有一个用途：转换你明确选择的 PDF 并下载 MinerU 原始结果。</li>
+          <li>文件名与 Token 发送到 mineru.net API；PDF 直传 MinerU 的阿里云 OSS 签名地址。</li>
+          <li>转换完成后，扩展从 OpenXLab CDN 的签名地址下载结果 ZIP。</li>
           <li>Token 只存在当前扩展页内存；刷新、关闭或任务结束即清除。</li>
-          <li>扩展仅按本次操作请求 MinerU API、签名上传和结果下载域名。</li>
+          <li>三个 MinerU 域名权限仅为本次任务申请；任务结束后会尝试自动撤销，失败时会提示你手动撤销。</li>
           <li>下载 ZIP 通过结构与路径校验后仍保持 MinerU 原始结果不变。</li>
+          <li>“取消”只停止浏览器端传输并清除本页 Token；已上传文件或远端任务的处理与保留仍遵循 MinerU 政策，必要时请到 Token 管理页吊销 Token。</li>
         </ul>
       </section>
 
       <section class="form-panel" aria-label="精准转换输入">
-        <label for="mineru-token">临时 MinerU Token</label>
+        <label for="mineru-token">MinerU Token（仅由本页临时持有）</label>
         <div class="token-row">
           <input id="mineru-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="仅保存在当前页面内存" />
           <button id="clear-token-button" class="secondary" type="button">清除</button>
         </div>
-        <a href="https://mineru.net/apiManage/token" target="_blank" rel="noreferrer">前往 MinerU Token 管理</a>
+        <div class="permission-tools">
+          <a href="https://mineru.net/apiManage/token" target="_blank" rel="noreferrer">前往 MinerU Token 管理</a>
+          <button id="revoke-permissions-button" class="text-button" type="button" hidden>撤销残留的 MinerU 域名权限</button>
+        </div>
 
         <label for="precision-pdf">PDF 文件</label>
         <input id="precision-pdf" type="file" accept=".pdf,application/pdf" />
         <p class="hint">实验模式上限 200MB；默认使用 VLM、OCR、公式和表格识别。</p>
-        <button id="convert-button" type="button">授权并开始精准转换</button>
-        <p id="precision-status" role="status" aria-live="polite">尚未选择文件；不会自动上传。</p>
+        <label class="consent-row" for="precision-consent">
+          <input id="precision-consent" type="checkbox" />
+          <span>你的 MinerU Token 会直接用于访问 MinerU API；你选择的 PDF 将直接上传至 MinerU 提供的存储地址，并由 MinerU 服务处理。转换结果随后从 MinerU/OpenXLab 下载。Paper2MD 不接收或保存 Token、PDF及转换结果。请勿上传包含机密、个人隐私或无权处理的文件。</span>
+        </label>
+        <button id="convert-button" type="button" disabled>授权并开始精准转换</button>
+        <p id="precision-status" role="status" aria-live="polite">选择文件、输入 Token 并确认边界后才会启用转换。</p>
       </section>
 
-      <footer>独立第三方工具，非 MinerU 官方产品。结果下载后可导入 After‑MinerU 网页 Reader。</footer>
+      <footer>独立第三方工具，与 MinerU / OpenDataLab 无隶属或背书关系。校验通过的原始结果 ZIP 只保存到你的设备。</footer>
     </main>
     <script type="module" src="precision.js"></script>
   </body>

@@ -47,5 +47,15 @@ await Promise.all([
     minify: true,
     sourcemap: false
   }),
+  build({
+    entryPoints: [resolve(root, "src/archive-inspector-worker.ts")],
+    outfile: resolve(outdir, "archive-inspector-worker.js"),
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "chrome120",
+    minify: true,
+    sourcemap: false
+  }),
   ...["manifest.json", "popup.html", "popup.css", "precision.html", "precision.css"].map((name) => copyFile(resolve(root, name), resolve(outdir, name)))
 ]);

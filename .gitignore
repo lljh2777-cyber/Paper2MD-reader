@@ -19,6 +19,8 @@ apps/desktop/out/
 apps/desktop/release-*/
 apps/processing-service/dist/
 apps/clipper-extension/dist/
+apps/clipper-extension/dist-store/
+tmp/
 paper2md-service-data/
 service-qa-data/
 **/__pycache__/

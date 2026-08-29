@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  MINERU_PRECISION_PERMISSION_PATTERNS,
+  PRECISION_PERMISSION_LEASE_PORT,
+  installPrecisionPermissionLeaseCleanup
+} from "../apps/clipper-extension/src/precision-permissions";
 
 interface ExtensionManifest {
   key?: string;
@@ -14,6 +19,12 @@ describe("Paper2MD Web Clipper extension boundary", () => {
   const manifest = JSON.parse(
     readFileSync("apps/clipper-extension/manifest.json", "utf8")
   ) as ExtensionManifest;
+  const storeManifest = JSON.parse(
+    readFileSync("apps/clipper-extension/manifest.store.json", "utf8")
+  ) as ExtensionManifest & {
+    background?: { service_worker?: string };
+    content_security_policy?: { extension_pages?: string };
+  };
 
   it("uses user-initiated activeTab access without persistent page scripts", () => {
     expect(manifest.permissions).toEqual(["activeTab", "downloads", "scripting", "storage"]);
@@ -61,11 +72,107 @@ describe("Paper2MD Web Clipper extension boundary", () => {
     expect(precisionPage).not.toContain("storage.session");
     expect(precisionPage).not.toContain("cookie");
     expect(precisionPage).not.toContain("localStorage");
-    expect(precisionClient).toContain('"https://mineru.net/*"');
-    expect(precisionClient).toContain('"https://mineru.oss-cn-shanghai.aliyuncs.com/*"');
-    expect(precisionClient).toContain('"https://cdn-mineru.openxlab.org.cn/*"');
+    expect(MINERU_PRECISION_PERMISSION_PATTERNS).toEqual([
+      "https://mineru.net/*",
+      "https://mineru.oss-cn-shanghai.aliyuncs.com/*",
+      "https://cdn-mineru.openxlab.org.cn/*"
+    ]);
     expect(precisionClient).toContain('credentials: "omit"');
     expect(precisionClient).toContain('redirect: "error"');
     expect(precisionClient).toContain("inspectMineruPrecisionArchive");
+  });
+
+  it("keeps the Store build single-purpose and free of Companion permissions", () => {
+    expect(storeManifest.key).toBeUndefined();
+    expect(storeManifest.permissions).toBeUndefined();
+    expect(storeManifest.host_permissions).toBeUndefined();
+    expect(storeManifest.optional_host_permissions).toEqual(MINERU_PRECISION_PERMISSION_PATTERNS);
+    expect(storeManifest.content_scripts).toBeUndefined();
+    expect(storeManifest.background?.service_worker).toBe("store-service-worker.js");
+    const policy = storeManifest.content_security_policy?.extension_pages ?? "";
+    expect(policy).toContain("script-src 'self'");
+    expect(policy).toContain("worker-src 'self'");
+    expect(policy).not.toContain("http:");
+    const precisionPage = readFileSync("apps/clipper-extension/src/precision.ts", "utf8");
+    expect(precisionPage).not.toContain("chrome.downloads");
+    expect(precisionPage).not.toContain("chrome.storage");
+    expect(precisionPage).not.toContain("localStorage");
+    expect(precisionPage).not.toContain("indexedDB");
+  });
+
+  it("aborts, clears the in-memory token, revokes an active lease, and closes the port on pagehide", () => {
+    const precisionPage = readFileSync("apps/clipper-extension/src/precision.ts", "utf8");
+    const handler = /window\.addEventListener\("pagehide", \(\) => \{([\s\S]*?)\n\}\);/u.exec(precisionPage)?.[1] ?? "";
+    expect(handler).toContain("activeController?.abort()");
+    expect(handler).toContain('tokenInput.value = ""');
+    expect(handler).toContain("if (permissionLeaseActive) void removeMineruPrecisionPermissions()");
+    expect(handler).toContain("closePermissionLease()");
+  });
+});
+
+describe("MinerU precision permission lease cleanup", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps permissions while any conversion page is connected and removes the exact origins after the final disconnect", () => {
+    const connectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+    const startupListeners: Array<() => void> = [];
+    const installedListeners: Array<() => void> = [];
+    const remove = vi.fn(async () => true);
+    vi.stubGlobal("chrome", {
+      permissions: { remove },
+      runtime: {
+        onConnect: { addListener: (listener: (port: chrome.runtime.Port) => void) => connectListeners.push(listener) },
+        onStartup: { addListener: (listener: () => void) => startupListeners.push(listener) },
+        onInstalled: { addListener: (listener: () => void) => installedListeners.push(listener) }
+      }
+    } as unknown as typeof chrome);
+
+    installPrecisionPermissionLeaseCleanup();
+    expect(connectListeners).toHaveLength(1);
+    expect(startupListeners).toHaveLength(1);
+    expect(installedListeners).toHaveLength(1);
+
+    const firstDisconnect: Array<() => void> = [];
+    const secondDisconnect: Array<() => void> = [];
+    const port = (listeners: Array<() => void>) => ({
+      name: PRECISION_PERMISSION_LEASE_PORT,
+      onDisconnect: { addListener: (listener: () => void) => listeners.push(listener) }
+    }) as unknown as chrome.runtime.Port;
+    connectListeners[0]!(port(firstDisconnect));
+    connectListeners[0]!(port(secondDisconnect));
+
+    startupListeners[0]!();
+    firstDisconnect[0]!();
+    expect(remove).not.toHaveBeenCalled();
+
+    secondDisconnect[0]!();
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith({ origins: [...MINERU_PRECISION_PERMISSION_PATTERNS] });
+  });
+
+  it("cleans stale grants on startup and installation without treating unrelated ports as leases", () => {
+    const connectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+    const startupListeners: Array<() => void> = [];
+    const installedListeners: Array<() => void> = [];
+    const remove = vi.fn(async () => true);
+    vi.stubGlobal("chrome", {
+      permissions: { remove },
+      runtime: {
+        onConnect: { addListener: (listener: (port: chrome.runtime.Port) => void) => connectListeners.push(listener) },
+        onStartup: { addListener: (listener: () => void) => startupListeners.push(listener) },
+        onInstalled: { addListener: (listener: () => void) => installedListeners.push(listener) }
+      }
+    } as unknown as typeof chrome);
+
+    installPrecisionPermissionLeaseCleanup();
+    connectListeners[0]!({ name: "unrelated-port" } as chrome.runtime.Port);
+    startupListeners[0]!();
+    installedListeners[0]!();
+
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenNthCalledWith(1, { origins: [...MINERU_PRECISION_PERMISSION_PATTERNS] });
+    expect(remove).toHaveBeenNthCalledWith(2, { origins: [...MINERU_PRECISION_PERMISSION_PATTERNS] });
   });
 });

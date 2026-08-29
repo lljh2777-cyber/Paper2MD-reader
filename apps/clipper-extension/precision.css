@@ -19,9 +19,14 @@ header span { color: #5f7388; font-size: 16px; line-height: 1.7; }
 .form-panel input { border: 1px solid #bfcddd; border-radius: 9px; min-height: 44px; padding: 10px 12px; width: 100%; }
 .token-row { display: grid; gap: 8px; grid-template-columns: 1fr auto; }
 .form-panel a { color: #1762bd; font-size: 12px; width: max-content; }
+.permission-tools { align-items: center; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.permission-tools .text-button { background: none; color: #1762bd; font-size: 12px; min-height: 0; padding: 0; text-decoration: underline; }
 button { background: #1762bd; border: 0; border-radius: 9px; color: white; cursor: pointer; font: inherit; font-weight: 750; min-height: 46px; padding: 0 18px; }
 button.secondary { background: #eef4fb; color: #173b65; }
 button:disabled { cursor: wait; opacity: .55; }
+.consent-row { align-items: flex-start; background: #f5f8fc; border-radius: 10px; display: grid; gap: 10px; grid-template-columns: auto 1fr; line-height: 1.55; margin: 4px 0; padding: 13px 14px; }
+.form-panel .consent-row input { accent-color: #1762bd; min-height: 18px; padding: 0; width: 18px; }
+.consent-row span { color: #405971; font-size: 13px; font-weight: 500; line-height: 1.65; }
 .hint, #precision-status, footer { color: #667b90; font-size: 12px; line-height: 1.6; margin: 0; }
 #precision-status { border-left: 3px solid #7d91a6; min-height: 1.6em; padding-left: 10px; }
 #precision-status[data-state="error"] { border-color: #c44236; color: #a52f25; }

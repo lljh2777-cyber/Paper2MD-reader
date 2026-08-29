@@ -5,6 +5,9 @@ import {
   readResponseBytesWithinLimit
 } from "./clipping-package";
 import { FETCH_IMAGE_MESSAGE, type FetchImageResponse } from "./messages";
+import { installPrecisionPermissionLeaseCleanup } from "./precision-permissions";
+
+installPrecisionPermissionLeaseCleanup();
 
 function bytesToBase64(bytes: Uint8Array): string {
   const chunkSize = 0x8000;
