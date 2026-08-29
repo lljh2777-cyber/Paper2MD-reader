@@ -130,7 +130,7 @@ export class FigureSidebar {
     this.render();
   }
 
-  private render(): void {
+  private render(focusSelectedThumbnail = false): void {
     const previousRailScrollTop = this.body.querySelector<HTMLElement>(".p2md-thumbnail-rail")?.scrollTop ?? 0;
     this.body.replaceChildren();
     if (!this.figures.length) {
@@ -247,7 +247,7 @@ export class FigureSidebar {
       button.addEventListener("click", () => {
         if (figure.slotElement) this.followState.selectForNavigation(figure.id);
         else this.followState.select(figure.id);
-        this.render();
+        this.render(true);
         this.options.onSelectionChange?.(figure, this.followState.isFollowing);
         this.options.onStateChange?.();
       });
@@ -259,6 +259,9 @@ export class FigureSidebar {
     rail.scrollTop = previousRailScrollTop;
     if (selectionChanged && selectedButton && typeof selectedButton.scrollIntoView === "function") {
       selectedButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    if (focusSelectedThumbnail && selectedButton) {
+      selectedButton.focus({ preventScroll: true });
     }
   }
 }

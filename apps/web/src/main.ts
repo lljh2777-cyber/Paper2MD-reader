@@ -1,7 +1,11 @@
 import "../../../styles.css";
 import "../../../local-reader/local-reader.css";
 import "katex/dist/katex.min.css";
-import { mountReaderWorkspace, ReaderWorkspace } from "../../../packages/reader-ui/src/index";
+import {
+  mountReaderWorkspace,
+  ReaderWorkspace,
+  type ReaderPaperStateStorage
+} from "../../../packages/reader-ui/src/index";
 import { BrowserPackagePicker } from "./browser-package-picker";
 import { readerText, ReaderLocale } from "../../../src/ui/locale";
 import { PdfVisualResolver } from "./pdf-visual-resolver";
@@ -15,6 +19,16 @@ export interface WebReaderMountOptions {
   initialFileSystem?: ReaderFileSystem;
   enableWebMcp?: boolean;
   enableProcessingApi?: boolean;
+  /** Set false for ephemeral hosts that must not persist paper-derived state across refreshes. */
+  persistPaperState?: boolean;
+}
+
+function createMemoryPaperStateStorage(): ReaderPaperStateStorage {
+  const values = new Map<string, string>();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); }
+  };
 }
 
 export function requestedPackageId(pathname: string): string | undefined {
@@ -44,9 +58,13 @@ export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions
   const packageId = requestedPackageId(window.location.pathname);
   const apiBaseUrl = options.enableProcessingApi === false ? undefined : configuredProcessingApiBaseUrl();
   const processingClient = apiBaseUrl ? new ProcessingClient(apiBaseUrl) : undefined;
+  const paperStateStorage = options.persistPaperState === false
+    ? createMemoryPaperStateStorage()
+    : undefined;
   let activePackageId = packageId;
   const workspace: ReaderWorkspace = mountReaderWorkspace(readerHost, {
     picker,
+    paperStateStorage,
     visualResolver,
     pdfRuntime: visualResolver,
     visualReviewStore: processingClient ? {

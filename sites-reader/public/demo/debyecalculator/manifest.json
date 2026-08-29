@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "extractor": "mineru-open-api",
+  "created_at": "2026-08-29T00:00:00.000Z",
+  "processing_depth": "conversion-only",
+  "source": {
+    "original_name": "10.21105-joss.06024.pdf",
+    "size": 1878315,
+    "sha256": "88da42c642b5d651140110d1379ab7d2401bfc2443e9179b39077109e2f42e7f"
+  },
+  "privacy": {
+    "remote_processing": true,
+    "source_pdf_packaged": true,
+    "notice": "The selected PDF was sent directly to MinerU for this demonstration. After-MinerU stores no user paper or token."
+  },
+  "options": {
+    "include_source_pdf": true,
+    "model_version": "vlm",
+    "language": "en",
+    "is_ocr": false,
+    "enable_formula": true,
+    "enable_table": true
+  },
+  "outputs": [
+    {
+      "path": "c7264cf1-e0f7-451e-b76e-5d5ff5005bbf_content_list_v2.json",
+      "size": 54830,
+      "sha256": "2baee0ec0cdb5ea4898ec5ee4a641a5e86fc5ca0a220d736f26b2dfc97acd6ae"
+    },
+    {
+      "path": "c7264cf1-e0f7-451e-b76e-5d5ff5005bbf_content_list.json",
+      "size": 30468,
+      "sha256": "c5e350d7c122b3e6603a4b8f3830fbbe27e8b05f7bb335b92a6cdc691d9cbb43"
+    },
+    {
+      "path": "c7264cf1-e0f7-451e-b76e-5d5ff5005bbf_model.json",
+      "size": 73050,
+      "sha256": "f0d9bb6557aabf9f5dda2364d0d86ef062a73e029dffeab4644bc1338a2f974b"
+    },
+    {
+      "path": "c7264cf1-e0f7-451e-b76e-5d5ff5005bbf_origin.pdf",
+      "size": 1814438,
+      "sha256": "965c7c589d2eaa5622e6d5b78ef34fa0aa015e35a6b025ad605cb7199a972602"
+    },
+    {
+      "path": "full.md",
+      "size": 13200,
+      "sha256": "0f0225ff8761dcd569f26b45b5c129ffe09ac9b9cd9bc055b6dbb80a4758db03"
+    },
+    {
+      "path": "images/0bdcda23c0a42793f1d55fe839ba4456ee9f71f707a43978ec97962a94916d24.jpg",
+      "size": 6925,
+      "sha256": "af2fa606dc834f7bf00220c53402bb07a857ea9c236499bb0c760ac58268be10"
+    },
+    {
+      "path": "images/d1b774fd69b46553ec459ec80c9495cd6f43bc1bfe968d054cb4d9917db268cc.jpg",
+      "size": 24706,
+      "sha256": "e6e4d6ec6895dedd2822031a7abb8275b8dc6da4c03c70ea662b6e3b711623f1"
+    },
+    {
+      "path": "images/db9ed5df9e8167b48742e3f40d89fbe13531fdc7643d2bdfa090832d32e02f39.jpg",
+      "size": 68904,
+      "sha256": "3a459d37925cff8fe563961fa1916730a24feaccf3a759bd1f1a3abd0389319c"
+    },
+    {
+      "path": "images/e8b817d22b4acfb6d8b318ae3a9f7b41aa2f887cce884c603e4bfc7bf56c9660.jpg",
+      "size": 98533,
+      "sha256": "e13713c1fa4efee90051110ed9d080a217d6d5b9db04f2b766ea833a07f0255d"
+    },
+    {
+      "path": "images/ee3cee50e4c8f67f62c327bd37f1e1d36bdd3526660d2a9fc8be0635d514f805.jpg",
+      "size": 24307,
+      "sha256": "1ea337aa775d6d0391896ec89ece9a056c24dac5d661a2e3913f7636b3e4eba7"
+    },
+    {
+      "path": "images/f6aae6ebac53f6ab69f1904b99f44fe7c723a069694d1168a66d3177de3fe101.jpg",
+      "size": 20622,
+      "sha256": "0965c43a0423d32b7e44a1f5e1b570c2a62bfb111909c1a8fff307d1cd428eac"
+    },
+    {
+      "path": "images/fc338a26fd8ee343a26cf83a1787661e3b08bf702933a6d3ba6888a928a4ed02.jpg",
+      "size": 23450,
+      "sha256": "1acba356efc8dc3dc3ba44eea954c546a43e5bdc13031320c6add396f08f54ab"
+    },
+    {
+      "path": "layout.json",
+      "size": 437872,
+      "sha256": "8644c748c09a2bc6583facdda4dde5dbf10a754c77eac349357066c3d0012a09"
+    },
+    {
+      "path": "_source/mineru-original.mineru.zip",
+      "size": 1919117,
+      "sha256": "1658f548c16e91a6048a8a8ef0706248ec258b15c6dc2ccb28070df2e0e34461"
+    },
+    {
+      "path": "_source/ATTRIBUTION.md",
+      "size": 1470,
+      "sha256": "c35a04b50010d1684cde670afc6f7dd2065d0a748b0c3d905414b3f7c0710c10"
+    },
+    {
+      "path": "_source/provenance.json",
+      "size": 7270,
+      "sha256": "b00410acc69553993d85e1f81b16a783156ab38d78349f859c995117ed86ec78"
+    }
+  ],
+  "derived_contracts": [
+    {
+      "path": "_extraction/viewer-index.json",
+      "size": 161659,
+      "sha256": "90e479d168dc381f4a2c53c2daabed89791c1e9509cd94ed3c5fc047b43645d4"
+    },
+    {
+      "path": "_extraction/visual-repair.json",
+      "size": 2568,
+      "sha256": "0c4505f32333cd7843b194a1ae8fca731883115e2bdd05110cf8aea5b8fff28c"
+    },
+    {
+      "path": "_extraction/visual-candidates.json",
+      "size": 790,
+      "sha256": "852fb77890192454563d920b6060d547c30ee746c3e2e0bc19205d4486842697"
+    },
+    {
+      "path": "_extraction/display-repair.json",
+      "size": 4100,
+      "sha256": "474ce7a9b8d24553b55f9f57a4455be2bd1425fbf4d2943d9f2702516b7dbb21"
+    }
+  ]
+}

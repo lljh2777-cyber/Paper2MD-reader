@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "title": "A GPU-Accelerated Open-Source Python Package for Calculating Powder Diffraction, Small-Angle-, and Total Scattering with the Debye Scattering Equation",
+  "authors": [
+    "Frederik L. Johansen",
+    "Andy S. Anker",
+    "Ulrik Friis-Jensen",
+    "Erik B. Dam",
+    "Kirsten M. Ø. Jensen",
+    "Raghavendra Selvan"
+  ],
+  "journal": "Journal of Open Source Software",
+  "year": 2024,
+  "doi": "10.21105/joss.06024",
+  "article_url": "https://joss.theoj.org/papers/10.21105/joss.06024",
+  "source_pdf_url": "https://joss.theoj.org/papers/10.21105/joss.06024.pdf",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "conversion": {
+    "client": "mineru-open-api 0.5.9",
+    "date": "2026-08-29",
+    "model_version": "vlm",
+    "language": "en",
+    "is_ocr": false,
+    "enable_formula": true,
+    "enable_table": true
+  },
+  "artifacts": {
+    "uploaded_source_pdf": {
+      "path": "source.pdf",
+      "size": 1878315,
+      "sha256": "88da42c642b5d651140110d1379ab7d2401bfc2443e9179b39077109e2f42e7f"
+    },
+    "mineru_raw_archive": {
+      "path": "mineru-original.mineru.zip",
+      "size": 1919117,
+      "sha256": "1658f548c16e91a6048a8a8ef0706248ec258b15c6dc2ccb28070df2e0e34461"
+    },
+    "mineru_origin_pdf": {
+      "path": "c7264cf1-e0f7-451e-b76e-5d5ff5005bbf_origin.pdf",
+      "size": 1814438,
+      "sha256": "965c7c589d2eaa5622e6d5b78ef34fa0aa015e35a6b025ad605cb7199a972602"
+    },
+    "article_markdown": {
+      "path": "full.md",
+      "size": 13200,
+      "sha256": "0f0225ff8761dcd569f26b45b5c129ffe09ac9b9cd9bc055b6dbb80a4758db03"
+    },
+    "content_list": {
+      "path": "c7264cf1-e0f7-451e-b76e-5d5ff5005bbf_content_list.json",
+      "size": 30468,
+      "sha256": "c5e350d7c122b3e6603a4b8f3830fbbe27e8b05f7bb335b92a6cdc691d9cbb43"
+    },
+    "viewer_index": {
+      "path": "viewer-index.json",
+      "size": 161659,
+      "sha256": "90e479d168dc381f4a2c53c2daabed89791c1e9509cd94ed3c5fc047b43645d4"
+    },
+    "visual_repair": {
+      "path": "visual-repair.json",
+      "size": 2568,
+      "sha256": "0c4505f32333cd7843b194a1ae8fca731883115e2bdd05110cf8aea5b8fff28c"
+    },
+    "visual_candidates": {
+      "path": "visual-candidates.json",
+      "size": 790,
+      "sha256": "852fb77890192454563d920b6060d547c30ee746c3e2e0bc19205d4486842697"
+    },
+    "display_repair": {
+      "path": "display-repair.json",
+      "size": 4100,
+      "sha256": "474ce7a9b8d24553b55f9f57a4455be2bd1425fbf4d2943d9f2702516b7dbb21"
+    }
+  },
+  "source_pdf_matches_mineru_origin_pdf": false,
+  "derived_display_repair": {
+    "schema_version": 1,
+    "algorithm_version": "source-pdf-exact-display-repair-v1",
+    "inputs": {
+      "article": {
+        "sha256": "0f0225ff8761dcd569f26b45b5c129ffe09ac9b9cd9bc055b6dbb80a4758db03"
+      },
+      "mineru_result": {
+        "sha256": "c5e350d7c122b3e6603a4b8f3830fbbe27e8b05f7bb335b92a6cdc691d9cbb43"
+      },
+      "source_pdf": {
+        "sha256": "88da42c642b5d651140110d1379ab7d2401bfc2443e9179b39077109e2f42e7f"
+      }
+    },
+    "repairs": [
+      {
+        "id": "body-equation-symbols",
+        "target": "article",
+        "source_block_id": "p0000-s000019",
+        "page_index": 0,
+        "source_text": "radiation, � is the number of atoms in the structure, and $r _ { \\nu \\mu }$ is the distance between atoms � and $\\mu .$ For X-ray radiation, the atomic form factor, $b ,$ depends strongly on $Q$ and is usually denoted as $f ( Q )$ , but for neutrons, � is independent",
+        "replacement_markdown": "radiation, $N$ is the number of atoms in the structure, and $r _ { \\nu \\mu }$ is the distance between atoms $\\nu$ and $\\mu .$ For X-ray radiation, the atomic form factor, $b ,$ depends strongly on $Q$ and is usually denoted as $f ( Q )$ , but for neutrons, $b$ is independent",
+        "source_text_sha256": "139d38de8f94f7e4e806146b89e8f480f88f4ea11a0252f05a4603b977280dd8",
+        "replacement_markdown_sha256": "4a0d125753c191abe80b4f99482c06cc3aa44b39055bff7fbe597705e972bc01"
+      },
+      {
+        "id": "body-figure-2-symbols",
+        "target": "article",
+        "source_block_id": "p0002-s000047",
+        "page_index": 2,
+        "source_text": "where users can calculate �(�), �(�), �(�), and �(�) from structural models",
+        "replacement_markdown": "where users can calculate $I(Q)$, $S(Q)$, $F(Q)$, and $G(r)$ from structural models",
+        "source_text_sha256": "54a660d3b0b4244edb68cc3b2ef5947fa59288b8cbc1400479627c156d479cfd",
+        "replacement_markdown_sha256": "25c3fe9aa8b2401f960f426f0d7b436dc3b0ea458d8db4fa3fc142db3d8f6cb5"
+      },
+      {
+        "id": "caption-figure-2",
+        "target": "caption",
+        "source_block_id": "p0003-s000051",
+        "page_index": 3,
+        "source_text": "Figure 2: The interact mode of DebyeCalculator provides a one-click interface, where the user can update parameters and visualise �(�), �(�), �(�), and �(�). Additionally, the �(�), �(�), �(�), �(�), and .xyz file can be downloaded, including metadata.",
+        "replacement_markdown": "Figure 2: The interact mode of DebyeCalculator provides a one-click interface, where the user can update parameters and visualise $I(Q)$, $S(Q)$, $F(Q)$, and $G(r)$. Additionally, the $I(Q)$, $S(Q)$, $F(Q)$, $G(r)$, and .xyz file can be downloaded, including metadata.",
+        "source_text_sha256": "6d541d0900865dfa3a72a5bddb4363eba36de17104406eddb53df38dbbc87674",
+        "replacement_markdown_sha256": "c57a9ee2953acb303eb7ae0a047f05951ade16a086e0f3b6a8c4fe6d875f5469"
+      },
+      {
+        "id": "caption-figure-3",
+        "target": "caption",
+        "source_block_id": "p0004-s000061",
+        "page_index": 4,
+        "source_text": "Figure 3: Comparison of the calculated �(�), SAXS, �(�), and �(�) of DebyeCalculator and DifPy-CMI (Juhás et al., 2015) on a discrete, spherical cutout with 6 Å in radius from $\\textsf { a V } _ { 0 . 9 8 5 } \\mathsf { A l } _ { 0 . 0 1 5 } \\mathsf { O } _ { 2 }$ crystal (Ghedira et al., 1977).",
+        "replacement_markdown": "Figure 3: Comparison of the calculated $I(Q)$, SAXS, $F(Q)$, and $G(r)$ of DebyeCalculator and DiffPy-CMI (Juhás et al., 2015) on a discrete, spherical cutout with 6 Å in radius from a $\\mathrm{V}_{0.985}\\mathrm{Al}_{0.015}\\mathrm{O}_{2}$ crystal (Ghedira et al., 1977).",
+        "source_text_sha256": "570dc9235cad135066d9420ae22b4391e0a9bd8dfe9341a22b9a493c00f734b2",
+        "replacement_markdown_sha256": "8dbcc5e362ab9d2076c08259d742722ea139deba5510e02bf6458481219e1338"
+      }
+    ],
+    "summary": {
+      "repair_count": 4,
+      "article_repair_count": 2,
+      "caption_repair_count": 2,
+      "replacement_characters_before": 33,
+      "replacement_characters_after": 0
+    }
+  },
+  "invariants": [
+    "The uploaded source PDF and raw MinerU ZIP are byte-preserved.",
+    "Markdown, JSON, images, and MinerU's returned origin PDF are unchanged.",
+    "After-MinerU adds only hash-bound derived contracts and a Reader projection.",
+    "Text recovery is limited to exact raw-text and block matches authorized by the pinned source PDF hash.",
+    "Ambiguous or inconsistent repair evidence fails closed."
+  ]
+}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ProjectLinks } from "../project-links";
 
 export const metadata: Metadata = {
   title: "隐私政策 | After-MinerU",
@@ -83,7 +84,7 @@ export default function PrivacyPage() {
           <p><b>User control and contact.</b> Close the local session, delete locally downloaded files, revoke directory permission, or revoke the MinerU token to exercise the controls available to you. For privacy or security questions, use the public <a href="https://github.com/lljh2777-cyber/Paper2MD-reader/issues" target="_blank" rel="noreferrer">Paper2MD Reader GitHub Issues</a> or the <a href="/support">support page</a>. Issues are public; do not send tokens, signed URLs, paper content, or other sensitive information. This product is not directed to children. Material changes will be reflected by an updated date on this page.</p>
         </section>
       </article>
-      <footer className="legal-footer"><a href="/">返回 After‑MinerU</a><span>独立第三方工具，与 MinerU / OpenDataLab 无隶属或背书关系。</span></footer>
+      <footer className="legal-footer"><a href="/">返回 After‑MinerU</a><ProjectLinks /></footer>
     </main>
   );
 }

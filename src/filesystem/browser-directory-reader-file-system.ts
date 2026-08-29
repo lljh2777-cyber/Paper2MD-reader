@@ -6,13 +6,26 @@ type IterableDirectoryHandle = FileSystemDirectoryHandle & {
   values(): AsyncIterableIterator<FileSystemHandle>;
 };
 
+export interface BrowserMinerUArchiveSource {
+  format: "mineru-zip";
+  sourceArchive: File;
+  sourceRootPrefix: string;
+  articlePath: string;
+  contentListPath: string;
+  fileCount: number;
+  markdownCount: number;
+  jsonCount: number;
+  imageCount: number;
+}
+
 export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
   private readonly objectUrls = new Map<string, string>();
 
   private constructor(
     readonly rootLabel: string,
     private readonly directory?: FileSystemDirectoryHandle,
-    private readonly files?: Map<string, File>
+    private readonly files?: Map<string, File>,
+    readonly sourceArchive?: BrowserMinerUArchiveSource
   ) {}
 
   static fromDirectoryHandle(directory: FileSystemDirectoryHandle): BrowserDirectoryReaderFileSystem {
@@ -61,6 +74,20 @@ export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
       index.set(normalized, file);
     }
     return new BrowserDirectoryReaderFileSystem(rootLabel || "Web clipping", undefined, index);
+  }
+
+  static fromMinerUArchive(
+    rootLabel: string,
+    files: ReadonlyMap<string, File>,
+    sourceArchive: BrowserMinerUArchiveSource
+  ): BrowserDirectoryReaderFileSystem {
+    const fileSystem = BrowserDirectoryReaderFileSystem.fromFileMap(rootLabel || "MinerU result", files);
+    return new BrowserDirectoryReaderFileSystem(
+      fileSystem.rootLabel,
+      undefined,
+      fileSystem.files,
+      sourceArchive
+    );
   }
 
   resolvePath(relativePath: string): string {

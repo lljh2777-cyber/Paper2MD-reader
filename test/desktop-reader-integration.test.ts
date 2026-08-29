@@ -33,12 +33,18 @@ function installDom(): Document {
     get() { return selectValues.get(this) ?? ""; },
     set(value: string) { selectValues.set(this, String(value)); }
   });
+  class TestIntersectionObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
   vi.stubGlobal("document", document);
   vi.stubGlobal("window", window);
   vi.stubGlobal("HTMLElement", window.HTMLElement);
   vi.stubGlobal("HTMLCanvasElement", window.HTMLCanvasElement);
   vi.stubGlobal("Event", window.Event);
   vi.stubGlobal("CustomEvent", window.CustomEvent);
+  vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
   vi.stubGlobal("navigator", { language: "en", languages: ["en"] });
   return document as unknown as Document;
 }
@@ -95,6 +101,65 @@ describe("desktop Reader integration", () => {
     expect(rightPane.querySelector(".p2md-pdf-pane")).not.toBeNull();
     expect(rightPane.querySelector(".p2md-reference-visuals.p2md-figures")).not.toBeNull();
     expect(workspace.getReaderState().reference.available).toBe(true);
+    workspace.destroy();
+  });
+
+  it("materializes a derived inline visual when a grouped repair has no surviving source image node", async () => {
+    const document = installDom();
+    const root = document.querySelector<HTMLElement>("#reader")!;
+    const articleText = "# Paper\n\n<!-- p2md:slot id=\"slot-figure-3\" asset=\"figure-3\" -->\n";
+    const loaded: LoadedPaperPackage = {
+      state: "mineru",
+      sourceFormat: "mineru",
+      packageIntegrity: "verified",
+      articlePath: "article.md",
+      articleText,
+      articleHash: "a".repeat(64),
+      anchors: {
+        blockIds: [],
+        slotIds: ["slot-figure-3"],
+        duplicateIds: [],
+        malformedMarkers: [],
+        blockKinds: new Map(),
+        slotAssets: new Map([["slot-figure-3", "figure-3"]])
+      },
+      assets: [{
+        id: "figure-3",
+        kind: "figure",
+        path: "images/fragment-a.png",
+        display_label: "Figure 3",
+        caption_block_id: null,
+        placement_block_id: "slot-figure-3",
+        vaultPath: "images/fragment-a.png",
+        exists: true,
+        captionText: "Figure 3. Deterministically reconstructed from four source fragments.",
+        memberAssetPaths: [
+          "images/fragment-a.png",
+          "images/fragment-b.png",
+          "images/fragment-c.png",
+          "images/fragment-d.png"
+        ]
+      }],
+      diagnostics: []
+    };
+    vi.spyOn(PackageLoader.prototype, "loadDetected").mockResolvedValue(loaded);
+    const fileSystem = new MemoryReaderFileSystem({ "article.md": articleText });
+    const workspace = mountReaderWorkspace(root, {
+      picker: { platform: "web", choosePackage: vi.fn(async () => undefined) },
+      visualResolver: {
+        resolve: vi.fn(async () => "blob:verified-figure-3"),
+        dispose: vi.fn()
+      }
+    });
+
+    await workspace.attachFileSystem(fileSystem);
+
+    const figure = root.querySelector<HTMLElement>('.p2md-derived-inline-asset[data-p2md-asset-id="figure-3"]');
+    expect(figure).not.toBeNull();
+    expect(figure?.querySelector("img")?.getAttribute("src")).toBe("blob:verified-figure-3");
+    expect(figure?.querySelector("img")?.getAttribute("alt")).toBe("Figure 3");
+    expect(figure?.querySelector("figcaption")?.textContent).toContain("four source fragments");
+    expect(await fileSystem.readText("article.md")).toBe(articleText);
     workspace.destroy();
   });
 
@@ -422,5 +487,92 @@ describe("desktop Reader integration", () => {
     expect(storage.setItem).not.toHaveBeenCalled();
     expect(card.querySelector("[role=alert]")).not.toBeNull();
     workspace.destroy();
+  });
+
+  it("keeps Sites paper-derived view and visual-review state in the injected memory store", async () => {
+    const pageSource = readFileSync(resolve(process.cwd(), "sites-reader/app/page.tsx"), "utf8");
+    expect(pageSource).toMatch(/persistPaperState:\s*false/);
+    const document = installDom();
+    const root = document.querySelector<HTMLElement>("#reader")!;
+    const browserStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(() => null),
+      length: 0
+    } as unknown as Storage;
+    Object.defineProperty(window, "localStorage", { configurable: true, value: browserStorage });
+    const values = new Map<string, string>();
+    const paperStorage = {
+      getItem: vi.fn((key: string) => values.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => { values.set(key, value); })
+    };
+    const packageHash = "a".repeat(64);
+    const articleHash = "b".repeat(64);
+    const reviewKey = `paper2md-reader:visual-review:v2:${packageHash}`;
+    const viewKey = `paper2md-reader:view:v1:${articleHash}`;
+    const loaded: LoadedPaperPackage = {
+      state: "mineru",
+      articlePath: "article.md",
+      articleText: "# Paper\n\nEphemeral Sites state.\n",
+      articleHash,
+      anchors: {
+        blockIds: [],
+        slotIds: [],
+        duplicateIds: [],
+        malformedMarkers: [],
+        blockKinds: new Map(),
+        slotAssets: new Map()
+      },
+      assets: [],
+      diagnostics: [],
+      sourceFormat: "mineru",
+      packageIntegrity: "verified",
+      visualReview: {
+        packageHash,
+        storageKey: reviewKey,
+        candidates: [],
+        blocks: [],
+        decisions: []
+      }
+    };
+    vi.spyOn(PackageLoader.prototype, "loadDetected").mockResolvedValue(loaded);
+    const workspace = mountReaderWorkspace(root, {
+      picker: { platform: "web", choosePackage: vi.fn(async () => undefined) },
+      paperStateStorage: paperStorage
+    });
+
+    await workspace.attachFileSystem(new MemoryReaderFileSystem({ "article.md": loaded.articleText }));
+    expect(paperStorage.getItem).toHaveBeenCalledWith(reviewKey);
+    expect(paperStorage.getItem).toHaveBeenCalledWith(viewKey);
+    expect(browserStorage.getItem).not.toHaveBeenCalledWith(reviewKey);
+    expect(browserStorage.getItem).not.toHaveBeenCalledWith(viewKey);
+
+    const card = document.createElement("section");
+    card.className = "p2md-review-card";
+    const trigger = document.createElement("button");
+    card.appendChild(trigger);
+    root.appendChild(card);
+    const harness = workspace as unknown as {
+      storeVisualReviewDecision(
+        review: MinerUVisualReview,
+        decision: MinerUVisualReviewDecision,
+        trigger: HTMLElement
+      ): Promise<void>;
+      openDiagnostics(): void;
+    };
+    harness.openDiagnostics = vi.fn();
+    await harness.storeVisualReviewDecision(loaded.visualReview!, {
+      candidate_id: "candidate-1",
+      verdict: "abstain",
+      correction: null
+    }, trigger);
+    expect(paperStorage.setItem).toHaveBeenCalledWith(reviewKey, expect.any(String));
+    expect(browserStorage.setItem).not.toHaveBeenCalledWith(reviewKey, expect.any(String));
+
+    workspace.destroy();
+    expect(paperStorage.setItem).toHaveBeenCalledWith(viewKey, expect.any(String));
+    expect(browserStorage.setItem).not.toHaveBeenCalledWith(viewKey, expect.any(String));
   });
 });

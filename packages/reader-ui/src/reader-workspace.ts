@@ -56,8 +56,15 @@ import type {
 } from "./reader-agent-controller";
 import type { ReferenceMode } from "../../../src/render/reference-sidebar";
 
+export interface ReaderPaperStateStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
 export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
+  /** Host-owned storage for paper-derived view state and browser visual-review sidecars. */
+  paperStateStorage?: ReaderPaperStateStorage;
   visualReviewStore?: {
     read(candidatePackageSha256: string): Promise<unknown | undefined>;
     write?(candidatePackageSha256: string, sidecar: MinerUVisualReviewSidecar): Promise<void>;
@@ -622,6 +629,8 @@ export class ReaderWorkspace implements ReaderAgentController {
           imageSrc = "";
         }
       }
+      const slotElement = slotId ? rendered.slotElements.get(slotId) : undefined;
+      if (slotElement && imageSrc) this.materializeDerivedInlineVisual(slotElement, asset, imageSrc);
       return {
         id: asset.id,
         label: assetDisplayLabel(asset),
@@ -632,10 +641,30 @@ export class ReaderWorkspace implements ReaderAgentController {
         pageIndex: asset.pageIndex,
         captionPageIndex: asset.captionPageIndex,
         captionStatus: asset.captionStatus,
-        slotElement: slotId ? rendered.slotElements.get(slotId) : undefined,
+        slotElement,
         available: asset.exists && Boolean(imageSrc)
       };
     }));
+  }
+
+  private materializeDerivedInlineVisual(slot: HTMLElement, asset: LoadedAsset, imageSrc: string): void {
+    const alreadyBound = [...this.articleContent.querySelectorAll<HTMLElement>(".p2md-inline-asset")]
+      .some((element) => element.dataset.p2mdAssetId === asset.id);
+    if (alreadyBound) return;
+    const figure = element("figure", "p2md-inline-asset p2md-derived-inline-asset");
+    figure.dataset.p2mdAssetId = asset.id;
+    const image = document.createElement("img");
+    image.src = imageSrc;
+    image.alt = assetDisplayLabel(asset);
+    image.decoding = "async";
+    image.loading = "lazy";
+    figure.appendChild(image);
+    if (asset.captionText?.trim()) {
+      const caption = element("figcaption", "p2md-derived-inline-caption");
+      appendSafeCaptionMarkup(caption, asset.captionText.trim());
+      figure.appendChild(caption);
+    }
+    slot.insertAdjacentElement("afterend", figure);
   }
 
   private connectScrollSync(
@@ -847,7 +876,7 @@ export class ReaderWorkspace implements ReaderAgentController {
   private loadViewState(): ReaderPersistedViewState {
     if (!this.stateKey) return { ...DEFAULT_READER_VIEW_STATE };
     try {
-      return parseReaderViewState(window.localStorage.getItem(this.stateKey));
+      return parseReaderViewState(this.paperStateStorage().getItem(this.stateKey));
     } catch {
       return { ...DEFAULT_READER_VIEW_STATE };
     }
@@ -879,7 +908,7 @@ export class ReaderWorkspace implements ReaderAgentController {
       visualFollowing: reference?.visualFollowing ?? true
     };
     try {
-      window.localStorage.setItem(this.stateKey, JSON.stringify(state));
+      this.paperStateStorage().setItem(this.stateKey, JSON.stringify(state));
     } catch {
       // Storage can be unavailable in hardened or private browser contexts.
     }
@@ -994,7 +1023,7 @@ export class ReaderWorkspace implements ReaderAgentController {
     const review = loaded.visualReview;
     if (!review) return undefined;
     try {
-      const raw = window.localStorage.getItem(review.storageKey);
+      const raw = this.paperStateStorage().getItem(review.storageKey);
       if (raw === null) return undefined;
       if (new TextEncoder().encode(raw).byteLength > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
         loaded.diagnostics.push({
@@ -1027,10 +1056,11 @@ export class ReaderWorkspace implements ReaderAgentController {
       if (visualReviewSidecarByteLength(sidecar) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
         throw new Error("Visual review sidecar exceeds 64 KiB");
       }
-      if (this.options.visualReviewStore?.write) {
+      if (this.options.visualReviewStore) {
+        if (!this.options.visualReviewStore.write) throw new Error("Visual review store is read-only");
         await this.options.visualReviewStore.write(review.packageHash, sidecar);
       } else {
-        window.localStorage.setItem(review.storageKey, JSON.stringify(sidecar));
+        this.paperStateStorage().setItem(review.storageKey, JSON.stringify(sidecar));
       }
     } catch {
       const message = element("p", "p2md-review-error");
@@ -1042,6 +1072,10 @@ export class ReaderWorkspace implements ReaderAgentController {
     trigger.closest("dialog")?.close();
     await this.loadPackage();
     this.openDiagnostics();
+  }
+
+  private paperStateStorage(): ReaderPaperStateStorage {
+    return this.options.paperStateStorage ?? window.localStorage;
   }
 
   private reviewDecisionLabel(decision: MinerUVisualReviewDecision | undefined): string | undefined {

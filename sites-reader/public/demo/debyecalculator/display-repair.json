@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "algorithm_version": "source-pdf-exact-display-repair-v1",
+  "inputs": {
+    "article": {
+      "sha256": "0f0225ff8761dcd569f26b45b5c129ffe09ac9b9cd9bc055b6dbb80a4758db03"
+    },
+    "mineru_result": {
+      "sha256": "c5e350d7c122b3e6603a4b8f3830fbbe27e8b05f7bb335b92a6cdc691d9cbb43"
+    },
+    "source_pdf": {
+      "sha256": "88da42c642b5d651140110d1379ab7d2401bfc2443e9179b39077109e2f42e7f"
+    }
+  },
+  "repairs": [
+    {
+      "id": "body-equation-symbols",
+      "target": "article",
+      "source_block_id": "p0000-s000019",
+      "page_index": 0,
+      "source_text": "radiation, � is the number of atoms in the structure, and $r _ { \\nu \\mu }$ is the distance between atoms � and $\\mu .$ For X-ray radiation, the atomic form factor, $b ,$ depends strongly on $Q$ and is usually denoted as $f ( Q )$ , but for neutrons, � is independent",
+      "replacement_markdown": "radiation, $N$ is the number of atoms in the structure, and $r _ { \\nu \\mu }$ is the distance between atoms $\\nu$ and $\\mu .$ For X-ray radiation, the atomic form factor, $b ,$ depends strongly on $Q$ and is usually denoted as $f ( Q )$ , but for neutrons, $b$ is independent",
+      "source_text_sha256": "139d38de8f94f7e4e806146b89e8f480f88f4ea11a0252f05a4603b977280dd8",
+      "replacement_markdown_sha256": "4a0d125753c191abe80b4f99482c06cc3aa44b39055bff7fbe597705e972bc01"
+    },
+    {
+      "id": "body-figure-2-symbols",
+      "target": "article",
+      "source_block_id": "p0002-s000047",
+      "page_index": 2,
+      "source_text": "where users can calculate �(�), �(�), �(�), and �(�) from structural models",
+      "replacement_markdown": "where users can calculate $I(Q)$, $S(Q)$, $F(Q)$, and $G(r)$ from structural models",
+      "source_text_sha256": "54a660d3b0b4244edb68cc3b2ef5947fa59288b8cbc1400479627c156d479cfd",
+      "replacement_markdown_sha256": "25c3fe9aa8b2401f960f426f0d7b436dc3b0ea458d8db4fa3fc142db3d8f6cb5"
+    },
+    {
+      "id": "caption-figure-2",
+      "target": "caption",
+      "source_block_id": "p0003-s000051",
+      "page_index": 3,
+      "source_text": "Figure 2: The interact mode of DebyeCalculator provides a one-click interface, where the user can update parameters and visualise �(�), �(�), �(�), and �(�). Additionally, the �(�), �(�), �(�), �(�), and .xyz file can be downloaded, including metadata.",
+      "replacement_markdown": "Figure 2: The interact mode of DebyeCalculator provides a one-click interface, where the user can update parameters and visualise $I(Q)$, $S(Q)$, $F(Q)$, and $G(r)$. Additionally, the $I(Q)$, $S(Q)$, $F(Q)$, $G(r)$, and .xyz file can be downloaded, including metadata.",
+      "source_text_sha256": "6d541d0900865dfa3a72a5bddb4363eba36de17104406eddb53df38dbbc87674",
+      "replacement_markdown_sha256": "c57a9ee2953acb303eb7ae0a047f05951ade16a086e0f3b6a8c4fe6d875f5469"
+    },
+    {
+      "id": "caption-figure-3",
+      "target": "caption",
+      "source_block_id": "p0004-s000061",
+      "page_index": 4,
+      "source_text": "Figure 3: Comparison of the calculated �(�), SAXS, �(�), and �(�) of DebyeCalculator and DifPy-CMI (Juhás et al., 2015) on a discrete, spherical cutout with 6 Å in radius from $\\textsf { a V } _ { 0 . 9 8 5 } \\mathsf { A l } _ { 0 . 0 1 5 } \\mathsf { O } _ { 2 }$ crystal (Ghedira et al., 1977).",
+      "replacement_markdown": "Figure 3: Comparison of the calculated $I(Q)$, SAXS, $F(Q)$, and $G(r)$ of DebyeCalculator and DiffPy-CMI (Juhás et al., 2015) on a discrete, spherical cutout with 6 Å in radius from a $\\mathrm{V}_{0.985}\\mathrm{Al}_{0.015}\\mathrm{O}_{2}$ crystal (Ghedira et al., 1977).",
+      "source_text_sha256": "570dc9235cad135066d9420ae22b4391e0a9bd8dfe9341a22b9a493c00f734b2",
+      "replacement_markdown_sha256": "8dbcc5e362ab9d2076c08259d742722ea139deba5510e02bf6458481219e1338"
+    }
+  ],
+  "summary": {
+    "repair_count": 4,
+    "article_repair_count": 2,
+    "caption_repair_count": 2,
+    "replacement_characters_before": 33,
+    "replacement_characters_after": 0
+  }
+}

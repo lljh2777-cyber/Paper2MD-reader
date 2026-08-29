@@ -1,0 +1,48 @@
+{
+  "status": "passed",
+  "checks": {
+    "raw_archive_preserved": true,
+    "raw_markdown_preserved": true,
+    "raw_json_preserved": true,
+    "raw_images_preserved": true,
+    "uploaded_source_pdf_preserved": true,
+    "mineru_origin_pdf_preserved": true,
+    "attribution_preserved": true,
+    "viewer_index_valid": true,
+    "visual_repair_valid": true,
+    "visual_candidates_valid": true,
+    "source_verified_display_repair_valid": true
+  },
+  "display_repair": {
+    "repair_count": 4,
+    "article_repair_count": 2,
+    "caption_repair_count": 2,
+    "replacement_characters_before": 33,
+    "replacement_characters_after": 0
+  },
+  "page_count": 6,
+  "file_count": 13,
+  "markdown_count": 1,
+  "json_count": 4,
+  "image_count": 7,
+  "viewer_contracts": {
+    "viewer": {
+      "source_element_count": 84,
+      "accepted_block_count": 84,
+      "located_block_count": 84,
+      "page_count": 6,
+      "markdown_image_count": 6
+    },
+    "repair": {
+      "eligible_visual_count": 6,
+      "group_count": 1,
+      "auto_group_count": 1,
+      "review_group_count": 0,
+      "skipped_group_count": 0,
+      "caption_link_count": 0,
+      "complete_caption_link_count": 0,
+      "partial_caption_link_count": 0
+    },
+    "candidates": {}
+  }
+}

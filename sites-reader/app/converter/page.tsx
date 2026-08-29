@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ProjectLinks } from "../project-links";
 
 export const metadata: Metadata = {
   title: "After-MinerU Converter | Chrome 精准转换扩展",
@@ -56,7 +57,7 @@ export default function ConverterPage() {
         </ul>
       </section>
 
-      <footer className="legal-footer"><a href="/">返回 After‑MinerU 工作台</a><span><a href="/privacy">隐私政策</a> · <a href="/support">扩展支持</a></span></footer>
+      <footer className="legal-footer"><a href="/">返回 After‑MinerU 工作台</a><div className="legal-footer-links"><a href="/support">扩展支持</a><ProjectLinks /></div></footer>
     </main>
   );
 }

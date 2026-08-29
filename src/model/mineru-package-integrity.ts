@@ -23,6 +23,7 @@ export interface MinerUManifestFileRecord {
 export interface MinerUPackageIntegrity {
   status: "verified" | "unverified";
   derived: ReadonlyMap<string, MinerUManifestFileRecord>;
+  sourcePdfSha256?: string;
   diagnostics: Diagnostic[];
 }
 
@@ -198,6 +199,7 @@ export async function inspectMinerUPackageIntegrity(input: {
   return {
     status: "verified",
     derived,
+    sourcePdfSha256: hasSourcePdf ? String(record(manifest.source)?.sha256).toLowerCase() : undefined,
     diagnostics: [{
       level: "info",
       code: "mineru-package-integrity-verified",

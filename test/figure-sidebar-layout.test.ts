@@ -46,4 +46,35 @@ describe("figure sidebar layout", () => {
     expect(sidebar.navigateTo("figure-14")).toBe(true);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
   });
+
+  it("keeps focus on the selected thumbnail when native button activation redraws the rail", () => {
+    const { document, window } = parseHTML("<html><body><aside id=figures></aside></body></html>");
+    vi.stubGlobal("document", document);
+    vi.stubGlobal("window", window);
+    vi.stubGlobal("HTMLElement", window.HTMLElement);
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    const focus = vi.fn();
+    window.HTMLElement.prototype.focus = focus;
+
+    const host = document.querySelector<HTMLElement>("#figures")!;
+    const figures: FigurePresentation[] = Array.from({ length: 3 }, (_, index) => ({
+      id: `figure-${index + 1}`,
+      label: `Figure ${index + 1}`,
+      kind: "figure",
+      imageSrc: "",
+      available: false
+    }));
+    const sidebar = new FigureSidebar(host, { onOpenImage: vi.fn() });
+    sidebar.setFigures(figures);
+
+    const originalButton = [...host.querySelectorAll<HTMLButtonElement>(".p2md-thumbnail")]
+      .find((button) => button.ariaLabel === "Show Figure 2")!;
+    originalButton.click();
+
+    const selectedButton = host.querySelector<HTMLButtonElement>('.p2md-thumbnail[data-selected="true"]')!;
+    expect(selectedButton).not.toBe(originalButton);
+    expect(selectedButton.ariaLabel).toBe("Show Figure 2");
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(focus.mock.instances.at(-1)).toBe(selectedButton);
+  });
 });

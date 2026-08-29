@@ -8,6 +8,7 @@ import {
   extractClippingArchiveBytes
 } from "../../../src/model/clipping-archive";
 import { processBrowserPdf } from "./browser-pdf-processor";
+import { importMinerUArchiveFile, mineruArchiveRootLabel } from "./mineru-archive-import";
 
 type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
@@ -38,7 +39,7 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
     this.clippingInput = document.createElement("input");
     this.clippingInput.type = "file";
     this.clippingInput.multiple = true;
-    this.clippingInput.accept = ".md,.html,.htm,.paper2md.zip,.zip,text/markdown,text/html,application/zip,image/png,image/jpeg,image/webp,image/gif,image/bmp";
+    this.clippingInput.accept = ".md,.html,.htm,.paper2md.zip,.mineru.zip,.zip,text/markdown,text/html,application/zip,image/png,image/jpeg,image/webp,image/gif,image/bmp";
     this.clippingInput.className = "p2md-local-folder-input";
     document.body.appendChild(this.clippingInput);
     this.pdfInput = document.createElement("input");
@@ -69,6 +70,24 @@ export class BrowserPackagePicker implements ReaderPackagePicker {
   async chooseWebClipping(): Promise<BrowserDirectoryReaderFileSystem | undefined> {
     const files = await this.chooseFiles(this.clippingInput);
     if (!files.length) return undefined;
+    if (files.length === 1 && /\.mineru\.zip$/i.test(files[0].name)) {
+      const imported = await importMinerUArchiveFile(files[0]);
+      return BrowserDirectoryReaderFileSystem.fromMinerUArchive(
+        mineruArchiveRootLabel(files[0].name),
+        imported.files,
+        {
+          format: "mineru-zip",
+          sourceArchive: imported.sourceArchive,
+          sourceRootPrefix: imported.rootPrefix,
+          articlePath: imported.articlePath,
+          contentListPath: imported.contentListPath,
+          fileCount: imported.fileCount,
+          markdownCount: imported.markdownCount,
+          jsonCount: imported.jsonCount,
+          imageCount: imported.imageCount
+        }
+      );
+    }
     if (files.length === 1 && /(?:\.paper2md)?\.zip$/i.test(files[0].name)) {
       assertClippingArchiveByteLength(files[0].size);
       const entries = extractClippingArchiveBytes(new Uint8Array(await files[0].arrayBuffer()));

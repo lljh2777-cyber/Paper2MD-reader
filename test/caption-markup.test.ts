@@ -17,4 +17,15 @@ describe("safe caption markup", () => {
       { kind: "text", text: "<img src=x onerror=alert(1)> <sup>open" }
     ]);
   });
+
+  it("projects only closed, bounded inline math while keeping malformed delimiters literal", () => {
+    expect(parseSafeCaptionMarkup("Figure 1: $G ( r )$ and $I(Q)$; price $5 open; and $F(Q)$")).toEqual([
+      { kind: "text", text: "Figure 1: " },
+      { kind: "math", text: "G ( r )" },
+      { kind: "text", text: " and " },
+      { kind: "math", text: "I(Q)" },
+      { kind: "text", text: "; price $5 open; and " },
+      { kind: "math", text: "F(Q)" }
+    ]);
+  });
 });

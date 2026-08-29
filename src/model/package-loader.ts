@@ -32,6 +32,12 @@ import {
   inspectMinerUPackageIntegrity,
   readVerifiedMinerUDerivedJson
 } from "./mineru-package-integrity";
+import {
+  applyMinerUDisplayArticleRepairs,
+  applyMinerUDisplayCaptionRepairs,
+  MinerUDisplayRepairPlan,
+  prepareMinerUDisplayRepair
+} from "./mineru-display-repair";
 import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
 import { prepareMinerUVisualReview } from "./mineru-visual-review";
@@ -385,6 +391,7 @@ export class PackageLoader {
     const viewerIndexPath = "_extraction/viewer-index.json";
     const visualRepairPath = "_extraction/visual-repair.json";
     const visualCandidatesPath = "_extraction/visual-candidates.json";
+    const displayRepairPath = "_extraction/display-repair.json";
     const sourcePdfPath = "_extraction/source.pdf";
     const [hasViewerIndex, hasVisualRepair, hasSourcePdf] = await Promise.all([
       this.fileSystem.exists(viewerIndexPath),
@@ -459,6 +466,37 @@ export class PackageLoader {
             message: "visual-candidates.json 未登记在 manifest.json，已禁止人工视觉修复。"
           });
         }
+        let displayRepairPlan: MinerUDisplayRepairPlan | undefined;
+        if (integrity.status === "verified" && integrity.derived.has(displayRepairPath)) {
+          try {
+            const displayRepairContract = await readVerifiedMinerUDerivedJson(
+              this.fileSystem,
+              displayRepairPath,
+              integrity.derived.get(displayRepairPath)
+            );
+            displayRepairPlan = await prepareMinerUDisplayRepair({
+              contract: displayRepairContract,
+              viewerIndex: viewerContract,
+              mineruPayload,
+              sourceArticle: article.text,
+              articleHash,
+              mineruHash,
+              sourcePdfHash: integrity.sourcePdfSha256 ?? ""
+            });
+          } catch (error) {
+            diagnostics.push({
+              level: "warning",
+              code: "mineru-display-repair-invalid",
+              message: `显示修复契约无法使用，已保留 MinerU 原文：${error instanceof Error ? error.message : String(error)}`
+            });
+          }
+        } else if (await this.fileSystem.exists(displayRepairPath)) {
+          diagnostics.push({
+            level: "warning",
+            code: "mineru-display-repair-unverified",
+            message: "display-repair.json 未被正式 manifest 验证，已禁止正文与图注文字修复。"
+          });
+        }
         const applied = applyMinerUVisualRepair({
           visuals: parsed.visuals,
           viewerIndex: viewerContract,
@@ -469,7 +507,36 @@ export class PackageLoader {
           mineruHash,
           sourcePdfPath: hasSourcePdf ? sourcePdfPath : undefined
         });
-        const projectedVisuals = applied.visuals;
+        let projectedVisuals = applied.visuals;
+        let projected = projectMinerUReaderMarkdown({
+          markdown: article.text,
+          visuals: projectedVisuals,
+          viewerIndex: viewerContract,
+          articleHash,
+          mineruHash
+        });
+        if (displayRepairPlan) {
+          try {
+            const repairedVisuals = applyMinerUDisplayCaptionRepairs(projectedVisuals, displayRepairPlan);
+            const repairedProjection = projectMinerUReaderMarkdown({
+              markdown: article.text,
+              visuals: repairedVisuals,
+              viewerIndex: viewerContract,
+              articleHash,
+              mineruHash
+            });
+            const repairedArticle = applyMinerUDisplayArticleRepairs(repairedProjection.markdown, displayRepairPlan);
+            projectedVisuals = repairedVisuals;
+            projected = { ...repairedProjection, markdown: repairedArticle };
+            diagnostics.push(...displayRepairPlan.diagnostics);
+          } catch (error) {
+            diagnostics.push({
+              level: "warning",
+              code: "mineru-display-repair-abstained",
+              message: `显示修复无法完整应用，已整体保留 MinerU 原文：${error instanceof Error ? error.message : String(error)}`
+            });
+          }
+        }
         const visibleVisuals = projectedVisuals.filter((visual) => !visual.hidden);
         verificationVisuals = projectedVisuals;
         pageMap = buildMinerUPageMap(article.text, mineruPayload, viewerContract, {
@@ -515,13 +582,6 @@ export class PackageLoader {
             });
           }
         }
-        const projected = projectMinerUReaderMarkdown({
-          markdown: article.text,
-          visuals: projectedVisuals,
-          viewerIndex: viewerContract,
-          articleHash,
-          mineruHash
-        });
         articleText = projected.markdown;
         diagnostics.push(...projected.diagnostics);
         contractVersion = "mineru-viewer-index-v1";

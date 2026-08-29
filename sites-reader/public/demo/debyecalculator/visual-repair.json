@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "algorithm_version": "visual-repair-v1.6",
+  "status": "complete",
+  "viewer_index": "viewer-index.json",
+  "inputs": {
+    "article": {
+      "path": "article.md",
+      "sha256": "0f0225ff8761dcd569f26b45b5c129ffe09ac9b9cd9bc055b6dbb80a4758db03"
+    },
+    "mineru_result": {
+      "path": "mineru-result.json",
+      "sha256": "c5e350d7c122b3e6603a4b8f3830fbbe27e8b05f7bb335b92a6cdc691d9cbb43"
+    }
+  },
+  "render_requirements": {
+    "pdf_crop_requires_original_pdf": true,
+    "fallback": "original_assets"
+  },
+  "summary": {
+    "eligible_visual_count": 6,
+    "group_count": 1,
+    "auto_group_count": 1,
+    "review_group_count": 0,
+    "skipped_group_count": 0,
+    "caption_link_count": 0,
+    "complete_caption_link_count": 0,
+    "partial_caption_link_count": 0
+  },
+  "groups": [
+    {
+      "id": "vr-p0004-g0000",
+      "page_idx": 4,
+      "member_block_ids": [
+        "p0004-s000058",
+        "p0004-s000059",
+        "p0004-s000060",
+        "p0004-s000061"
+      ],
+      "member_asset_paths": [
+        "images/d1b774fd69b46553ec459ec80c9495cd6f43bc1bfe968d054cb4d9917db268cc.jpg",
+        "images/ee3cee50e4c8f67f62c327bd37f1e1d36bdd3526660d2a9fc8be0635d514f805.jpg",
+        "images/f6aae6ebac53f6ab69f1904b99f44fe7c723a069694d1168a66d3177de3fe101.jpg",
+        "images/fc338a26fd8ee343a26cf83a1787661e3b08bf702933a6d3ba6888a928a4ed02.jpg"
+      ],
+      "member_markdown_image_ids": [
+        "md-img-0002",
+        "md-img-0003",
+        "md-img-0004",
+        "md-img-0005"
+      ],
+      "caption_anchor_block_ids": [
+        "p0004-s000061"
+      ],
+      "decision": "auto",
+      "confidence": 0.99,
+      "replacement": {
+        "mode": "pdf_crop",
+        "bbox_norm": [
+          280,
+          161,
+          926,
+          468
+        ],
+        "padding_norm": 6
+      },
+      "signals": {
+        "member_count": 4,
+        "representative_count": 4,
+        "adjacent_pair_count": 4,
+        "caption_char_count": 295,
+        "long_caption_anchor_count": 1,
+        "figure_caption_anchor_count": 1,
+        "panel_label_count": 0,
+        "markdown_references_contiguous": true,
+        "markdown_reference_coverage": 1,
+        "max_markdown_gap_chars": 2,
+        "union_area_fraction": 0.1983
+      },
+      "reason_codes": [
+        "same_page_connected_visuals",
+        "long_caption_attached",
+        "markdown_references_contiguous",
+        "plausible_union_area"
+      ],
+      "warning_codes": [],
+      "fallback": "original_assets"
+    }
+  ],
+  "caption_links": [],
+  "issues": []
+}

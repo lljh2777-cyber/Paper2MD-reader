@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ProjectLinks } from "../project-links";
 
 export const metadata: Metadata = {
   title: "支持 | After-MinerU",
@@ -51,7 +52,7 @@ export default function SupportPage() {
           <p>Open an issue at <a href="https://github.com/lljh2777-cyber/Paper2MD-reader/issues" target="_blank" rel="noreferrer">Paper2MD Reader GitHub Issues</a>. Include the extension version, Chrome version, failed stage, and visible error text. Issues are public: never include your MinerU token, PDF, signed upload URL, result URL, private paper content, or other sensitive information.</p>
         </section>
       </article>
-      <footer className="legal-footer"><a href="/">返回 After‑MinerU</a><span>Paper2MD 不提供云端论文库。</span></footer>
+      <footer className="legal-footer"><a href="/">返回 After‑MinerU</a><ProjectLinks /></footer>
     </main>
   );
 }

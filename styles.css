@@ -442,6 +442,10 @@
   display: none;
 }
 
+.p2md-derived-inline-asset { margin: 18px 0 28px; }
+.p2md-derived-inline-asset img { background: var(--p2md-paper); display: block; height: auto; max-height: 70vh; object-fit: contain; width: 100%; }
+.p2md-derived-inline-caption { color: var(--text-muted); font-size: 12px; line-height: 1.65; margin-top: 10px; }
+
 .p2md-figures-host {
   background: var(--p2md-paper);
   border-left: 1px solid var(--p2md-border);
