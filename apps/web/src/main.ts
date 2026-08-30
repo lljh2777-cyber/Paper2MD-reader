@@ -19,6 +19,23 @@ export interface WebReaderMountOptions {
   initialFileSystem?: ReaderFileSystem;
   enableWebMcp?: boolean;
   enableProcessingApi?: boolean;
+  /**
+   * Allow a selected PDF to be converted into a generated Markdown package.
+   * Set false on read-only Reader routes; existing Local Reader entry points
+   * retain the historical default of true.
+   */
+  allowPdfProjection?: boolean;
+  /**
+   * Allow an original PDF to be rendered in an ephemeral, PDF-only Reader
+   * session. This is independent from PDF-to-Markdown projection and defaults
+   * to false so existing entry points keep their current UI.
+   */
+  allowDirectPdfOpen?: boolean;
+  /**
+   * Allow legacy in-memory text repair from a bundled PDF. Set false together
+   * with allowPdfProjection on strict read-only Reader routes.
+   */
+  allowRuntimeTextRecovery?: boolean;
   /** Set false for ephemeral hosts that must not persist paper-derived state across refreshes. */
   persistPaperState?: boolean;
 }
@@ -36,11 +53,11 @@ export function requestedPackageId(pathname: string): string | undefined {
   return match?.[1];
 }
 
-function webCopy(locale: ReaderLocale, pdfProcessingEnabled: boolean) {
+function webCopy(locale: ReaderLocale, pdfProcessingEnabled: boolean, directPdfEnabled: boolean) {
   return {
     title: readerText(locale, "webTitle"),
     emptyTitle: readerText(locale, "webEmptyTitle"),
-    emptyCopy: readerText(locale, "webEmptyCopy"),
+    emptyCopy: readerText(locale, directPdfEnabled ? "webPdfEmptyCopy" : "webEmptyCopy"),
     emptyNote: readerText(locale, pdfProcessingEnabled ? "webProcessingNote" : "webEmptyNote"),
     toolbarOpenLabel: readerText(locale, "openFolder"),
     emptyOpenLabel: readerText(locale, "openPaperFolder"),
@@ -52,9 +69,14 @@ export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions
   const ingestHost = document.createElement("div");
   const readerHost = document.createElement("div");
   root.replaceChildren(ingestHost, readerHost);
-  const picker = new BrowserPackagePicker(options.enableProcessingApi !== false);
+  const picker = new BrowserPackagePicker({
+    enableProcessingApi: options.enableProcessingApi !== false,
+    allowPdfProjection: options.allowPdfProjection !== false,
+    allowDirectPdfOpen: options.allowDirectPdfOpen === true
+  });
   const visualResolver = new PdfVisualResolver();
   const pdfProcessingEnabled = Boolean(picker.choosePdfPackage);
+  const directPdfEnabled = Boolean(picker.choosePdfDocument);
   const packageId = requestedPackageId(window.location.pathname);
   const apiBaseUrl = options.enableProcessingApi === false ? undefined : configuredProcessingApiBaseUrl();
   const processingClient = apiBaseUrl ? new ProcessingClient(apiBaseUrl) : undefined;
@@ -64,6 +86,7 @@ export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions
   let activePackageId = packageId;
   const workspace: ReaderWorkspace = mountReaderWorkspace(readerHost, {
     picker,
+    allowRuntimeTextRecovery: options.allowRuntimeTextRecovery !== false,
     paperStateStorage,
     visualResolver,
     pdfRuntime: visualResolver,
@@ -71,8 +94,8 @@ export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions
       read: async () => activePackageId ? processingClient.readVisualReviewSidecar(activePackageId) : undefined
     } : undefined,
     localizedCopy: {
-      en: webCopy("en", pdfProcessingEnabled),
-      "zh-CN": webCopy("zh-CN", pdfProcessingEnabled)
+      en: webCopy("en", pdfProcessingEnabled, directPdfEnabled),
+      "zh-CN": webCopy("zh-CN", pdfProcessingEnabled, directPdfEnabled)
     }
   });
   const webMcp = options.enableWebMcp === false ? { dispose: () => undefined } : registerReaderWebMcp(

@@ -1,4 +1,5 @@
 import { ReaderFileSystem } from "../filesystem/reader-file-system";
+import { ManifestBoundReaderFileSystem } from "../filesystem/manifest-bound-reader-file-system";
 import {
   derivePackageState,
   isSafeRelativePath,
@@ -42,8 +43,25 @@ import { applyMinerUVisualRepair, RepairedMinerUVisual } from "./mineru-visual-r
 import { projectMinerUReaderMarkdown } from "./mineru-reader-projection";
 import { prepareMinerUVisualReview } from "./mineru-visual-review";
 import { contentListForMarkdown, detectPackageSource } from "./package-source";
+import { inspectMarkdownResources } from "../render/markdown-resource-policy";
+import {
+  AFTER_MINERU_MANIFEST_PATH,
+  AFTER_MINERU_PACKAGE_VERSION,
+  AfterMinerUPackageValidationError,
+  type AfterMinerUVisualDisplay,
+  validateAfterMinerUPackage
+} from "../../packages/after-mineru-contract/src/index";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
+
+export interface PackageLoaderOptions {
+  /**
+   * Allow the legacy Reader to derive display-only text recovery from a
+   * bundled PDF at load time. Read-only Reader entry points disable this so
+   * raw MinerU content is never repaired by the consumer.
+   */
+  allowRuntimeTextRecovery?: boolean;
+}
 
 async function sha256(data: string | ArrayBuffer | Uint8Array): Promise<string> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
@@ -55,15 +73,128 @@ async function sha256(data: string | ArrayBuffer | Uint8Array): Promise<string> 
 }
 
 export class PackageLoader {
-  constructor(private readonly fileSystem: ReaderFileSystem) {}
+  constructor(
+    private readonly fileSystem: ReaderFileSystem,
+    private readonly options: PackageLoaderOptions = {}
+  ) {}
 
   async loadDetected(visualReviewSidecar?: unknown): Promise<LoadedPaperPackage> {
+    if (await this.fileSystem.exists(AFTER_MINERU_MANIFEST_PATH)) return this.loadAfterMinerU();
     const source = await detectPackageSource(this.fileSystem);
     if (source.format === "mineru") return this.loadMinerU(source.articlePath, source.contentListPath, visualReviewSidecar);
     if (source.format === "html") return this.loadHtml(source.articlePath);
     const loaded = await this.load(source.articlePath, visualReviewSidecar);
     loaded.sourceFormat = source.format;
     return loaded;
+  }
+
+  private async loadAfterMinerU(): Promise<LoadedPaperPackage> {
+    const verified = await validateAfterMinerUPackage(this.fileSystem);
+    const manifest = verified.manifest;
+    const projection = verified.readerProjection;
+    const derivedRecord = manifest.derived.files.find((entry) => entry.path === manifest.derived.article_path)!;
+    const sourceRecord = manifest.source.files.find((entry) => entry.path === manifest.source.article_path)!;
+    const contentFileSystem = new ManifestBoundReaderFileSystem(this.fileSystem, [
+      ...verified.records.values(),
+      ...manifest.compatibility.aliases
+    ]);
+    try {
+      const articleText = await contentFileSystem.readText(manifest.derived.article_path);
+      const resources = inspectMarkdownResources(articleText);
+      const unboundResource = resources.localPaths.find((path) => !contentFileSystem.isBoundPath(path));
+      if (resources.blockedUrls.length || unboundResource) {
+        throw new AfterMinerUPackageValidationError(
+          `After-MinerU derived Markdown references an unbound resource: ${resources.blockedUrls[0] ?? unboundResource}`
+        );
+      }
+      const anchors = parseAnchorInventory(articleText);
+      const claimedPlacements = new Set<string>();
+      for (const visual of projection.visuals) {
+        const placement = visual.placement_block_id;
+        if (placement === null) continue;
+        if (
+          claimedPlacements.has(placement)
+          || anchors.duplicateIds.includes(placement)
+          || anchors.slotAssets.get(placement) !== visual.id
+        ) {
+          throw new AfterMinerUPackageValidationError(
+            `After-MinerU visual placement is not bound to the derived Markdown slot: ${visual.id}`
+          );
+        }
+        claimedPlacements.add(placement);
+      }
+      const sourcePdfAlias = manifest.source.pdf_path
+        ? manifest.compatibility.aliases.find((entry) => (
+          entry.canonical_path === manifest.source.pdf_path && entry.path === "_extraction/source.pdf"
+        ))
+        : undefined;
+      const display = (value: AfterMinerUVisualDisplay): LoadedAsset["display"] => {
+        if (value.mode === "pdf-crop") {
+          return { mode: "pdf-crop", pdfPath: value.pdf_path, bbox: { ...value.bbox }, padding: value.padding };
+        }
+        if (value.mode === "fragment-set") {
+          return {
+            mode: "fragment-set",
+            fragments: value.fragments.map((fragment) => ({ path: fragment.path, bbox: { ...fragment.bbox } }))
+          };
+        }
+        return { mode: "asset" };
+      };
+      const assets: LoadedAsset[] = projection.visuals.map((visual) => ({
+        id: visual.id,
+        kind: visual.kind,
+        path: visual.path,
+        display_label: visual.label,
+        caption_block_id: null,
+        placement_block_id: visual.placement_block_id,
+        vaultPath: contentFileSystem.resolvePath(visual.path),
+        exists: true,
+        integrityMatches: true,
+        captionText: visual.caption_text ?? undefined,
+        pageIndex: visual.page_index ?? undefined,
+        sourceBBox: visual.source_bbox ?? undefined,
+        memberAssetPaths: [...visual.member_asset_paths],
+        memberBlockIds: [...visual.member_block_ids],
+        captionPageIndex: visual.caption_page_index ?? undefined,
+        captionStatus: visual.caption_status ?? undefined,
+        display: display(visual.display)
+      }));
+      return {
+        state: "mineru",
+        sourceFormat: "mineru",
+        packageIntegrity: "verified",
+        contentFileSystem,
+        articlePath: contentFileSystem.resolvePath(manifest.derived.article_path),
+        articleText,
+        articleHash: derivedRecord.sha256,
+        contractPath: contentFileSystem.resolvePath(manifest.sidecars.reader_projection_path),
+        contractVersion: AFTER_MINERU_PACKAGE_VERSION,
+        manifestPath: this.fileSystem.resolvePath(AFTER_MINERU_MANIFEST_PATH),
+        anchors,
+        assets,
+        diagnostics: [{
+          level: "info",
+          code: "after-mineru-derived-projection-verified",
+          message: `已完整验证并只读呈现 After-MinerU 派生 Markdown 与 ${assets.length} 个视觉对象；Reader 未生成或写回修复。`
+        }],
+        sourceArticle: {
+          path: contentFileSystem.resolvePath(manifest.source.article_path),
+          sha256: sourceRecord.sha256
+        },
+        activeProjection: {
+          kind: "verified-derived",
+          manifestVersion: manifest.schema_version,
+          path: contentFileSystem.resolvePath(manifest.derived.article_path),
+          sha256: derivedRecord.sha256
+        },
+        sourcePdf: manifest.source.pdf_path
+          ? { path: sourcePdfAlias?.path ?? manifest.source.pdf_path }
+          : undefined
+      };
+    } catch (error) {
+      contentFileSystem.dispose();
+      throw error;
+    }
   }
 
   private async loadHtml(articleRelativePath: string): Promise<LoadedPaperPackage> {
@@ -135,6 +266,7 @@ export class PackageLoader {
   }
 
   async load(articleRelativePath = "article.md", visualReviewSidecar?: unknown): Promise<LoadedPaperPackage> {
+    if (await this.fileSystem.exists(AFTER_MINERU_MANIFEST_PATH)) return this.loadAfterMinerU();
     if (!isSafeRelativePath(articleRelativePath)) throw new Error(`Unsafe article path: ${articleRelativePath}`);
     if (articleRelativePath !== "article.md") {
       const stem = articleRelativePath.replace(/\.md$/i, "");
@@ -417,7 +549,7 @@ export class PackageLoader {
         );
       }
     }
-    if (hasViewerIndex && hasVisualRepair) {
+    if (hasViewerIndex && hasVisualRepair && integrity.status === "verified") {
       try {
         const [viewerContract, visualRepairContract] = integrity.status === "verified"
           ? await Promise.all([
@@ -554,7 +686,7 @@ export class PackageLoader {
         }
         visuals = visibleVisuals;
         diagnostics.push(...applied.diagnostics);
-        if (hasSourcePdf) {
+        if (hasSourcePdf && this.options.allowRuntimeTextRecovery !== false) {
           captionContinuations = collectPdfCaptionContinuationRequests({
             visuals,
             viewerIndex: viewerContract,
@@ -593,6 +725,12 @@ export class PackageLoader {
           message: `视觉修复契约无法使用，已保留 MinerU 原图：${error instanceof Error ? error.message : String(error)}`
         });
       }
+    } else if (hasViewerIndex && hasVisualRepair) {
+      diagnostics.push({
+        level: "warning",
+        code: "mineru-unverified-sidecars-ignored",
+        message: "检测到未被 manifest/validation 验证的视觉 sidecar；Reader 已忽略并忠实显示原始 MinerU 内容。"
+      });
     } else if (hasViewerIndex || hasVisualRepair) {
       diagnostics.push({
         level: "warning",
@@ -689,7 +827,7 @@ export class PackageLoader {
       sourcePdf: hasSourcePdf ? { path: sourcePdfPath } : undefined,
       pageMap,
       pdfLayout,
-      textRecovery: hasSourcePdf ? {
+      textRecovery: hasSourcePdf && this.options.allowRuntimeTextRecovery !== false ? {
         pdfPath: sourcePdfPath,
         candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text),
         sourceArticleText: captionContinuations.length || paragraphRecoveries.length ? article.text : undefined,

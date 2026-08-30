@@ -170,6 +170,21 @@ export interface LoadedPaperPackage {
   diagnostics: Diagnostic[];
   sourceFormat?: "paper2md" | "mineru" | "markdown" | "html";
   packageIntegrity?: "verified" | "unverified";
+  /**
+   * Post-validation capability view used for every render-time content read.
+   * Present only for a formally verified package; the caller owns disposal.
+   */
+  contentFileSystem?: import("../filesystem/reader-file-system").ReaderFileSystem;
+  sourceArticle?: {
+    path: string;
+    sha256: string;
+  };
+  activeProjection?: {
+    kind: "verified-derived";
+    manifestVersion: string;
+    path: string;
+    sha256: string;
+  };
   visualReview?: import("./mineru-visual-review").MinerUVisualReview;
   sourcePdf?: {
     path: string;

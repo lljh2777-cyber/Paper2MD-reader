@@ -92,7 +92,7 @@ describe("PackageLoader host abstraction", () => {
     ]);
   });
 
-  it("replaces high-confidence MinerU fragments with one hash-bound PDF crop", async () => {
+  it("ignores high-confidence MinerU sidecars that are not package-verified", async () => {
     const article = "# MinerU paper\n\n![](images/a.png)\n\n![](images/b.png)\n";
     const mineru = JSON.stringify([
       { type: "image", page_idx: 2, bbox: [60, 300, 490, 700], img_path: "images/a.png", image_caption: ["A"] },
@@ -148,20 +148,16 @@ describe("PackageLoader host abstraction", () => {
 
     const loaded = await new PackageLoader(fileSystem).loadDetected();
 
-    expect(loaded.assets).toHaveLength(1);
-    expect(loaded.assets[0]).toEqual(expect.objectContaining({
-      id: "vr-p0002-g0000",
-      display_label: "Figure 1",
-      memberAssetPaths: ["images/a.png", "images/b.png"],
-      display: expect.objectContaining({ mode: "pdf-crop", pdfPath: "_extraction/source.pdf" })
-    }));
+    expect(loaded.packageIntegrity).toBe("unverified");
+    expect(loaded.assets.map((asset) => asset.path)).toEqual(["images/a.png", "images/b.png"]);
+    expect(loaded.assets.every((asset) => asset.display === undefined)).toBe(true);
     expect(loaded.sourcePdf).toEqual({ path: "_extraction/source.pdf" });
-    expect(loaded.pdfLayout?.blocks).toHaveLength(2);
-    expect(loaded.pdfLayout?.blocks.every((block) => block.visualId === "vr-p0002-g0000")).toBe(true);
-    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-applied" }));
+    expect(loaded.pdfLayout).toBeUndefined();
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-unverified-sidecars-ignored" }));
+    expect(loaded.diagnostics).not.toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-applied" }));
   });
 
-  it("still validates a folded member asset that is not referenced by the PDF layout", async () => {
+  it("validates every original asset when an unverified folding sidecar is ignored", async () => {
     const article = "# MinerU paper\n\n![](images/a.png)\n\n![](images/b.png)\n";
     const mineru = JSON.stringify([
       { type: "image", page_idx: 2, bbox: [60, 300, 490, 700], img_path: "images/a.png" },
@@ -215,15 +211,17 @@ describe("PackageLoader host abstraction", () => {
 
     const loaded = await new PackageLoader(fileSystem).loadDetected();
 
-    expect(loaded.assets).toHaveLength(1);
-    expect(loaded.assets[0].memberAssetPaths).toEqual(["images/a.png", "images/b.png"]);
+    expect(loaded.assets.map((asset) => asset.path)).toEqual(["images/a.png", "images/b.png"]);
+    expect(loaded.assets.map((asset) => asset.exists)).toEqual([true, false]);
+    expect(loaded.pdfLayout).toBeUndefined();
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-unverified-sidecars-ignored" }));
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({
       code: "mineru-asset-missing",
       message: "MinerU 资源不存在：images/b.png"
     }));
   });
 
-  it("fails closed when a MinerU visual repair contract hash is stale", async () => {
+  it("fails closed before inspecting stale bindings in unverified MinerU sidecars", async () => {
     const article = "# MinerU paper\n\n![](images/a.png)\n";
     const mineru = JSON.stringify([{ type: "image", page_idx: 0, bbox: [0, 0, 500, 500], img_path: "images/a.png" }]);
     const staleInputs = {
@@ -244,10 +242,11 @@ describe("PackageLoader host abstraction", () => {
     expect(loaded.assets).toHaveLength(1);
     expect(loaded.assets[0].display).toBeUndefined();
     expect(loaded.pdfLayout).toBeUndefined();
-    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-binding-invalid" }));
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-unverified-sidecars-ignored" }));
+    expect(loaded.diagnostics).not.toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-applied" }));
   });
 
-  it("projects a unique next-page formal caption from the original MinerU payload without editing article.md", async () => {
+  it("does not project next-page captions from unverified MinerU sidecars", async () => {
     const placeholder = "Fig. 2 | See next page for caption";
     const caption = "Fig. 2. Caption begins on the next PDF page.";
     const article = `# MinerU paper\n\n![](images/a.png)\n\n${placeholder}\np\nq\n![](images/b.png)\n\n${caption}\n\nBody remains.\n`;
@@ -338,15 +337,12 @@ describe("PackageLoader host abstraction", () => {
 
     expect(article).toContain(caption);
     expect(article).toContain(placeholder);
-    expect(loaded.articleText).not.toContain(caption);
-    expect(loaded.articleText).not.toContain(placeholder);
-    expect(loaded.articleText).not.toContain("![](images/a.png)");
+    expect(loaded.articleText).toContain(caption);
+    expect(loaded.articleText).toContain(placeholder);
+    expect(loaded.articleText).toContain("![](images/a.png)");
+    expect(loaded.articleText).toContain("![](images/b.png)");
     expect(loaded.articleText).toContain("Body remains.");
-    expect(loaded.assets).toEqual([expect.objectContaining({
-      display_label: "Fig. 2",
-      captionText: caption,
-      captionPageIndex: 1,
-      captionStatus: "complete"
-    })]);
+    expect(loaded.assets.map((asset) => asset.path)).toEqual(["images/a.png", "images/b.png"]);
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-unverified-sidecars-ignored" }));
   });
 });

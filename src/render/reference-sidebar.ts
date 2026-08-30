@@ -28,6 +28,7 @@ export class ReferenceSidebar {
   private readonly pdfPane?: PdfReferencePane;
   private readonly figures: FigureSidebar;
   private mode: ReferenceMode = "visuals";
+  private pdfOnly = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -71,7 +72,11 @@ export class ReferenceSidebar {
     this.pdfTab.addEventListener("click", () => this.setMode("pdf"));
     this.visualsTab.addEventListener("click", () => this.setMode("visuals"));
     tabs.addEventListener("keydown", (event) => {
-      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || this.pdfTab.hidden) return;
+      if (
+        !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+        || this.pdfTab.hidden
+        || this.visualsTab.hidden
+      ) return;
       event.preventDefault();
       const mode = event.key === "ArrowLeft" || event.key === "Home" ? "pdf" : "visuals";
       this.setMode(mode);
@@ -81,6 +86,8 @@ export class ReferenceSidebar {
   }
 
   async setPdfSource(source: { path: string } | undefined, fileSystem: ReaderFileSystem, layout?: MinerUPdfLayout): Promise<void> {
+    this.pdfOnly = false;
+    this.visualsTab.hidden = false;
     const available = Boolean(source && this.pdfPane);
     this.pdfTab.hidden = !available;
     if (!available) {
@@ -91,7 +98,23 @@ export class ReferenceSidebar {
     await this.pdfPane!.setSource(fileSystem, source!.path, layout);
   }
 
+  /**
+   * Bind an original PDF as the entire reference surface. The visuals tab is
+   * unavailable and attempts to switch away from PDF remain fail-closed.
+   */
+  async setPdfOnlySource(source: { path: string }, fileSystem: ReaderFileSystem): Promise<void> {
+    if (!this.pdfPane) throw new Error("This Reader host cannot render PDF documents.");
+    this.pdfOnly = true;
+    this.visualsTab.hidden = true;
+    this.pdfTab.hidden = false;
+    this.figures.setFigures([]);
+    this.setMode("pdf", false);
+    await this.pdfPane.setSource(fileSystem, source.path);
+  }
+
   clearPdfSource(): void {
+    this.pdfOnly = false;
+    this.visualsTab.hidden = false;
     this.pdfTab.hidden = true;
     this.pdfPane?.clearSource();
     this.setMode("visuals");
@@ -159,6 +182,7 @@ export class ReferenceSidebar {
   }
 
   setMode(mode: ReferenceMode, notify = true): ReferenceMode {
+    if (this.pdfOnly && mode === "visuals") mode = "pdf";
     if (mode === "pdf" && this.pdfTab.hidden) mode = "visuals";
     this.mode = mode;
     const pdf = mode === "pdf";

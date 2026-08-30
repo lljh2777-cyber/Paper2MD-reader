@@ -43,8 +43,11 @@ import {
   subscribeReaderLocale
 } from "../../../src/ui/locale";
 import { statusCopy } from "../../../src/ui/status-copy";
-import type { ReaderPackagePicker } from "../../reader-core/src/index";
-import type { ReaderProcessingProgress } from "../../reader-core/src/index";
+import type {
+  ReaderPackagePicker,
+  ReaderPdfDocumentSelection,
+  ReaderProcessingProgress
+} from "../../reader-core/src/index";
 import type {
   ReaderAgentController,
   ReaderAgentPage,
@@ -63,6 +66,12 @@ export interface ReaderPaperStateStorage {
 
 export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
+  /**
+   * Allow the legacy Reader to repair displayed text from a bundled PDF at
+   * runtime. Disable for strict read-only consumers of raw or verified
+   * packages. Existing desktop and Local Reader mounts default to true.
+   */
+  allowRuntimeTextRecovery?: boolean;
   /** Host-owned storage for paper-derived view state and browser visual-review sidecars. */
   paperStateStorage?: ReaderPaperStateStorage;
   visualReviewStore?: {
@@ -157,7 +166,9 @@ function agentPage<T>(items: T[], start = 0, limit = 100): ReaderAgentPage<T> {
 
 export class ReaderWorkspace implements ReaderAgentController {
   private fileSystem?: ReaderFileSystem;
+  private contentFileSystem?: ReaderFileSystem;
   private loaded?: LoadedPaperPackage;
+  private pdfDocumentSession?: Pick<ReaderPdfDocumentSelection, "pdfPath" | "label">;
   private articleScroll!: HTMLElement;
   private articleContent!: HTMLElement;
   private articleOutline?: ArticleOutline;
@@ -194,6 +205,7 @@ export class ReaderWorkspace implements ReaderAgentController {
     this.articleOutline?.destroy();
     this.referenceSidebar?.destroy();
     this.options.visualResolver?.dispose();
+    this.disposeContentFileSystem();
     this.fileSystem?.dispose();
     this.options.picker.dispose?.();
     this.stopLocaleSubscription();
@@ -218,9 +230,10 @@ export class ReaderWorkspace implements ReaderAgentController {
     this.referenceSidebar = undefined;
     this.renderShell();
     if (this.fileSystem) {
-      this.fileLabel.textContent = this.fileSystem.rootLabel;
+      this.fileLabel.textContent = this.pdfDocumentSession?.label ?? this.fileSystem.rootLabel;
       this.reloadButton.disabled = false;
-      void this.loadPackage();
+      if (this.pdfDocumentSession) void this.loadPdfDocumentSession();
+      else void this.loadPackage();
     } else {
       this.renderWelcome();
     }
@@ -230,15 +243,38 @@ export class ReaderWorkspace implements ReaderAgentController {
     this.saveViewState();
     this.scrollController.disconnect();
     this.options.visualResolver?.dispose();
+    this.disposeContentFileSystem();
     this.fileSystem?.dispose();
     this.fileSystem = fileSystem;
+    this.pdfDocumentSession = undefined;
+    this.root.classList.remove("p2md-pdf-document-mode");
     this.fileLabel.textContent = fileSystem.rootLabel;
     this.reloadButton.disabled = false;
     await this.loadPackage();
   }
 
+  async attachPdfDocument(selection: ReaderPdfDocumentSelection): Promise<void> {
+    if (!this.options.pdfRuntime || !this.referenceSidebar) {
+      selection.fileSystem.dispose();
+      throw new Error(readerText(this.locale, "selectedPdfDocumentOpenFailed"));
+    }
+    this.saveViewState();
+    this.scrollController.disconnect();
+    this.options.visualResolver?.dispose();
+    this.disposeContentFileSystem();
+    this.fileSystem?.dispose();
+    this.fileSystem = selection.fileSystem;
+    this.pdfDocumentSession = { pdfPath: selection.pdfPath, label: selection.label };
+    this.loaded = undefined;
+    this.stateKey = undefined;
+    this.fileLabel.textContent = selection.label;
+    this.reloadButton.disabled = false;
+    await this.loadPdfDocumentSession();
+  }
+
   async refreshPackage(): Promise<void> {
-    await this.loadPackage();
+    if (this.pdfDocumentSession) await this.loadPdfDocumentSession();
+    else await this.loadPackage();
   }
 
   getReaderState(): ReaderAgentState {
@@ -317,7 +353,9 @@ export class ReaderWorkspace implements ReaderAgentController {
 
   setFollowMode(target: ReaderFollowTarget, enabled: boolean): ReaderAgentState["reference"] {
     if (target === "pdf") {
-      if (!this.referenceSidebar || !this.loaded?.sourcePdf) throw new Error("PDF following is unavailable for the current package");
+      if (!this.referenceSidebar || (!this.loaded?.sourcePdf && !this.pdfDocumentSession)) {
+        throw new Error("PDF following is unavailable for the current document");
+      }
       this.referenceSidebar.setPdfFollowing(enabled);
     } else if (this.referenceSidebar) {
       this.referenceSidebar.setVisualFollowing(enabled);
@@ -374,7 +412,7 @@ export class ReaderWorkspace implements ReaderAgentController {
     return {
       available: Boolean(this.referenceSidebar),
       mode: reference?.mode ?? "visuals",
-      pdfAvailable: Boolean(this.referenceSidebar && this.loaded?.sourcePdf),
+      pdfAvailable: Boolean(this.referenceSidebar && (this.loaded?.sourcePdf || this.pdfDocumentSession)),
       selectedVisualId: visual?.selectedVisualId ?? "",
       visualFollowing: "visualFollowing" in (visual ?? {})
         ? Boolean((visual as ReturnType<ReferenceSidebar["getState"]>).visualFollowing)
@@ -425,7 +463,7 @@ export class ReaderWorkspace implements ReaderAgentController {
     this.reloadButton.ariaLabel = readerText(this.locale, "reloadPackage");
     this.reloadButton.disabled = true;
     setReaderIcon(this.reloadButton, "refresh");
-    this.reloadButton.addEventListener("click", () => void this.loadPackage());
+    this.reloadButton.addEventListener("click", () => void this.reloadCurrent());
     trailing.append(languageSelect, this.statusButton, this.reloadButton);
     toolbar.append(leading, this.fileLabel, trailing);
 
@@ -497,23 +535,57 @@ export class ReaderWorkspace implements ReaderAgentController {
     }
   }
 
+  private async reloadCurrent(): Promise<void> {
+    if (this.pdfDocumentSession) await this.loadPdfDocumentSession();
+    else await this.loadPackage();
+  }
+
   private async loadPackage(): Promise<void> {
     if (!this.fileSystem) return;
+    if (this.pdfDocumentSession) {
+      await this.loadPdfDocumentSession();
+      return;
+    }
+    const sourceFileSystem = this.fileSystem;
     const articleLayoutGeneration = this.invalidateArticleLayout();
+    const isCurrentLoad = () => (
+      articleLayoutGeneration === this.articleLayoutGeneration
+      && sourceFileSystem === this.fileSystem
+      && !this.pdfDocumentSession
+    );
+    const disposeLoadedContent = (loaded: LoadedPaperPackage | undefined) => {
+      if (loaded?.contentFileSystem && loaded.contentFileSystem !== sourceFileSystem) {
+        loaded.contentFileSystem.dispose();
+      }
+    };
     if (this.loaded) this.saveViewState();
+    this.disposeContentFileSystem();
+    this.loaded = undefined;
+    this.stateKey = undefined;
     this.scrollController.disconnect();
     this.articleOutline?.clear();
     this.articleContent.setAttribute("aria-busy", "true");
     this.statusButton.disabled = true;
     this.statusLabel.textContent = readerText(this.locale, "loading");
     this.root.dataset.state = "loading";
+    let loaded: LoadedPaperPackage | undefined;
     try {
-      const loader = new PackageLoader(this.fileSystem);
-      let loaded = await loader.loadDetected();
+      const loader = new PackageLoader(sourceFileSystem, {
+        allowRuntimeTextRecovery: this.options.allowRuntimeTextRecovery !== false
+      });
+      loaded = await loader.loadDetected();
+      if (!isCurrentLoad()) {
+        disposeLoadedContent(loaded);
+        return;
+      }
       let storedSidecar: unknown | undefined;
       if (loaded.visualReview && this.options.visualReviewStore?.write) {
         try {
           storedSidecar = await this.options.visualReviewStore.read(loaded.visualReview.packageHash);
+          if (!isCurrentLoad()) {
+            disposeLoadedContent(loaded);
+            return;
+          }
         } catch {
           loaded.diagnostics.push({
             level: "warning",
@@ -524,17 +596,23 @@ export class ReaderWorkspace implements ReaderAgentController {
       } else {
         storedSidecar = this.readVisualReviewSidecar(loaded);
       }
-      if (storedSidecar !== undefined) loaded = await loader.loadDetected(storedSidecar);
-      this.loaded = loaded;
-      this.stateKey = loaded.articleHash ? readerViewStateKey(loaded.articleHash) : undefined;
-      const restoredState = this.loadViewState();
-      this.splitRatio = restoredState.splitRatio;
-      this.applySplitRatio(this.splitRatio);
+      if (storedSidecar !== undefined) {
+        disposeLoadedContent(loaded);
+        loaded = undefined;
+        loaded = await loader.loadDetected(storedSidecar);
+        if (!isCurrentLoad()) {
+          disposeLoadedContent(loaded);
+          return;
+        }
+      }
+      const contentFileSystem = loaded.contentFileSystem ?? sourceFileSystem;
+      const nextStateKey = loaded.articleHash ? readerViewStateKey(loaded.articleHash) : undefined;
+      const restoredState = this.loadViewState(nextStateKey);
       const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru" || loaded.state === "markdown";
-      this.root.classList.toggle("p2md-contract-mode", contractUsable);
       let articleText = loaded.articleText;
       if (
-        loaded.textRecovery
+        this.options.allowRuntimeTextRecovery !== false
+        && loaded.textRecovery
         && (
           loaded.textRecovery.candidates.length
           || loaded.textRecovery.captionContinuations?.length
@@ -542,12 +620,16 @@ export class ReaderWorkspace implements ReaderAgentController {
         )
         && this.options.visualResolver?.recoverText
       ) {
-        const recovered = await this.options.visualResolver.recoverText(articleText, loaded.textRecovery, this.fileSystem);
+        const recovered = await this.options.visualResolver.recoverText(articleText, loaded.textRecovery, contentFileSystem);
+        if (!isCurrentLoad()) {
+          disposeLoadedContent(loaded);
+          return;
+        }
         articleText = recovered.articleText;
         loaded.diagnostics.push(...recovered.diagnostics);
         const resolvedCaptionBlocks = new Set<string>();
         recovered.captionUpdates?.forEach((update) => {
-          const asset = loaded.assets.find((candidate) => candidate.id === update.visualId);
+          const asset = loaded!.assets.find((candidate) => candidate.id === update.visualId);
           if (!asset) return;
           asset.captionText = update.captionText;
           asset.captionStatus = update.captionStatus;
@@ -571,14 +653,38 @@ export class ReaderWorkspace implements ReaderAgentController {
         }
       }
       articleText = injectMinerUPageAnchors(articleText, loaded.pageMap);
-      this.updateStatus(loaded);
-      const rendered = await renderLocalArticle(articleText, this.articleContent, this.fileSystem, contractUsable);
-      this.articleOutline?.setArticle(this.articleContent);
-      const pageBlocks = loaded.pageMap ? materializeReaderPageOwnership(this.articleContent) : [];
+      const stagedArticle = document.createElement("article");
+      stagedArticle.className = this.articleContent.className;
+      const rendered = await renderLocalArticle(articleText, stagedArticle, contentFileSystem, contractUsable);
+      if (!isCurrentLoad()) {
+        disposeLoadedContent(loaded);
+        return;
+      }
+      const pageBlocks = loaded.pageMap ? materializeReaderPageOwnership(stagedArticle) : [];
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
-      this.figures = await this.createFigurePresentations(loaded, rendered, contractUsable);
-      this.figureSidebar.setFigures(this.figures);
-      if (this.referenceSidebar) await this.referenceSidebar.setPdfSource(loaded.sourcePdf, this.fileSystem, loaded.pdfLayout);
+      const figures = await this.createFigurePresentations(loaded, rendered, contractUsable, contentFileSystem);
+      if (!isCurrentLoad()) {
+        disposeLoadedContent(loaded);
+        return;
+      }
+      const referenceSidebar = this.referenceSidebar;
+      if (referenceSidebar) await referenceSidebar.setPdfSource(loaded.sourcePdf, contentFileSystem, loaded.pdfLayout);
+      if (!isCurrentLoad() || referenceSidebar !== this.referenceSidebar) {
+        disposeLoadedContent(loaded);
+        return;
+      }
+
+      this.loaded = loaded;
+      this.contentFileSystem = loaded.contentFileSystem;
+      this.stateKey = nextStateKey;
+      this.splitRatio = restoredState.splitRatio;
+      this.applySplitRatio(this.splitRatio);
+      this.root.classList.toggle("p2md-contract-mode", contractUsable);
+      this.updateStatus(loaded);
+      this.articleContent.replaceChildren(...stagedArticle.childNodes);
+      this.articleOutline?.setArticle(this.articleContent);
+      this.figures = figures;
+      this.figureSidebar.setFigures(figures);
       this.referenceSidebar?.restoreState({
         mode: restoredState.referenceMode,
         pdf: {
@@ -597,11 +703,15 @@ export class ReaderWorkspace implements ReaderAgentController {
       else this.scheduleArticleAnchorRevalidation(restoredState.articleAnchor, articleLayoutGeneration);
       this.articleOutline?.refreshActive();
     } catch (error) {
-      if (articleLayoutGeneration === this.articleLayoutGeneration) {
-        this.cancelPendingArticleAnchorRevalidation();
+      if (!isCurrentLoad()) {
+        disposeLoadedContent(loaded);
+        return;
       }
+      this.cancelPendingArticleAnchorRevalidation();
       console.error("Paper2MD Reader failed to load", error);
+      if (this.loaded === loaded) this.contentFileSystem = undefined;
       this.loaded = undefined;
+      disposeLoadedContent(loaded);
       const message = error instanceof PackageSourceNotFoundError
         ? readerText(this.locale, "noReadablePackage")
         : error instanceof PackageLimitError || error instanceof MinerUPackageIntegrityError || error instanceof UnsafeMarkdownResourceError
@@ -609,21 +719,79 @@ export class ReaderWorkspace implements ReaderAgentController {
         : readerText(this.locale, "packageLoadFailed");
       this.renderFailure(message);
     } finally {
-      this.articleContent.removeAttribute("aria-busy");
+      if (isCurrentLoad()) this.articleContent.removeAttribute("aria-busy");
     }
   }
 
-  private async createFigurePresentations(loaded: LoadedPaperPackage, rendered: RenderedArticle, contractUsable: boolean): Promise<FigurePresentation[]> {
+  private async loadPdfDocumentSession(): Promise<void> {
+    const fileSystem = this.fileSystem;
+    const session = this.pdfDocumentSession;
+    if (!fileSystem || !session) return;
+    if (!this.referenceSidebar || !this.options.pdfRuntime) {
+      this.renderFailure(readerText(this.locale, "selectedPdfDocumentOpenFailed"));
+      return;
+    }
+    const articleLayoutGeneration = this.invalidateArticleLayout();
+    this.scrollController.disconnect();
+    this.loaded = undefined;
+    this.stateKey = undefined;
+    this.articleOutline?.clear();
+    this.figures = [];
+    this.figureSidebar.setFigures([]);
+    this.root.classList.remove("p2md-contract-mode");
+    this.root.classList.add("p2md-pdf-document-mode");
+    this.root.dataset.state = "loading";
+    this.statusButton.disabled = true;
+    this.statusButton.dataset.tone = "pdf";
+    this.statusLabel.textContent = readerText(this.locale, "loadingPdf");
+    this.articleContent.setAttribute("aria-busy", "true");
+    this.articleContent.replaceChildren();
+    const placeholder = element("div", "p2md-reader-empty p2md-pdf-document-placeholder");
+    const title = element("h2");
+    title.textContent = readerText(this.locale, "pdfOnlyTitle");
+    const copy = element("p");
+    copy.textContent = readerText(this.locale, "pdfOnlyCopy");
+    placeholder.append(title, copy);
+    this.articleContent.appendChild(placeholder);
+    this.articleScroll.scrollTop = 0;
+    try {
+      await this.referenceSidebar.setPdfOnlySource({ path: session.pdfPath }, fileSystem);
+      if (
+        articleLayoutGeneration !== this.articleLayoutGeneration
+        || fileSystem !== this.fileSystem
+        || session !== this.pdfDocumentSession
+      ) return;
+      this.statusLabel.textContent = readerText(this.locale, "pdfOnlyReady");
+      this.root.dataset.state = "ready";
+    } catch (error) {
+      if (fileSystem !== this.fileSystem || session !== this.pdfDocumentSession) return;
+      console.error("Paper2MD Reader failed to open PDF", error);
+      this.renderFailure(error instanceof Error && error.message
+        ? error.message
+        : readerText(this.locale, "selectedPdfDocumentOpenFailed"));
+    } finally {
+      if (fileSystem === this.fileSystem && session === this.pdfDocumentSession) {
+        this.articleContent.removeAttribute("aria-busy");
+      }
+    }
+  }
+
+  private async createFigurePresentations(
+    loaded: LoadedPaperPackage,
+    rendered: RenderedArticle,
+    contractUsable: boolean,
+    contentFileSystem: ReaderFileSystem
+  ): Promise<FigurePresentation[]> {
     return Promise.all(loaded.assets.map(async (asset) => {
       const slotId = contractUsable && asset.placement_block_id && rendered.slotElements.has(asset.placement_block_id)
         ? asset.placement_block_id
         : undefined;
       let imageSrc = "";
-      if (asset.exists && this.fileSystem) {
+      if (asset.exists) {
         try {
           imageSrc = this.options.visualResolver
-            ? await this.options.visualResolver.resolve(asset, this.fileSystem)
-            : await this.fileSystem.resolveAssetUrl(asset.path);
+            ? await this.options.visualResolver.resolve(asset, contentFileSystem)
+            : await contentFileSystem.resolveAssetUrl(asset.path);
         } catch (error) {
           console.error(`Could not reconstruct visual ${asset.id}; the incomplete source fragment will remain hidden`, error);
           imageSrc = "";
@@ -647,8 +815,20 @@ export class ReaderWorkspace implements ReaderAgentController {
     }));
   }
 
+  private disposeContentFileSystem(): void {
+    if (this.contentFileSystem && this.contentFileSystem !== this.fileSystem) {
+      this.contentFileSystem.dispose();
+    }
+    this.contentFileSystem = undefined;
+  }
+
+  private activeContentFileSystem(): ReaderFileSystem | undefined {
+    return this.contentFileSystem ?? this.fileSystem;
+  }
+
   private materializeDerivedInlineVisual(slot: HTMLElement, asset: LoadedAsset, imageSrc: string): void {
-    const alreadyBound = [...this.articleContent.querySelectorAll<HTMLElement>(".p2md-inline-asset")]
+    const articleRoot = slot.closest<HTMLElement>(".p2md-article") ?? this.articleContent;
+    const alreadyBound = [...articleRoot.querySelectorAll<HTMLElement>(".p2md-inline-asset")]
       .some((element) => element.dataset.p2mdAssetId === asset.id);
     if (alreadyBound) return;
     const figure = element("figure", "p2md-inline-asset p2md-derived-inline-asset");
@@ -873,10 +1053,10 @@ export class ReaderWorkspace implements ReaderAgentController {
     revalidateWhenSettled();
   }
 
-  private loadViewState(): ReaderPersistedViewState {
-    if (!this.stateKey) return { ...DEFAULT_READER_VIEW_STATE };
+  private loadViewState(stateKey = this.stateKey): ReaderPersistedViewState {
+    if (!stateKey) return { ...DEFAULT_READER_VIEW_STATE };
     try {
-      return parseReaderViewState(this.paperStateStorage().getItem(this.stateKey));
+      return parseReaderViewState(this.paperStateStorage().getItem(stateKey));
     } catch {
       return { ...DEFAULT_READER_VIEW_STATE };
     }
@@ -928,6 +1108,11 @@ export class ReaderWorkspace implements ReaderAgentController {
     openButton.addEventListener("click", () => void this.choosePackage());
     const actions = element("div", "p2md-local-welcome-actions");
     actions.appendChild(openButton);
+    if (this.options.picker.choosePdfDocument) {
+      const directPdfButton = button(readerText(this.locale, "openPdfFile"), "p2md-local-secondary-button", "document");
+      directPdfButton.addEventListener("click", () => void this.choosePdfDocument());
+      actions.appendChild(directPdfButton);
+    }
     if (this.options.picker.choosePdfPackage) {
       const pdfButton = button(readerText(this.locale, "processPdfFile"), "p2md-local-secondary-button", "upload");
       pdfButton.addEventListener("click", () => void this.choosePdfPackage(pdfButton));
@@ -974,6 +1159,18 @@ export class ReaderWorkspace implements ReaderAgentController {
     }
   }
 
+  private async choosePdfDocument(): Promise<void> {
+    try {
+      const selection = await this.options.picker.choosePdfDocument?.();
+      if (selection) await this.attachPdfDocument(selection);
+    } catch (error) {
+      console.error("Could not open PDF document", error);
+      this.renderFailure(error instanceof Error && error.message
+        ? error.message
+        : readerText(this.locale, "selectedPdfDocumentOpenFailed"));
+    }
+  }
+
   private async choosePdfPackage(trigger: HTMLButtonElement): Promise<void> {
     const choosePdfPackage = this.options.picker.choosePdfPackage;
     if (!choosePdfPackage) return;
@@ -999,7 +1196,7 @@ export class ReaderWorkspace implements ReaderAgentController {
 
   private renderFailure(message: string): void {
     this.root.dataset.state = "error";
-    this.root.classList.remove("p2md-contract-mode");
+    this.root.classList.remove("p2md-contract-mode", "p2md-pdf-document-mode");
     this.articleOutline?.clear();
     this.figures = [];
     this.articleContent.replaceChildren();
@@ -1154,10 +1351,11 @@ export class ReaderWorkspace implements ReaderAgentController {
           checkbox.value = block.id;
           checkbox.checked = selectedIds.has(block.id);
           const preview = element("span", "p2md-review-block-preview");
-          if (block.assetPath && this.fileSystem) {
+          const contentFileSystem = this.activeContentFileSystem();
+          if (block.assetPath && contentFileSystem) {
             const image = element("img");
             image.alt = "";
-            void this.fileSystem.resolveAssetUrl(block.assetPath).then((url) => { image.src = url; }).catch(() => undefined);
+            void contentFileSystem.resolveAssetUrl(block.assetPath).then((url) => { image.src = url; }).catch(() => undefined);
             preview.appendChild(image);
           }
           const copy = element("span");
@@ -1196,10 +1394,11 @@ export class ReaderWorkspace implements ReaderAgentController {
           radio.value = block.id;
           radio.checked = (correction?.visual_block_id ?? candidate.visualBlockId) === block.id;
           const preview = element("span", "p2md-review-block-preview");
-          if (block.assetPath && this.fileSystem) {
+          const contentFileSystem = this.activeContentFileSystem();
+          if (block.assetPath && contentFileSystem) {
             const image = element("img");
             image.alt = "";
-            void this.fileSystem.resolveAssetUrl(block.assetPath).then((url) => { image.src = url; }).catch(() => undefined);
+            void contentFileSystem.resolveAssetUrl(block.assetPath).then((url) => { image.src = url; }).catch(() => undefined);
             preview.appendChild(image);
           }
           const copy = element("span");

@@ -1,6 +1,7 @@
 import { isSafeRelativePath } from "../model/contract-validation";
 import { normalizeReaderPath, ReaderFileInfo, ReaderFileSystem } from "./reader-file-system";
 import { PACKAGE_LIMITS, PackageLimitError } from "../model/package-limits";
+import { AFTER_MINERU_PACKAGE_LIMITS } from "../../packages/after-mineru-contract/src/index";
 
 type IterableDirectoryHandle = FileSystemDirectoryHandle & {
   values(): AsyncIterableIterator<FileSystemHandle>;
@@ -74,6 +75,27 @@ export class BrowserDirectoryReaderFileSystem implements ReaderFileSystem {
       index.set(normalized, file);
     }
     return new BrowserDirectoryReaderFileSystem(rootLabel || "Web clipping", undefined, index);
+  }
+
+  static fromAfterMinerUArchive(rootLabel: string, files: ReadonlyMap<string, File>): BrowserDirectoryReaderFileSystem {
+    if (files.size > AFTER_MINERU_PACKAGE_LIMITS.archiveFileCount) {
+      throw new PackageLimitError(
+        `The After-MinerU package contains ${files.size} files; the safe limit is ${AFTER_MINERU_PACKAGE_LIMITS.archiveFileCount}.`,
+        files.size,
+        AFTER_MINERU_PACKAGE_LIMITS.archiveFileCount
+      );
+    }
+    const index = new Map<string, File>();
+    const canonicalPaths = new Set<string>();
+    for (const [path, file] of files) {
+      const normalized = normalizeReaderPath(path);
+      if (!isSafeRelativePath(normalized)) throw new Error(`Unsafe After-MinerU package path: ${path}`);
+      const canonical = normalized.normalize("NFKC").toLocaleLowerCase("en-US");
+      if (canonicalPaths.has(canonical)) throw new Error(`Duplicate normalized After-MinerU package path: ${normalized}`);
+      canonicalPaths.add(canonical);
+      index.set(normalized, file);
+    }
+    return new BrowserDirectoryReaderFileSystem(rootLabel || "After-MinerU package", undefined, index);
   }
 
   static fromMinerUArchive(

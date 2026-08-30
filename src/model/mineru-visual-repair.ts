@@ -103,7 +103,7 @@ function startsWithPanelLabel(value: string): boolean {
 function firstAlphaIsLowercase(value: string): boolean {
   for (const character of value) {
     if (!/\p{L}/u.test(character)) continue;
-    return character === character.toLocaleLowerCase() && character !== character.toLocaleUpperCase();
+    return character === character.toLowerCase() && character !== character.toUpperCase();
   }
   return false;
 }
@@ -116,7 +116,7 @@ function sourceStartsLikeCaptionContinuation(value: string | undefined): boolean
 }
 
 function formalFigureKeyFromText(value: string): string | undefined {
-  return FIGURE_KEY_RE.exec(value)?.[2]?.toLocaleLowerCase();
+  return FIGURE_KEY_RE.exec(value)?.[2]?.toLowerCase();
 }
 
 function formalFigureMetadataKeyFromText(value: string): string | undefined {
@@ -127,7 +127,7 @@ function formalFigureMetadataKeyFromText(value: string): string | undefined {
   const undelimited = /^\s+([^|｜:：.\s][\s\S]*)$/.exec(remainder);
   const title = (delimited?.[1] ?? undelimited?.[1] ?? "").trim();
   if (title.length < 5 || FIGURE_REFERENCE_VERBS_RE.test(title)) return undefined;
-  const rawKind = match[1].trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  const rawKind = match[1].trim().toLowerCase().replace(/\s+/g, " ");
   const kind = rawKind.startsWith("extended data")
     ? "extended-data-figure"
     : rawKind.startsWith("supplementary")
@@ -135,7 +135,7 @@ function formalFigureMetadataKeyFromText(value: string): string | undefined {
       : rawKind.startsWith("supporting")
         ? "supporting-figure"
         : rawKind === "图" ? "图" : "figure";
-  return `${kind}:${match[2].trim().toLocaleLowerCase().replace(/\./g, "_")}`;
+  return `${kind}:${match[2].trim().toLowerCase().replace(/\./g, "_")}`;
 }
 
 function sourceBoundFormalCaption(
@@ -153,7 +153,7 @@ function sourceBoundFormalCaption(
     ...strings(caption?.formal_figure_caption_keys),
     typeof summary?.leading_formal_figure_caption_key === "string" ? summary.leading_formal_figure_caption_key : "",
     typeof caption?.leading_formal_figure_caption_key === "string" ? caption.leading_formal_figure_caption_key : ""
-  ].filter(Boolean).map((key) => key.toLocaleLowerCase()))];
+  ].filter(Boolean).map((key) => key.toLowerCase()))];
   const sourceTerminal = endsWithTerminalPunctuation(source);
   if (
     metadataKeys.length !== 1
@@ -169,8 +169,8 @@ function captionPanelMarkers(value: string): Array<{ start: string; end: string 
   const pattern = /(?:^|[.!?。！？;]\s+)(?:\(([a-z])\)|([a-z])(?:\s*[-–—]\s*([a-z]))?\s*[,;:])/gi;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(value)) !== null) {
-    const start = String(match[1] || match[2] || "").toLocaleLowerCase();
-    const end = String(match[3] || start).toLocaleLowerCase();
+    const start = String(match[1] || match[2] || "").toLowerCase();
+    const end = String(match[3] || start).toLowerCase();
     if (start) markers.push({ start, end });
   }
   return markers;
@@ -566,7 +566,7 @@ function hasFormalCaption(block: UnknownRecord): boolean {
 }
 
 function rawTypeMatchesRole(role: unknown, raw: UnknownRecord): boolean {
-  const type = String(raw.type ?? "unknown").trim().toLocaleLowerCase();
+  const type = String(raw.type ?? "unknown").trim().toLowerCase();
   if (role === "visual") return type === "image" || type === "chart";
   if (role === "table") return type === "table" || type === "table_body";
   if (role === "equation") return type === "equation" || type === "interline_equation";
@@ -877,7 +877,7 @@ export function applyMinerUVisualRepair(input: {
     if (exactRanges.some((range, index) => index > 0 && range.start <= exactRanges[index - 1].end)) return undefined;
     const captionText = selected.map((block) => sourceTextByBlockId.get(String(block.id))!).join(" ").replace(/\s+/g, " ").trim();
     const captionPanels = expandedCaptionPanelLabels(captionText);
-    const visualPanels = [...new Set(panelLabels(pageVisuals).map((label) => label.toLocaleLowerCase()).filter((label) => /^[a-z]$/.test(label)))];
+    const visualPanels = [...new Set(panelLabels(pageVisuals).map((label) => label.toLowerCase()).filter((label) => /^[a-z]$/.test(label)))];
     if (visualPanels.length && visualPanels.some((label) => !captionPanels.has(label))) return undefined;
     return {
       caption: captionText,
@@ -929,7 +929,7 @@ export function applyMinerUVisualRepair(input: {
   const reportingSignature = (page: UnknownRecord): boolean => Array.isArray(page.blocks) && page.blocks.map(record).some((block) => {
     if (!block || block.role !== "marginalia" || typeof block.id !== "string") return false;
     const blockBbox = normalizedBboxArray(block.bbox_norm);
-    const source = sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+    const source = sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLowerCase();
     return source === "nature portfolio | reporting summary"
       && Boolean(blockBbox)
       && Number(blockBbox?.[0]) >= 900
@@ -943,13 +943,13 @@ export function applyMinerUVisualRepair(input: {
       .sort((left, right) => Number(left.page_order) - Number(right.page_order));
     const brand = ordered.filter((block) => {
       const blockBbox = normalizedBboxArray(block.bbox_norm);
-      const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLocaleLowerCase() : undefined;
+      const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLowerCase() : undefined;
       return block.role === "title" && source === "natureportfolio" && Boolean(blockBbox)
         && Number(blockBbox?.[0]) <= 100 && Number(blockBbox?.[1]) <= 120;
     });
     const summary = ordered.filter((block) => {
       const blockBbox = normalizedBboxArray(block.bbox_norm);
-      const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLocaleLowerCase() : undefined;
+      const source = typeof block.id === "string" ? sourceTextByBlockId.get(block.id)?.replace(/\s+/g, " ").trim().toLowerCase() : undefined;
       return block.role === "title" && source === "reporting summary" && Boolean(blockBbox)
         && Number(blockBbox?.[0]) <= 100 && Number(blockBbox?.[1]) >= 100 && Number(blockBbox?.[1]) <= 260;
     });
@@ -1024,7 +1024,7 @@ export function applyMinerUVisualRepair(input: {
       : undefined;
     const samePageBoxes = pageVisualBlocks.map((block) => normalizedBboxArray(block.bbox_norm));
     const samePageLabels = panelLabels(pageVisualBlocks)
-      .map((label) => label.toLocaleLowerCase())
+      .map((label) => label.toLowerCase())
       .filter((label) => /^[a-z]$/.test(label));
     if (
       samePageCaption
@@ -1090,7 +1090,7 @@ export function applyMinerUVisualRepair(input: {
 
     if (!stringSetEquals(coveredMemberIds, memberIds)) continue;
     const labels = panelLabels(meaningfulBlocks)
-      .map((label) => label.toLocaleLowerCase())
+      .map((label) => label.toLowerCase())
       .filter((label) => /^[a-z]$/.test(label));
     if (new Set(labels).size < 3) continue;
 
@@ -1184,7 +1184,7 @@ export function applyMinerUVisualRepair(input: {
           const sourceCaption = sourceBoundFormalCaption(block, sourceTextByBlockId);
           return ["text", "title"].includes(String(block.role))
             && Boolean(sourceCaption)
-            && (!markerFigureKey || sourceCaption?.key === markerFigureKey.toLocaleLowerCase())
+            && (!markerFigureKey || sourceCaption?.key === markerFigureKey.toLowerCase())
             && typeof block.id === "string";
         });
         const meaningful = ordered.filter((block) => {

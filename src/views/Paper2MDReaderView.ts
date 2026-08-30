@@ -5,6 +5,7 @@ import { assetDisplayLabel, LoadedPaperPackage } from "../model/reader-contract"
 import { PackageLoader } from "../model/package-loader";
 import { PackageLimitError } from "../model/package-limits";
 import { bindContractAssets, renderArticle, RenderedArticle } from "../render/article-renderer";
+import { renderLocalArticle } from "../render/local-article-renderer";
 import { UnsafeMarkdownResourceError } from "../render/markdown-resource-policy";
 import { FigurePresentation, FigureSidebar } from "../render/figure-sidebar";
 import { ScrollController } from "../sync/scroll-controller";
@@ -40,9 +41,11 @@ export class Paper2MDReaderView extends ItemView {
   private sidebar?: FigureSidebar;
   private package?: LoadedPaperPackage;
   private fileSystem?: ReaderFileSystem;
+  private contentFileSystem?: ReaderFileSystem;
   private readonly scrollController = new ScrollController();
   private locale: ReaderLocale = getReaderLocale();
   private stopLocaleSubscription?: () => void;
+  private loadGeneration = 0;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -84,8 +87,9 @@ export class Paper2MDReaderView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.loadGeneration += 1;
     this.scrollController.disconnect();
-    this.fileSystem?.dispose();
+    this.disposeCurrentFileSystems();
     this.stopLocaleSubscription?.();
   }
 
@@ -155,8 +159,12 @@ export class Paper2MDReaderView extends ItemView {
   }
 
   private async loadCurrentArticle(): Promise<void> {
+    const loadGeneration = ++this.loadGeneration;
+    const isCurrentLoad = () => loadGeneration === this.loadGeneration;
     this.scrollController.disconnect();
     if (!this.articleContent || !this.articleScroll || !this.figureHost || !this.sidebar) return;
+    this.disposeCurrentFileSystems();
+    this.package = undefined;
     if (!this.articlePath) {
       this.renderEmptyState(readerText(this.locale, "openArticleInstruction"));
       return;
@@ -169,42 +177,84 @@ export class Paper2MDReaderView extends ItemView {
     }
 
     this.articleContent.setAttribute("aria-busy", "true");
+    let sourceFileSystem: ReaderFileSystem | undefined;
+    let loaded: LoadedPaperPackage | undefined;
+    let committed = false;
+    const disposeLocalSession = () => {
+      if (loaded?.contentFileSystem && loaded.contentFileSystem !== sourceFileSystem) {
+        loaded.contentFileSystem.dispose();
+      }
+      sourceFileSystem?.dispose();
+    };
     try {
-      this.fileSystem?.dispose();
       const separator = file.path.lastIndexOf("/");
       const packageRoot = separator >= 0 ? file.path.slice(0, separator) : "";
       const articleRelativePath = separator >= 0 ? file.path.slice(separator + 1) : file.path;
-      this.fileSystem = new ObsidianReaderFileSystem(this.app, packageRoot);
-      const loaded = await new PackageLoader(this.fileSystem).load(articleRelativePath);
-      this.package = loaded;
-      this.fileLabel!.textContent = file.name;
-      this.updateStatus(loaded);
+      sourceFileSystem = new ObsidianReaderFileSystem(this.app, packageRoot);
+      loaded = await new PackageLoader(sourceFileSystem).load(articleRelativePath);
+      if (!isCurrentLoad()) {
+        disposeLocalSession();
+        return;
+      }
+      const contentFileSystem = loaded.contentFileSystem ?? sourceFileSystem;
 
       const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru";
-      this.contentEl.toggleClass("p2md-contract-mode", contractUsable);
-      const rendered = await renderArticle(this.app, loaded.articleText, this.articleContent, file.path, this, this.fileSystem, contractUsable);
+      const stagedArticle = document.createElement("article");
+      stagedArticle.className = this.articleContent.className;
+      const rendered = loaded.contentFileSystem
+        ? await renderLocalArticle(loaded.articleText, stagedArticle, contentFileSystem, contractUsable)
+        : await renderArticle(this.app, loaded.articleText, stagedArticle, file.path, this, contentFileSystem, contractUsable);
+      if (!isCurrentLoad()) {
+        disposeLocalSession();
+        return;
+      }
       if (contractUsable) bindContractAssets(rendered, loaded.assets);
-      const figures = await this.createFigurePresentations(loaded, rendered, contractUsable);
+      const figures = await this.createFigurePresentations(loaded, rendered, contractUsable, contentFileSystem);
+      if (!isCurrentLoad()) {
+        disposeLocalSession();
+        return;
+      }
+
+      this.fileSystem = sourceFileSystem;
+      this.contentFileSystem = loaded.contentFileSystem;
+      this.package = loaded;
+      committed = true;
+      this.fileLabel!.textContent = file.name;
+      this.updateStatus(loaded);
+      this.contentEl.toggleClass("p2md-contract-mode", contractUsable);
+      this.articleContent.replaceChildren(...stagedArticle.childNodes);
       this.sidebar.setFigures(figures);
       this.connectScrollSync(loaded, rendered, contractUsable);
     } catch (error) {
+      if (!isCurrentLoad()) {
+        if (!committed) disposeLocalSession();
+        return;
+      }
       console.error("Paper2MD Reader failed to load", error);
+      this.package = undefined;
+      if (committed) this.disposeCurrentFileSystems();
+      else disposeLocalSession();
       const message = error instanceof PackageLimitError || error instanceof UnsafeMarkdownResourceError
         ? error.message
         : readerText(this.locale, "articleLoadFailed");
       this.renderEmptyState(message);
       new Notice(readerText(this.locale, "articleLoadNotice"));
     } finally {
-      this.articleContent.removeAttribute("aria-busy");
+      if (isCurrentLoad()) this.articleContent.removeAttribute("aria-busy");
     }
   }
 
-  private async createFigurePresentations(loaded: LoadedPaperPackage, rendered: RenderedArticle, contractUsable: boolean): Promise<FigurePresentation[]> {
+  private async createFigurePresentations(
+    loaded: LoadedPaperPackage,
+    rendered: RenderedArticle,
+    contractUsable: boolean,
+    contentFileSystem: ReaderFileSystem
+  ): Promise<FigurePresentation[]> {
     return Promise.all(loaded.assets.map(async (asset) => {
       const slotId = contractUsable && asset.placement_block_id && rendered.slotElements.has(asset.placement_block_id)
         ? asset.placement_block_id
         : undefined;
-      const imageSrc = asset.exists && this.fileSystem ? await this.fileSystem.resolveAssetUrl(asset.path) : "";
+      const imageSrc = asset.exists ? await contentFileSystem.resolveAssetUrl(asset.path) : "";
       return {
         id: asset.id,
         label: assetDisplayLabel(asset),
@@ -217,6 +267,15 @@ export class Paper2MDReaderView extends ItemView {
         available: asset.exists && Boolean(imageSrc)
       };
     }));
+  }
+
+  private disposeCurrentFileSystems(): void {
+    if (this.contentFileSystem && this.contentFileSystem !== this.fileSystem) {
+      this.contentFileSystem.dispose();
+    }
+    this.contentFileSystem = undefined;
+    this.fileSystem?.dispose();
+    this.fileSystem = undefined;
   }
 
   private connectScrollSync(loaded: LoadedPaperPackage, rendered: RenderedArticle, contractUsable: boolean): void {
