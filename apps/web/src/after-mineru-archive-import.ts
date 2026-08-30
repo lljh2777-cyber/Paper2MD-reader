@@ -65,10 +65,41 @@ export async function extractAfterMinerUArchiveBytes(bytes: Uint8Array): Promise
   ]));
 }
 
-export async function importAfterMinerUArchiveFile(file: File): Promise<BrowserDirectoryReaderFileSystem> {
+export interface AfterMinerUArchiveImportOptions {
+  expectedFileCount?: number;
+}
+
+function assertExpectedFileCount(files: ReadonlyMap<string, File>, expectedFileCount: number | undefined): void {
+  if (expectedFileCount === undefined) return;
+  if (!Number.isSafeInteger(expectedFileCount)
+    || expectedFileCount < 1
+    || expectedFileCount > AFTER_MINERU_PACKAGE_LIMITS.archiveFileCount) {
+    throw new Error("The declared After-MinerU file count is invalid.");
+  }
+  if (files.size !== expectedFileCount) {
+    throw new Error(
+      `The After-MinerU archive contains ${files.size} files; the handoff declared ${expectedFileCount}.`
+    );
+  }
+}
+
+export async function importAfterMinerUArchiveBytes(
+  bytes: ArrayBuffer,
+  archiveName: string,
+  options: AfterMinerUArchiveImportOptions = {}
+): Promise<BrowserDirectoryReaderFileSystem> {
+  assertAfterMinerUArchiveByteLength(bytes.byteLength);
+  const files = await extractAfterMinerUArchiveBytes(new Uint8Array(bytes));
+  assertExpectedFileCount(files, options.expectedFileCount);
+  return BrowserDirectoryReaderFileSystem.fromAfterMinerUArchive(afterMinerUArchiveRootLabel(archiveName), files);
+}
+
+export async function importAfterMinerUArchiveFile(
+  file: File,
+  options: AfterMinerUArchiveImportOptions = {}
+): Promise<BrowserDirectoryReaderFileSystem> {
   assertAfterMinerUArchiveByteLength(file.size);
-  const files = await extractAfterMinerUArchiveBytes(new Uint8Array(await file.arrayBuffer()));
-  return BrowserDirectoryReaderFileSystem.fromAfterMinerUArchive(afterMinerUArchiveRootLabel(file.name), files);
+  return importAfterMinerUArchiveBytes(await file.arrayBuffer(), file.name, options);
 }
 
 export function afterMinerUArchiveRootLabel(filename: string): string {

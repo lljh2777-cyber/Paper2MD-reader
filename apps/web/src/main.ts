@@ -40,6 +40,12 @@ export interface WebReaderMountOptions {
   persistPaperState?: boolean;
 }
 
+export interface WebReaderMountHandle {
+  dispose(): void;
+  /** Resolves only after an initial file system reaches a rendered Reader state. */
+  ready: Promise<void>;
+}
+
 function createMemoryPaperStateStorage(): ReaderPaperStateStorage {
   const values = new Map<string, string>();
   return {
@@ -65,7 +71,10 @@ function webCopy(locale: ReaderLocale, pdfProcessingEnabled: boolean, directPdfE
   };
 }
 
-export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions = {}): () => void {
+export function mountWebReaderWithReady(
+  root: HTMLElement,
+  options: WebReaderMountOptions = {}
+): WebReaderMountHandle {
   const ingestHost = document.createElement("div");
   const readerHost = document.createElement("div");
   root.replaceChildren(ingestHost, readerHost);
@@ -124,22 +133,43 @@ export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions
       await workspace.attachFileSystem(fileSystem);
     })
     : () => undefined;
+  const attachAndRequireRenderedState = async (fileSystem: ReaderFileSystem): Promise<void> => {
+    await workspace.attachFileSystem(fileSystem);
+    const lifecycle = workspace.getReaderState().lifecycle;
+    if (lifecycle !== "ready" && lifecycle !== "degraded") {
+      throw new Error("The initial Paper2MD package did not reach a rendered Reader state.");
+    }
+  };
+  let ready = Promise.resolve();
   if (packageId && apiBaseUrl) {
-    void processingClient!.openPackage(packageId)
-      .then((fileSystem) => workspace.attachFileSystem(fileSystem))
-      .catch((error) => {
+    ready = processingClient!.openPackage(packageId)
+      .then(attachAndRequireRenderedState)
+      .catch((error: unknown) => {
         console.error("Could not open linked Paper2MD package", error);
         root.dataset.state = "error";
+        throw error;
       });
   } else if (options.initialFileSystem) {
-    void workspace.attachFileSystem(options.initialFileSystem).catch((error) => {
+    ready = attachAndRequireRenderedState(options.initialFileSystem).catch((error: unknown) => {
       console.error("Could not open the initial Paper2MD package", error);
       root.dataset.state = "error";
+      throw error;
     });
   }
-  return () => {
-    disposeIngest();
-    webMcp.dispose();
-    workspace.destroy();
+  return {
+    ready,
+    dispose() {
+      disposeIngest();
+      webMcp.dispose();
+      workspace.destroy();
+    }
   };
+}
+
+export function mountWebReader(root: HTMLElement, options: WebReaderMountOptions = {}): () => void {
+  const mounted = mountWebReaderWithReady(root, options);
+  // Historical callers receive a disposer and rely on the workspace's rendered
+  // failure state. Consume the readiness rejection to preserve that contract.
+  void mounted.ready.catch(() => undefined);
+  return () => mounted.dispose();
 }

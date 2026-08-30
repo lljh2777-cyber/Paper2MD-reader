@@ -146,19 +146,19 @@ button:focus-visible, a:focus-visible { outline: 3px solid #7eb5ff; outline-offs
 .project-links { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 20px; }
 .project-links a { color: var(--site-blue); font-size: 12px; font-weight: 700; text-decoration: none; }
 .site-footer .project-links { justify-content: flex-end; }
-.site-reader-shell { background: #fff; height: 100vh; overflow: hidden; }
-.site-reader-bar { align-items: center; background: #10243e; color: #c9d6e5; display: grid; grid-template-columns: 1fr auto 1fr; height: 44px; padding: 0 18px; }
+.site-reader-shell { background: #fff; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.site-reader-bar { align-items: center; background: #10243e; color: #c9d6e5; display: grid; flex: 0 0 44px; grid-template-columns: 1fr auto 1fr; height: 44px; padding: 0 18px; }
 .site-reader-bar button { background: none; border: 0; color: #fff; cursor: pointer; font-weight: 700; justify-self: start; }
 .site-reader-bar button:last-child { color: #bcd6f4; font-size: 12px; justify-self: end; }
 .site-reader-bar span { font-size: 11px; }
-.site-reader-root { height: calc(100vh - 44px); }
+.site-reader-root { flex: 1 1 auto; height: auto; min-height: 0; }
 .reader-bar-actions { display: flex; gap: 14px; justify-self: end; }
 .reader-bar-actions button, .reader-bar-actions a { color: #bcd6f4; font-size: 12px; font-weight: 700; justify-self: auto; text-decoration: none; }
 .reader-bar-actions button:disabled { color: #6f8298; cursor: not-allowed; }
-.site-reader-status { align-items: center; background: #edf5ff; border-bottom: 1px solid #c9ddf5; color: #365a7a; display: flex; font-size: 12px; height: 32px; justify-content: center; padding: 0 18px; }
+.site-reader-status { align-items: center; background: #edf5ff; border-bottom: 1px solid #c9ddf5; color: #365a7a; display: flex; flex: 0 0 auto; font-size: 12px; justify-content: center; line-height: 1.45; min-height: 32px; padding: 7px 18px; text-align: center; }
 .site-reader-status.error { background: #fff0f0; border-color: #efc3c3; color: #9c3535; }
 .site-reader-status.ready { background: #edf9f3; border-color: #bee4cf; color: #18794e; }
-.site-reader-root.has-status { height: calc(100vh - 76px); }
+.site-reader-root.has-status { height: auto; }
 .p2md-site-startup-error .site-primary { margin-top: 16px; }
 
 @media (max-width: 900px) {
@@ -465,6 +465,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid #7eb5ff; outline-offs
 .repair-download-actions .site-primary { margin-top: 0; }
 .repair-download-actions .site-secondary { background: transparent; border-color: #55718f; color: #d9e8f8; }
 .repair-download-actions .site-secondary:hover { border-color: #89bbf5; color: #fff; }
+.repair-download-actions button:disabled { cursor: not-allowed; opacity: .55; }
+.repair-preview-boundary { color: #8fa6bd; font-size: 10px; line-height: 1.6; margin: 12px 0 0; }
+.repair-preview-status { border-left: 3px solid #89bbf5; color: #c8d9ea; font-size: 11px; line-height: 1.65; margin: 14px 0 0; padding-left: 12px; }
+.repair-preview-status.ready { border-color: #5dd69b; color: #9ae2bd; }
+.repair-preview-status.error { border-color: #ef8f8f; color: #ffc1c1; }
 .repair-contract { background: var(--site-pale); display: grid; gap: 70px; grid-template-columns: .85fr 1.15fr; margin: 0 auto 70px; max-width: 1180px; padding: 54px; }
 .repair-contract h2 { margin-bottom: 0; }
 .repair-contract > div:last-child { align-self: center; }
@@ -494,6 +499,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid #7eb5ff; outline-offs
   .repair-form, .repair-output { border-left: 0; border-right: 0; padding: 34px 20px; }
   .repair-file-field > span { align-items: flex-start; flex-direction: column; gap: 5px; }
   .repair-actions { align-items: stretch; flex-direction: column; }
+  .repair-download-actions { flex-direction: column; }
+  .repair-download-actions button { width: 100%; }
   .repair-contract { margin: 0; padding: 42px 24px; }
   .site-reader-bar { grid-template-columns: auto 1fr; }
   .site-reader-bar > span { display: none; }

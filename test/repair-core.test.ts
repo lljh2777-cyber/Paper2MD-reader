@@ -13,7 +13,11 @@ import {
   zipAfterMinerUPackage
 } from "../packages/repair-core/src/index";
 import { extractMinerUArchiveForReader } from "../src/model/mineru-archive";
-import { extractAfterMinerUArchiveBytes } from "../apps/web/src/after-mineru-archive-import";
+import {
+  extractAfterMinerUArchiveBytes,
+  importAfterMinerUArchiveBytes,
+  importAfterMinerUArchiveFile
+} from "../apps/web/src/after-mineru-archive-import";
 import { PackageLoader } from "../src/model/package-loader";
 import { MemoryReaderFileSystem } from "./memory-reader-file-system";
 
@@ -49,6 +53,16 @@ describe("After-MinerU repair-core", () => {
     const firstZip = await zipAfterMinerUPackage(first.files);
     const secondZip = await zipAfterMinerUPackage(second.files);
     const webImportedFiles = await extractAfterMinerUArchiveBytes(firstZip);
+    const firstZipBuffer = firstZip.buffer.slice(
+      firstZip.byteOffset,
+      firstZip.byteOffset + firstZip.byteLength
+    ) as ArrayBuffer;
+    const previewFileSystem = await importAfterMinerUArchiveFile(new File([
+      firstZipBuffer
+    ], "debyecalculator.after-mineru.zip", { type: "application/zip" }), {
+      expectedFileCount: first.files.size
+    });
+    const previewLoaded = await new PackageLoader(previewFileSystem).loadDetected();
 
     expect(sha256Bytes(firstZip)).toBe(sha256Bytes(secondZip));
     expect(firstZip).toEqual(secondZip);
@@ -64,6 +78,14 @@ describe("After-MinerU repair-core", () => {
     expect(zipView.getUint16(centralOffset + 12, true)).toBe(0);
     expect(zipView.getUint16(centralOffset + 14, true)).toBe(33);
     expect(webImportedFiles.size).toBe(first.files.size);
+    expect(previewLoaded.packageIntegrity).toBe("verified");
+    expect(previewLoaded.activeProjection?.kind).toBe("verified-derived");
+    expect(previewLoaded.visualReview).toBeUndefined();
+    expect(previewLoaded.textRecovery).toBeUndefined();
+    previewFileSystem.dispose();
+    await expect(importAfterMinerUArchiveBytes(firstZipBuffer, "debyecalculator.after-mineru.zip", {
+      expectedFileCount: first.files.size - 1
+    })).rejects.toThrow(/handoff declared/);
     expect(new Uint8Array(await webImportedFiles.get("source/mineru-original.mineru.zip")!.arrayBuffer()))
       .toEqual(sourceArchive);
     expect(first.files.get("source/mineru-original.mineru.zip")).toEqual(sourceArchive);

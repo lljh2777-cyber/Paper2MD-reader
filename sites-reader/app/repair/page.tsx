@@ -15,6 +15,11 @@ import {
   runBrowserRepair,
   type BrowserRepairResult
 } from "./repair-worker-client";
+import {
+  ReaderPreviewHandoffError,
+  REPAIR_READER_HANDOFF_LIMITS,
+  sendVerifiedPackageToReader
+} from "../../lib/repair-reader-preview";
 
 type RepairStatus = {
   tone: "working" | "error" | "ready" | "cancelled";
@@ -98,21 +103,37 @@ export default function RepairPage() {
   const [status, setStatus] = useState<RepairStatus | null>(null);
   const [progress, setProgress] = useState<RepairProgress | null>(null);
   const [busy, setBusy] = useState(false);
+  const [previewStatus, setPreviewStatus] = useState<RepairStatus | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const archiveInput = useRef<HTMLInputElement>(null);
   const pdfInput = useRef<HTMLInputElement>(null);
   const activeRepair = useRef<AbortController | null>(null);
+  const activePreview = useRef<AbortController | null>(null);
   const repairGeneration = useRef(0);
+  const previewGeneration = useRef(0);
 
   useEffect(() => () => {
     repairGeneration.current += 1;
+    previewGeneration.current += 1;
     activeRepair.current?.abort();
+    activePreview.current?.abort();
     activeRepair.current = null;
+    activePreview.current = null;
   }, []);
+
+  const resetPreviewHandoff = () => {
+    previewGeneration.current += 1;
+    activePreview.current?.abort();
+    activePreview.current = null;
+    setPreviewBusy(false);
+    setPreviewStatus(null);
+  };
 
   const clearSession = () => {
     repairGeneration.current += 1;
     activeRepair.current?.abort();
     activeRepair.current = null;
+    resetPreviewHandoff();
     setMineruArchive(null);
     setSourcePdf(null);
     setPrepared(null);
@@ -133,6 +154,7 @@ export default function RepairPage() {
       setStatus({ tone: "error", message: archiveError ?? pdfError! });
       return;
     }
+    resetPreviewHandoff();
     const generation = repairGeneration.current + 1;
     repairGeneration.current = generation;
     const controller = new AbortController();
@@ -187,6 +209,41 @@ export default function RepairPage() {
     setStatus({ tone: "cancelled", message: "本次修复已取消；源文件未被修改，也没有保留半成品。" });
   };
 
+  const previewInReader = () => {
+    if (!prepared || previewBusy) return;
+    const generation = previewGeneration.current + 1;
+    previewGeneration.current = generation;
+    const controller = new AbortController();
+    activePreview.current = controller;
+    setPreviewBusy(true);
+    setPreviewStatus({ tone: "working", message: "正在新标签页中交接并复验可验证论文包…" });
+    const output = prepared.outputs.verifiedPackage;
+    void sendVerifiedPackageToReader({
+      name: output.name,
+      bytes: output.bytes,
+      fileCount: output.fileCount
+    }, { signal: controller.signal })
+      .then(() => {
+        if (previewGeneration.current !== generation) return;
+        setPreviewStatus({
+          tone: "ready",
+          message: "Reader 已在新标签页完成验证与只读加载；文件仅保留在该标签页内存中，刷新或关闭后需重新打开。"
+        });
+      })
+      .catch((error: unknown) => {
+        if (previewGeneration.current !== generation) return;
+        const message = error instanceof ReaderPreviewHandoffError
+          ? error.message
+          : "Reader 预览交接失败；验证包仍可下载后手动打开。";
+        setPreviewStatus({ tone: "error", message });
+      })
+      .finally(() => {
+        if (previewGeneration.current !== generation) return;
+        activePreview.current = null;
+        setPreviewBusy(false);
+      });
+  };
+
   return (
     <main className="repair-page">
       <nav className="legal-nav repair-nav" aria-label="页面导航">
@@ -224,6 +281,7 @@ export default function RepairPage() {
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0] ?? null;
                 const error = file ? inputSizeError(file, "MinerU ZIP") : undefined;
+                resetPreviewHandoff();
                 setPrepared(null);
                 if (error) {
                   setMineruArchive(null);
@@ -248,6 +306,7 @@ export default function RepairPage() {
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0] ?? null;
                 const error = file ? inputSizeError(file, "源 PDF") : undefined;
+                resetPreviewHandoff();
                 setPrepared(null);
                 if (error) {
                   setSourcePdf(null);
@@ -325,8 +384,11 @@ export default function RepairPage() {
                   }}>下载通用 Markdown ZIP</button>
                 ) : null}
                 <button className="site-secondary" type="button" onClick={() => downloadBytes(prepared.outputs.verifiedPackage.bytes, prepared.outputs.verifiedPackage.name)}>下载可验证论文包</button>
+                <button className="site-secondary" type="button" disabled={previewBusy} onClick={previewInReader}>{previewBusy ? "正在打开 Reader…" : "在 Reader 中预览（新标签页） ↗"}</button>
                 <button className="site-secondary" type="button" onClick={() => downloadReport(prepared.report, prepared.outputs.verifiedPackage.name)}>下载报告 JSON</button>
               </div>
+              <p className="repair-preview-boundary">同源一次性内存交接 · 专用 Worker 复验并支持强取消 · 不上传、不写浏览器持久存储 · 在线预览上限 {Math.round(REPAIR_READER_HANDOFF_LIMITS.archiveBytes / 1024 / 1024)} MiB</p>
+              {previewStatus ? <p className={`repair-preview-status ${previewStatus.tone}`} role={previewStatus.tone === "error" ? "alert" : "status"}>{previewStatus.message}</p> : null}
             </>
           ) : (
             <ul>
