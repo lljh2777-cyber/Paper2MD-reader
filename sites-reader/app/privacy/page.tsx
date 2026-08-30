@@ -17,11 +17,12 @@ export default function PrivacyPage() {
         <header>
           <p className="site-kicker">Privacy Policy</p>
           <h1>隐私政策</h1>
-          <p>最后更新：2026 年 8 月 29 日</p>
+          <p>最后更新：2026 年 8 月 30 日</p>
         </header>
 
         <section>
           <h2>简明结论</h2>
+          <p>本政策涵盖 After‑MinerU 网页工作台，以及 Chrome Web Store 产品 ID 为 <code>bnbkbfepjoaidicdjcdmklofhnaleamm</code> 的 After‑MinerU Converter。它不涵盖功能更广的 Companion 开发者侧载版。</p>
           <p>你的 MinerU Token 会直接用于访问 MinerU API；你选择的 PDF 将直接上传至 MinerU 提供的存储地址，并由 MinerU 服务处理。转换结果随后从 MinerU/OpenXLab 下载。Paper2MD 不接收或保存 Token、PDF及转换结果。请勿上传包含机密、个人隐私或无权处理的文件。</p>
           <p>After‑MinerU 不提供云端论文库。Paper2MD 服务器不接收、托管或保存你在网页工作台或扩展中选择的论文、MinerU Token 或转换结果，也不使用广告、用户行为分析、数据销售或个性化推荐。</p>
           <p>Chrome 扩展会在你的设备内临时处理你主动提供的数据，并按下述边界直接发送给 MinerU 相关第三方。精准转换不是纯本地处理。</p>
@@ -76,7 +77,7 @@ export default function PrivacyPage() {
         <section lang="en">
           <h2>English privacy policy</h2>
           <p><b>Precision conversion notice.</b> Your MinerU Token is used directly to access the MinerU API. The PDF you select is uploaded directly to a storage address provided by MinerU and processed by MinerU. The conversion result is then downloaded from MinerU/OpenXLab. Paper2MD does not receive or retain the Token, PDF, or conversion result. Do not upload files that contain confidential or personal information, or that you are not authorized to process.</p>
-          <p><b>Scope and controller.</b> After‑MinerU covers the local web workbench and the After‑MinerU Converter Chrome extension. It does not operate a cloud paper library. Paper2MD servers do not receive, host, or retain PDFs, MinerU tokens, or result archives selected in these products.</p>
+          <p><b>Scope and controller.</b> After‑MinerU covers the local web workbench and the After‑MinerU Converter Chrome Web Store product with ID <code>bnbkbfepjoaidicdjcdmklofhnaleamm</code>. It does not cover the broader side-loaded Companion developer build and does not operate a cloud paper library. Paper2MD servers do not receive, host, or retain PDFs, MinerU tokens, or result archives selected in these products.</p>
           <p><b>Local web workbench.</b> Markdown, ZIP packages, directories, and local PDF projections are processed on the current device by default and are not written to IndexedDB, localStorage, cookies, or a Paper2MD backend. Results are downloaded or written only to a directory the user explicitly authorizes. Cloudflare, as the site hosting/CDN provider, may process standard HTTP metadata and use necessary security cookies such as <code>__cf_bm</code> for delivery, abuse prevention, and security.</p>
           <p><b>Extension data and recipients.</b> When the user explicitly starts precision conversion, the extension temporarily processes the filename, MinerU token, selected PDF, conversion options, and result ZIP on the user&apos;s device. The filename, token, and options go to MinerU / OpenDataLab at <code>mineru.net</code>; the PDF goes directly to the MinerU-provided signed Alibaba Cloud OSS address; the result ZIP comes from the MinerU-provided OpenXLab CDN address. Paper2MD servers receive none of these items.</p>
           <p><b>Permissions and retention.</b> The extension requests only the three disclosed optional HTTPS origins for the current task and attempts to remove them afterward. It does not request active-tab, content-script, history, cookie, clipboard, download-management, or persistent-storage permissions. The token stays only in live page memory and is cleared from the page on start, completion, cancellation, refresh, or close. The token itself remains valid until the user revokes it at MinerU. Cancellation cannot guarantee deletion of an already uploaded PDF or remote task; third-party retention is controlled by the respective provider.</p>

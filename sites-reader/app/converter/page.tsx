@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ProjectLinks } from "../project-links";
+import { CHROME_WEB_STORE_URL, ProjectLinks } from "../project-links";
 
 export const metadata: Metadata = {
   title: "After-MinerU Converter | Chrome 精准转换扩展",
@@ -21,10 +21,10 @@ export default function ConverterPage() {
           <p className="converter-lede">After‑MinerU Converter 只做一件事：使用你自己的 MinerU API 账户处理你明确选择的 PDF，在当前设备校验结果，并下载未经改写的 MinerU 原始 ZIP。</p>
           <p className="converter-disclosure">你的 MinerU Token 会直接用于访问 MinerU API；你选择的 PDF 将直接上传至 MinerU 提供的存储地址，并由 MinerU 服务处理。转换结果随后从 MinerU/OpenXLab 下载。Paper2MD 不接收或保存 Token、PDF及转换结果。请勿上传包含机密、个人隐私或无权处理的文件。</p>
           <div className="converter-actions">
-            <button className="site-disabled" type="button" disabled>Chrome Web Store 审核准备中</button>
+            <a className="site-primary" href={CHROME_WEB_STORE_URL} target="_blank" rel="noreferrer">添加至 Chrome <span aria-hidden="true">↗</span></a>
             <a href="https://mineru.net/apiManage/token" target="_blank" rel="noreferrer">管理 MinerU Token</a>
           </div>
-          <p className="converter-status"><span aria-hidden="true">●</span> 2026-08-29 已用无敏感 PDF 完成真实 MinerU 上传、处理、下载和本地 ZIP 校验；公开安装入口将在审核通过后开放。</p>
+          <p className="converter-status"><span aria-hidden="true">●</span> 0.2.0 已通过 Chrome Web Store 审核并公开发布；此前已用无敏感 PDF 完成真实 MinerU 上传、处理、下载和本地 ZIP 校验。</p>
         </div>
         <aside className="converter-flow" aria-label="精准转换数据流">
           <p><span>01</span><b>本地选择</b><small>扩展先检查 PDF 文件头和大小，不会自动上传。</small></p>

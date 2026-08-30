@@ -16,6 +16,13 @@ the broader unpacked `After-MinerU Companion` developer build.
 - Support: https://after-mineru.lljh2777.chatgpt.site/support
 - Public support channel: https://github.com/lljh2777-cyber/Paper2MD-reader/issues
 
+## Published release
+
+- Status: Publicly available after Chrome Web Store review
+- Published version: 0.2.0
+- Product ID: `bnbkbfepjoaidicdjcdmklofhnaleamm`
+- Store listing: https://chromewebstore.google.com/detail/bnbkbfepjoaidicdjcdmklofhnaleamm
+
 Do not upload `apps/clipper-extension/dist/`: that directory is the Companion
 developer build and intentionally has broader clipping and desktop-pairing
 capabilities.
@@ -96,12 +103,17 @@ The icon is independently designed and does not use the MinerU or OpenDataLab lo
 The listing and UI must keep the statement that this is an independent third-party
 tool with no affiliation or endorsement.
 
-## Final manual gates
+## Release and future-update gates
 
-1. Confirm the developer account has Google two-step verification enabled.
-2. Confirm the public support contact is present on both the support and privacy pages.
-3. Upload the verified Store ZIP and complete the Simplified Chinese listing/privacy fields. Do not add the English listing until the extension UI is fully localized.
-4. Add the dedicated reviewer credential or the no-credential explanation in
+Version 0.2.0 passed review and was published publicly on 2026-08-30. If a
+dedicated reviewer Token was supplied, revoke it after review.
+
+For each future update:
+
+1. Confirm the developer account still has Google two-step verification enabled.
+2. Confirm the public support contact remains present on both the support and privacy pages.
+3. Upload the newly verified Store ZIP and keep the listing/privacy fields aligned with its actual behavior. Do not add the English listing until the extension UI is fully localized.
+4. Add a dedicated reviewer credential or the no-credential explanation in
    the private Test instructions field.
 5. Review all permissions and data disclosures against the uploaded ZIP.
 6. Submit only after the user explicitly approves the final public listing.

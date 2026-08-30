@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ProjectLinks } from "../project-links";
+import { CHROME_WEB_STORE_URL, ProjectLinks } from "../project-links";
 
 export const metadata: Metadata = {
   title: "支持 | After-MinerU",
@@ -17,11 +17,12 @@ export default function SupportPage() {
         <header>
           <p className="site-kicker">Extension Support</p>
           <h1>扩展支持</h1>
-          <p>适用于 After‑MinerU Converter Chrome 商店版。</p>
+          <p>适用于 After‑MinerU Converter Chrome 商店版（产品 ID：<code>bnbkbfepjoaidicdjcdmklofhnaleamm</code>）。</p>
         </header>
 
         <section>
           <h2>开始转换</h2>
+          <p><a href={CHROME_WEB_STORE_URL} target="_blank" rel="noreferrer">从 Chrome 应用商店安装 After‑MinerU Converter</a>。安装后点击浏览器工具栏中的扩展图标即可打开精准转换页。</p>
           <p>上传前须知：你的 MinerU Token 会直接用于访问 MinerU API；你选择的 PDF 将直接上传至 MinerU 提供的存储地址，并由 MinerU 服务处理。转换结果随后从 MinerU/OpenXLab 下载。Paper2MD 不接收或保存 Token、PDF及转换结果。请勿上传包含机密、个人隐私或无权处理的文件。</p>
           <ol>
             <li>点击浏览器工具栏中的 After‑MinerU 图标，打开独立转换页。</li>

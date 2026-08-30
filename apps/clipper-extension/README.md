@@ -21,6 +21,10 @@ optional host permissions, bundled fflate code, icons, locales, and third-party
 notices. It does not contain web clipping, active-tab access, desktop pairing,
 persistent storage, or the Companion's pinned developer key.
 
+Version 0.2.0 is publicly available from the
+[Chrome Web Store](https://chromewebstore.google.com/detail/bnbkbfepjoaidicdjcdmklofhnaleamm).
+Its permanent extension ID is `bnbkbfepjoaidicdjcdmklofhnaleamm`.
+
 Deterministic Markdown/image localization rules live in `packages/clipper-core/`.
 This extension remains the browser adapter responsible for the active tab, publisher
 session and per-origin permission prompts. Its default Sites-only path builds a bounded

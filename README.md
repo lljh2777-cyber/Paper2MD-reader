@@ -84,6 +84,12 @@ the same browser-context extraction model as Obsidian Web Clipper: the extension
 reads the currently rendered paper page, uses Defuddle to extract Markdown and
 metadata, and localizes supported raster images with deterministic shared rules.
 
+The public [After-MinerU Converter — Unofficial](https://chromewebstore.google.com/detail/bnbkbfepjoaidicdjcdmklofhnaleamm)
+version 0.2.0 is a separate single-purpose Chrome Web Store build for explicit PDF
+conversion through the user's MinerU account. Its extension ID is
+`bnbkbfepjoaidicdjcdmklofhnaleamm`. The unpacked workflow below is the broader
+Companion developer build for webpage clipping and desktop pairing, not the Store build.
+
 ```powershell
 npm run clipper:build
 ```
