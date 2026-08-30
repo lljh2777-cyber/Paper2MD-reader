@@ -1,10 +1,17 @@
 import type { BrowserDirectoryReaderFileSystem } from "../../src/filesystem/browser-directory-reader-file-system";
+import type { AfterMinerUManifest } from "../../packages/after-mineru-contract/src/index";
 
 export interface StaticDemoAsset {
   path: string;
   size: number;
   sha256: string;
   mimeType: string;
+}
+
+export interface StaticDemoPackageAsset extends StaticDemoAsset {
+  downloadName: string;
+  fileCount: number;
+  contractVersion: "after-mineru-package-v1" | "paper2md-v0.1.3";
 }
 
 const root = "/demo/debyecalculator";
@@ -35,12 +42,24 @@ export const DEBYE_CALCULATOR_DEMO = Object.freeze({
     sha256: "1658f548c16e91a6048a8a8ef0706248ec258b15c6dc2ccb28070df2e0e34461",
     mimeType: "application/zip"
   },
-  derivedPackage: {
+  verifiedPackage: {
+    path: `${root}/after-mineru-package-v1-53c348ac86dfcd4af36f1abac73d8223389c583ffdae325cdb70205923965cbb.zip`,
+    size: 10_991_886,
+    sha256: "53c348ac86dfcd4af36f1abac73d8223389c583ffdae325cdb70205923965cbb",
+    mimeType: "application/zip",
+    downloadName: "debyecalculator.after-mineru.zip",
+    fileCount: 52,
+    contractVersion: "after-mineru-package-v1"
+  } satisfies StaticDemoPackageAsset,
+  legacyPackage: {
     path: `${root}/after-mineru.paper2md.zip`,
     size: 5_502_007,
     sha256: "7986728c9d9663ece480139eb13028b4b12e833c2b88010d8908ccb613065f2f",
-    mimeType: "application/zip"
-  },
+    mimeType: "application/zip",
+    downloadName: "debyecalculator.paper2md-v0.1.3.zip",
+    fileCount: 31,
+    contractVersion: "paper2md-v0.1.3"
+  } satisfies StaticDemoPackageAsset,
   sidecars: Object.freeze({
     viewerIndex: {
       path: `${root}/viewer-index.json`,
@@ -94,7 +113,8 @@ export const DEBYE_CALCULATOR_DEMO = Object.freeze({
 });
 
 export interface LoadedStaticMinerUDemo {
-  fileSystem: BrowserDirectoryReaderFileSystem;
+  createRawPreviewFileSystem(): BrowserDirectoryReaderFileSystem;
+  createReaderFileSystem(): BrowserDirectoryReaderFileSystem;
   rawArchive: File;
   rawMarkdown: string;
   rawFocusAssetPaths: string[];
@@ -148,14 +168,26 @@ async function fetchPinnedAsset(asset: StaticDemoAsset, signal: AbortSignal): Pr
   return bytes;
 }
 
-function asFile(bytes: Uint8Array, name: string, type: string): File {
-  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return new File([data], name, { type, lastModified: Date.UTC(2026, 7, 29) });
+async function fileBytes(file: File): Promise<Uint8Array> {
+  return new Uint8Array(await file.arrayBuffer());
 }
 
-function addDerivedFile(files: Map<string, File>, path: string, file: File): void {
-  if (files.has(path)) throw new Error(`MinerU 原始 ZIP 与派生路径冲突：${path}`);
-  files.set(path, file);
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+}
+
+function requireFile(files: ReadonlyMap<string, File>, path: string): File {
+  const file = files.get(path);
+  if (!file) throw new Error(`内置示例缺少契约绑定文件：${path}`);
+  return file;
+}
+
+async function assertPinnedFile(file: File, asset: StaticDemoAsset): Promise<Uint8Array> {
+  const bytes = await fileBytes(file);
+  if (bytes.byteLength !== asset.size || await digest(bytes) !== asset.sha256) {
+    throw new Error(`内置示例包中的文件未通过大小与 SHA-256 校验：${asset.path}`);
+  }
+  return bytes;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -216,45 +248,70 @@ function rawFragmentFocusPaths(viewerValue: unknown, repairValue: unknown, markd
 
 export async function loadStaticMinerUDemo(signal: AbortSignal): Promise<LoadedStaticMinerUDemo> {
   const sidecars = DEBYE_CALCULATOR_DEMO.sidecars;
-  const [
-    rawArchiveBytes,
-    sourcePdfBytes,
-    viewerBytes,
-    repairBytes,
-    candidatesBytes,
-    displayRepairBytes,
-    manifestBytes,
-    validationBytes,
-    provenanceBytes,
-    attributionBytes,
-    imports
-  ] = await Promise.all([
+  const [formalArchiveBytes, publicRawArchiveBytes, publicSourcePdfBytes, publicAttributionBytes, imports] = await Promise.all([
+    fetchPinnedAsset(DEBYE_CALCULATOR_DEMO.verifiedPackage, signal),
     fetchPinnedAsset(DEBYE_CALCULATOR_DEMO.rawArchive, signal),
     fetchPinnedAsset(DEBYE_CALCULATOR_DEMO.sourcePdf, signal),
-    fetchPinnedAsset(sidecars.viewerIndex, signal),
-    fetchPinnedAsset(sidecars.visualRepair, signal),
-    fetchPinnedAsset(sidecars.visualCandidates, signal),
-    fetchPinnedAsset(sidecars.displayRepair, signal),
-    fetchPinnedAsset(sidecars.manifest, signal),
-    fetchPinnedAsset(sidecars.validation, signal),
-    fetchPinnedAsset(sidecars.provenance, signal),
     fetchPinnedAsset(sidecars.attribution, signal),
     Promise.all([
+      import("../../apps/web/src/after-mineru-archive-import"),
       import("../../apps/web/src/mineru-archive-import"),
       import("../../src/filesystem/browser-directory-reader-file-system"),
       import("../../src/model/package-loader")
     ])
   ]);
   if (signal.aborted) throw new DOMException("Demo loading was aborted", "AbortError");
-  const [{ importMinerUArchiveFile }, { BrowserDirectoryReaderFileSystem }, { PackageLoader }] = imports;
+  const [
+    { extractAfterMinerUArchiveBytes },
+    { importMinerUArchiveFile },
+    { BrowserDirectoryReaderFileSystem },
+    { PackageLoader }
+  ] = imports;
   const decoder = new TextDecoder("utf-8", { fatal: true });
-  const validation = JSON.parse(decoder.decode(validationBytes)) as { display_repair?: UnknownRecord };
+  const packageFiles = await extractAfterMinerUArchiveBytes(formalArchiveBytes);
+  if (packageFiles.size !== DEBYE_CALCULATOR_DEMO.verifiedPackage.fileCount) {
+    throw new Error("内置示例包的文件数量与固定清单不一致；已安全停止。");
+  }
+  const manifest = JSON.parse(await requireFile(packageFiles, "after-mineru.manifest.json").text()) as AfterMinerUManifest;
+  if (manifest.schema_version !== DEBYE_CALCULATOR_DEMO.verifiedPackage.contractVersion) {
+    throw new Error("内置示例包的版本与固定契约不一致；已安全停止。");
+  }
+  const rawArchive = requireFile(packageFiles, manifest.source.archive_path);
+  const sourcePdf = requireFile(packageFiles, manifest.source.pdf_path ?? "");
+  const attribution = requireFile(packageFiles, "sidecars/ATTRIBUTION.md");
+  const attributionAlias = requireFile(packageFiles, "_source/ATTRIBUTION.md");
+  const [rawArchiveBytes, sourcePdfBytes, attributionBytes, attributionAliasBytes] = await Promise.all([
+    assertPinnedFile(rawArchive, DEBYE_CALCULATOR_DEMO.rawArchive),
+    assertPinnedFile(sourcePdf, DEBYE_CALCULATOR_DEMO.sourcePdf),
+    assertPinnedFile(attribution, sidecars.attribution),
+    fileBytes(attributionAlias)
+  ]);
+  if (
+    !sameBytes(rawArchiveBytes, publicRawArchiveBytes)
+    || !sameBytes(sourcePdfBytes, publicSourcePdfBytes)
+    || !sameBytes(attributionBytes, publicAttributionBytes)
+    || !sameBytes(attributionBytes, attributionAliasBytes)
+  ) throw new Error("内置示例包与公开源文件或署名副本不一致；已安全停止。");
+
+  const viewerFile = requireFile(packageFiles, manifest.sidecars.viewer_index_path);
+  const repairFile = requireFile(packageFiles, manifest.sidecars.visual_repair_path);
+  const displayRepairPath = manifest.sidecars.display_repair_path;
+  if (!displayRepairPath) throw new Error("内置示例包没有声明文字修复 sidecar；已安全停止。");
+  const displayRepairFile = requireFile(packageFiles, displayRepairPath);
+  const formalValidationFile = requireFile(packageFiles, manifest.sidecars.validation_path);
+  const [viewerBytes, repairBytes, displayRepairBytes, validationBytes] = await Promise.all([
+    assertPinnedFile(viewerFile, sidecars.viewerIndex),
+    assertPinnedFile(repairFile, sidecars.visualRepair),
+    assertPinnedFile(displayRepairFile, sidecars.displayRepair),
+    fileBytes(formalValidationFile)
+  ]);
+  const validation = JSON.parse(decoder.decode(validationBytes)) as { summary?: UnknownRecord };
   const displayRepair = JSON.parse(decoder.decode(displayRepairBytes)) as UnknownRecord;
   const displaySummary = record(displayRepair.summary);
   const articleRepairs = Number(displaySummary?.article_repair_count ?? 0);
   const captionRepairs = Number(displaySummary?.caption_repair_count ?? 0);
   const replacementCharactersRecovered = Number(displaySummary?.replacement_characters_before ?? 0);
-  const validationSummary = validation.display_repair;
+  const validationSummary = record(validation.summary);
   if (
     displayRepair.algorithm_version !== "source-pdf-exact-display-repair-v1"
     || record(record(displayRepair.inputs)?.source_pdf)?.sha256 !== DEBYE_CALCULATOR_DEMO.sourcePdf.sha256
@@ -263,31 +320,17 @@ export async function loadStaticMinerUDemo(signal: AbortSignal): Promise<LoadedS
     || articleRepairs !== 2
     || captionRepairs !== 2
     || replacementCharactersRecovered !== 33
-    || JSON.stringify(validationSummary) !== JSON.stringify(displaySummary)
+    || validationSummary?.repaired_visual_count !== 1
+    || validationSummary?.review_candidate_count !== 0
+    || validationSummary?.unresolved_text_replacement_count !== 0
   ) {
     throw new Error("内置示例的派生文字修复记录无效；已安全停止。");
   }
-  const rawArchive = asFile(
-    rawArchiveBytes,
-    "debyecalculator-2024.mineru.zip",
-    DEBYE_CALCULATOR_DEMO.rawArchive.mimeType
-  );
   const imported = await importMinerUArchiveFile(rawArchive, signal);
-  const files = new Map(imported.files);
-  addDerivedFile(files, "_source/mineru-original.mineru.zip", rawArchive);
-  addDerivedFile(files, "_source/ATTRIBUTION.md", asFile(attributionBytes, "ATTRIBUTION.md", sidecars.attribution.mimeType));
-  addDerivedFile(files, "_source/provenance.json", asFile(provenanceBytes, "provenance.json", sidecars.provenance.mimeType));
-  addDerivedFile(files, "_extraction/source.pdf", asFile(sourcePdfBytes, "source.pdf", DEBYE_CALCULATOR_DEMO.sourcePdf.mimeType));
-  addDerivedFile(files, "_extraction/viewer-index.json", asFile(viewerBytes, "viewer-index.json", sidecars.viewerIndex.mimeType));
-  addDerivedFile(files, "_extraction/visual-repair.json", asFile(repairBytes, "visual-repair.json", sidecars.visualRepair.mimeType));
-  addDerivedFile(files, "_extraction/visual-candidates.json", asFile(candidatesBytes, "visual-candidates.json", sidecars.visualCandidates.mimeType));
-  addDerivedFile(files, "_extraction/display-repair.json", asFile(displayRepairBytes, "display-repair.json", sidecars.displayRepair.mimeType));
-  addDerivedFile(files, "_extraction/manifest.json", asFile(manifestBytes, "manifest.json", sidecars.manifest.mimeType));
-  addDerivedFile(files, "_extraction/validation.json", asFile(validationBytes, "validation.json", sidecars.validation.mimeType));
-  const fileSystem = BrowserDirectoryReaderFileSystem.fromMinerUArchive(
-    "DebyeCalculator · JOSS 2024",
-    files,
-    {
+  if (signal.aborted) throw new DOMException("Demo loading was aborted", "AbortError");
+  const rawFiles = new Map(imported.files);
+  const formalFiles = new Map(packageFiles);
+  const rawSource = Object.freeze({
       format: "mineru-zip",
       sourceArchive: imported.sourceArchive,
       sourceRootPrefix: imported.rootPrefix,
@@ -297,23 +340,42 @@ export async function loadStaticMinerUDemo(signal: AbortSignal): Promise<LoadedS
       markdownCount: imported.markdownCount,
       jsonCount: imported.jsonCount,
       imageCount: imported.imageCount
-    }
+  } as const);
+  const createRawPreviewFileSystem = (): BrowserDirectoryReaderFileSystem => (
+    BrowserDirectoryReaderFileSystem.fromMinerUArchive(
+      "DebyeCalculator · MinerU 原始结果",
+      new Map(rawFiles),
+      rawSource
+    )
   );
+  const createReaderFileSystem = (): BrowserDirectoryReaderFileSystem => (
+    BrowserDirectoryReaderFileSystem.fromAfterMinerUArchive(
+      "DebyeCalculator · After-MinerU v1",
+      new Map(formalFiles)
+    )
+  );
+  const fileSystem = createReaderFileSystem();
+  let contentFileSystem: { dispose(): void } | undefined;
   try {
     const loaded = await new PackageLoader(fileSystem, {
-      legacyMinerUProjectionMode: "compatible",
+      legacyMinerUProjectionMode: "source-only",
       allowRuntimeTextRecovery: false
     }).loadDetected();
+    contentFileSystem = loaded.contentFileSystem;
     const repaired = loaded.assets.find((asset) => asset.memberAssetPaths?.length === 4);
-    const repairApplied = loaded.diagnostics.some((item) => item.code === "mineru-visual-repair-applied");
     if (
       loaded.packageIntegrity !== "verified"
-      || loaded.contractVersion !== "mineru-viewer-index-v1"
+      || loaded.contractVersion !== "after-mineru-package-v1"
+      || loaded.activeProjection?.kind !== "verified-derived"
+      || !loaded.articlePath.endsWith("derived/article.after-mineru.md")
       || loaded.sourcePdf?.path !== "_extraction/source.pdf"
-      || !repairApplied
+      || loaded.visualReview !== undefined
+      || loaded.textRecovery !== undefined
       || !repaired
+      || !loaded.diagnostics.some((item) => item.code === "after-mineru-derived-projection-verified")
+      || loaded.diagnostics.some((item) => item.code.startsWith("mineru-"))
     ) {
-      throw new Error("内置示例未通过完整性或确定性修复验收；已安全停止。");
+      throw new Error("内置示例未通过 formal v1 只读 Reader 验收；已安全停止。");
     }
     const article = imported.files.get(imported.articlePath);
     if (!article) throw new Error("MinerU 原始 Markdown 不存在；已安全停止。");
@@ -327,10 +389,10 @@ export async function loadStaticMinerUDemo(signal: AbortSignal): Promise<LoadedS
       [...rawMarkdown].filter((character) => character === "�").length !== 33
       || loaded.articleText.includes("�")
       || loaded.assets.some((asset) => asset.captionText?.includes("�"))
-      || !loaded.diagnostics.some((item) => item.code === "mineru-display-repair-verified")
     ) throw new Error("内置示例的原始/派生文字边界未通过验收；已安全停止。");
     return {
-      fileSystem,
+      createRawPreviewFileSystem,
+      createReaderFileSystem,
       rawArchive,
       rawMarkdown,
       rawFocusAssetPaths,
@@ -350,7 +412,9 @@ export async function loadStaticMinerUDemo(signal: AbortSignal): Promise<LoadedS
       }
     };
   } catch (error) {
-    fileSystem.dispose();
     throw error;
+  } finally {
+    if (contentFileSystem && contentFileSystem !== fileSystem) contentFileSystem.dispose();
+    fileSystem.dispose();
   }
 }

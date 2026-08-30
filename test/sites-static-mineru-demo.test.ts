@@ -6,7 +6,24 @@ import { BrowserDirectoryReaderFileSystem } from "../src/filesystem/browser-dire
 import { extractClippingArchiveBytes } from "../src/model/clipping-archive";
 import { extractMinerUArchiveForReader } from "../src/model/mineru-archive";
 import { PackageLoader } from "../src/model/package-loader";
+import {
+  AFTER_MINERU_PACKAGE_LIMITS,
+  extractValidatedZipEntries,
+  isSafeAfterMinerUPath,
+  mapAfterMinerUPackageReader,
+  validateAfterMinerUPackage
+} from "../packages/after-mineru-contract/src/index";
+import { buildAfterMinerUArchive } from "../packages/repair-core/src/repair-package";
 import { DEBYE_CALCULATOR_DEMO, type StaticDemoAsset } from "../sites-reader/lib/static-mineru-demo";
+
+const formalArchiveLimits = Object.freeze({
+  archiveBytes: AFTER_MINERU_PACKAGE_LIMITS.compressedArchiveBytes,
+  fileCount: AFTER_MINERU_PACKAGE_LIMITS.archiveFileCount,
+  fileBytes: AFTER_MINERU_PACKAGE_LIMITS.fileBytes,
+  totalBytes: AFTER_MINERU_PACKAGE_LIMITS.totalBytes,
+  compressionRatio: AFTER_MINERU_PACKAGE_LIMITS.compressionRatio,
+  pathDepth: AFTER_MINERU_PACKAGE_LIMITS.pathDepth
+});
 
 const demoRoot = resolve(import.meta.dirname, "..", "sites-reader", "public", "demo", "debyecalculator");
 
@@ -33,7 +50,8 @@ describe("Sites real MinerU demo", () => {
       DEBYE_CALCULATOR_DEMO.sourcePdf,
       DEBYE_CALCULATOR_DEMO.sourcePreview,
       DEBYE_CALCULATOR_DEMO.rawArchive,
-      DEBYE_CALCULATOR_DEMO.derivedPackage,
+      DEBYE_CALCULATOR_DEMO.verifiedPackage,
+      DEBYE_CALCULATOR_DEMO.legacyPackage,
       ...Object.values(DEBYE_CALCULATOR_DEMO.sidecars)
     ];
     for (const asset of assets) {
@@ -41,6 +59,9 @@ describe("Sites real MinerU demo", () => {
       expect(bytes.byteLength, asset.path).toBe(asset.size);
       expect(sha256(bytes), asset.path).toBe(asset.sha256);
     }
+    expect(filename(DEBYE_CALCULATOR_DEMO.verifiedPackage)).toBe(
+      `after-mineru-package-v1-${DEBYE_CALCULATOR_DEMO.verifiedPackage.sha256}.zip`
+    );
     const attribution = await readFile(resolve(demoRoot, "ATTRIBUTION.md"), "utf8");
     expect(attribution).toContain("CC BY 4.0");
     expect(attribution).toContain("10.21105/joss.06024");
@@ -105,8 +126,104 @@ describe("Sites real MinerU demo", () => {
     expect(new Set(focusPaths).size).toBe(4);
   });
 
+  it("rebuilds and opens the pinned formal v1 package as a strict verified-derived Reader projection", async () => {
+    const [packageBytes, rawArchive, sourcePdf, displayRepair, attribution] = await Promise.all([
+      assetBytes(DEBYE_CALCULATOR_DEMO.verifiedPackage),
+      assetBytes(DEBYE_CALCULATOR_DEMO.rawArchive),
+      assetBytes(DEBYE_CALCULATOR_DEMO.sourcePdf),
+      assetBytes(DEBYE_CALCULATOR_DEMO.sidecars.displayRepair),
+      assetBytes(DEBYE_CALCULATOR_DEMO.sidecars.attribution)
+    ]);
+    expect(packageBytes.byteLength).toBeLessThan(25 * 1024 * 1024);
+    const extracted = extractValidatedZipEntries(
+      packageBytes,
+      formalArchiveLimits,
+      isSafeAfterMinerUPath,
+      { allowDirectoryEntries: false }
+    );
+    expect(extracted.size).toBe(DEBYE_CALCULATOR_DEMO.verifiedPackage.fileCount);
+    const verified = await validateAfterMinerUPackage(mapAfterMinerUPackageReader(extracted));
+    expect(verified.manifest.schema_version).toBe("after-mineru-package-v1");
+    expect(verified.validation.status).toBe("passed");
+    expect(verified.validation.summary).toMatchObject({
+      repaired_visual_count: 1,
+      review_candidate_count: 0,
+      unresolved_text_replacement_count: 0
+    });
+    expect(extracted.get(verified.manifest.source.archive_path)).toEqual(new Uint8Array(rawArchive));
+    expect(extracted.get(verified.manifest.source.pdf_path!)).toEqual(new Uint8Array(sourcePdf));
+    expect(extracted.get("sidecars/ATTRIBUTION.md")).toEqual(new Uint8Array(attribution));
+    expect(extracted.get("_source/ATTRIBUTION.md")).toEqual(new Uint8Array(attribution));
+    expect(verified.manifest.sidecars.files).toContainEqual({
+      path: "sidecars/ATTRIBUTION.md",
+      size: attribution.byteLength,
+      sha256: DEBYE_CALCULATOR_DEMO.sidecars.attribution.sha256
+    });
+
+    const raw = extractMinerUArchiveForReader(rawArchive);
+    expect([...new TextDecoder().decode(raw.files.get(raw.articlePath)!)].filter((character) => character === "�"))
+      .toHaveLength(33);
+    const origin = [...raw.files].find(([path]) => /_origin\.pdf$/i.test(path));
+    expect(origin).toBeDefined();
+    expect(sha256(origin![1])).toBe("965c7c589d2eaa5622e6d5b78ef34fa0aa015e35a6b025ad605cb7199a972602");
+    expect(origin![1]).not.toEqual(sourcePdf);
+
+    const files = new Map([...extracted].map(([path, bytes]) => [path, asFile(path, bytes)]));
+    const fileSystem = BrowserDirectoryReaderFileSystem.fromAfterMinerUArchive(
+      "DebyeCalculator formal v1",
+      files
+    );
+    let contentFileSystem: { dispose(): void } | undefined;
+    try {
+      const loaded = await new PackageLoader(fileSystem, {
+        legacyMinerUProjectionMode: "source-only",
+        allowRuntimeTextRecovery: false
+      }).loadDetected();
+      contentFileSystem = loaded.contentFileSystem;
+      expect(loaded).toMatchObject({
+        sourceFormat: "mineru",
+        state: "mineru",
+        packageIntegrity: "verified",
+        contractVersion: "after-mineru-package-v1",
+        activeProjection: { kind: "verified-derived" },
+        sourcePdf: { path: "_extraction/source.pdf" }
+      });
+      expect(loaded.articlePath).toMatch(/derived\/article\.after-mineru\.md$/);
+      expect(loaded.sourceArticle?.path).toMatch(/source\/full\.md$/);
+      expect(loaded.articleText).not.toContain("�");
+      expect(loaded.assets).toHaveLength(3);
+      expect(loaded.assets).toContainEqual(expect.objectContaining({
+        memberAssetPaths: expect.arrayContaining([
+          "images/d1b774fd69b46553ec459ec80c9495cd6f43bc1bfe968d054cb4d9917db268cc.jpg",
+          "images/ee3cee50e4c8f67f62c327bd37f1e1d36bdd3526660d2a9fc8be0635d514f805.jpg",
+          "images/f6aae6ebac53f6ab69f1904b99f44fe7c723a069694d1168a66d3177de3fe101.jpg",
+          "images/fc338a26fd8ee343a26cf83a1787661e3b08bf702933a6d3ba6888a928a4ed02.jpg"
+        ])
+      }));
+      expect(loaded.visualReview).toBeUndefined();
+      expect(loaded.textRecovery).toBeUndefined();
+      expect(loaded.diagnostics.map(({ code }) => code)).toEqual([
+        "after-mineru-derived-projection-verified"
+      ]);
+    } finally {
+      if (contentFileSystem && contentFileSystem !== fileSystem) contentFileSystem.dispose();
+      fileSystem.dispose();
+    }
+
+    const rebuilt = await buildAfterMinerUArchive({
+      archiveBytes: rawArchive,
+      archiveName: "debyecalculator.mineru.zip",
+      sourcePdf: { bytes: sourcePdf, name: "source.pdf" },
+      displayRepair: { bytes: displayRepair, name: "display-repair.json" },
+      attribution: { bytes: attribution }
+    });
+    expect(rebuilt.files.size).toBe(DEBYE_CALCULATOR_DEMO.verifiedPackage.fileCount);
+    expect(rebuilt.archiveBytes).toEqual(new Uint8Array(packageBytes));
+    expect(sha256(rebuilt.archiveBytes)).toBe(DEBYE_CALCULATOR_DEMO.verifiedPackage.sha256);
+  }, 180_000);
+
   it("fails closed when the manifest-bound display repair sidecar is stale", async () => {
-    const packageBytes = await assetBytes(DEBYE_CALCULATOR_DEMO.derivedPackage);
+    const packageBytes = await assetBytes(DEBYE_CALCULATOR_DEMO.legacyPackage);
     const files = extractClippingArchiveBytes(packageBytes);
     const original = files.get("_extraction/display-repair.json")!;
     const bytes = new Uint8Array(await original.arrayBuffer());
@@ -146,7 +263,7 @@ describe("Sites real MinerU demo", () => {
 
   it("loads the downloadable package only after manifest and deterministic repair verification", async () => {
     const [packageBytes, rawArchive, sourcePdf] = await Promise.all([
-      assetBytes(DEBYE_CALCULATOR_DEMO.derivedPackage),
+      assetBytes(DEBYE_CALCULATOR_DEMO.legacyPackage),
       assetBytes(DEBYE_CALCULATOR_DEMO.rawArchive),
       assetBytes(DEBYE_CALCULATOR_DEMO.sourcePdf)
     ]);

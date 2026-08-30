@@ -34,7 +34,7 @@ function megabytes(bytes: number): string {
 async function focusRawFragments(
   container: HTMLElement,
   assetPaths: readonly string[],
-  options: { focus?: boolean } = {}
+  options: { focus?: boolean; isCurrent?: () => boolean } = {}
 ): Promise<boolean> {
   container.querySelectorAll<HTMLElement>(".demo-raw-fragment").forEach((element) => {
     element.classList.remove("demo-raw-fragment");
@@ -54,6 +54,7 @@ async function focusRawFragments(
     Promise.all(images.map((image) => image.decode().catch(() => undefined))),
     new Promise<void>((resolve) => setTimeout(resolve, 4_000))
   ]);
+  if (options.isCurrent && !options.isCurrent()) return false;
   targets.forEach((image, index) => {
     const target = image!.closest<HTMLElement>("p") ?? image!;
     target.classList.add("demo-raw-fragment");
@@ -86,69 +87,105 @@ export default function DebyeCalculatorDemoPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    let loaded: LoadedStaticMinerUDemo | undefined;
+    let cancelled = false;
     void loadStaticMinerUDemo(controller.signal)
       .then((value) => {
-        loaded = value;
-        setDemo(value);
+        if (!cancelled) setDemo(value);
       })
       .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        if (cancelled || controller.signal.aborted) return;
         setError(reason instanceof Error ? reason.message : String(reason));
       });
     return () => {
+      cancelled = true;
       controller.abort();
-      loaded?.fileSystem.dispose();
     };
   }, []);
 
   useEffect(() => {
     if (stage !== "repaired" || !demo || !readerRoot.current) return;
     let cancelled = false;
-    let dispose: (() => void) | undefined;
+    let mounted: { ready: Promise<void>; dispose(): void } | undefined;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      mounted?.dispose();
+    };
     setReaderError(null);
     void import("../../../../local-reader/main")
-      .then(({ mountLocalReader }) => {
+      .then(async ({ mountLocalReaderWithReady }) => {
         if (cancelled || !readerRoot.current) return;
-        dispose = mountLocalReader(readerRoot.current, {
-          initialFileSystem: demo.fileSystem,
-          capabilityProfile: "legacy-v0.1.3",
-          visualReviewMode: "disabled",
-          allowPdfProjection: false,
-          allowDirectPdfOpen: true,
-          allowRuntimeTextRecovery: false,
-          enableWebMcp: false,
-          enableProcessingApi: false,
-          persistPaperState: false
-        });
+        const fileSystem = demo.createReaderFileSystem();
+        try {
+          mounted = mountLocalReaderWithReady(readerRoot.current, {
+            initialFileSystem: fileSystem,
+            capabilityProfile: "strict-readonly",
+            visualReviewMode: "disabled",
+            allowPdfProjection: false,
+            allowDirectPdfOpen: true,
+            allowRuntimeTextRecovery: false,
+            enableWebMcp: false,
+            enableProcessingApi: false,
+            persistPaperState: false
+          });
+        } catch (reason) {
+          fileSystem.dispose();
+          throw reason;
+        }
+        await mounted.ready;
+        if (cancelled) release();
       })
       .catch((reason: unknown) => {
-        setReaderError(reason instanceof Error ? reason.message : String(reason));
+        release();
+        if (!cancelled) setReaderError(reason instanceof Error ? reason.message : String(reason));
       });
     return () => {
       cancelled = true;
-      dispose?.();
+      release();
     };
   }, [demo, stage]);
 
   useEffect(() => {
     if (stage !== "mineru" || rawView !== "preview" || !demo || !rawPreviewRoot.current) return;
     let cancelled = false;
+    let finished = false;
+    let retainFileSystem = false;
+    let disposed = false;
     const root = rawPreviewRoot.current;
+    const staging = document.createElement("div");
+    const fileSystem = demo.createRawPreviewFileSystem();
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      fileSystem.dispose();
+    };
+    root.replaceChildren();
     setRawPreviewError(null);
-    void import("katex/dist/katex.min.css")
-      .then(() => renderLocalArticle(demo.rawMarkdown, root, demo.fileSystem, false))
+    const renderTask = import("katex/dist/katex.min.css")
+      .then(() => renderLocalArticle(demo.rawMarkdown, staging, fileSystem, false))
       .then(async () => {
         if (cancelled) return;
-        const focused = await focusRawFragments(root, demo.rawFocusAssetPaths);
+        root.replaceChildren(...staging.childNodes);
+        const focused = await focusRawFragments(root, demo.rawFocusAssetPaths, {
+          isCurrent: () => !cancelled
+        });
         if (!cancelled && focused) setRawFocusStatus("已定位到 MinerU 碎图 1 / 4，共 4 张。");
         if (!cancelled && !focused) setRawPreviewError("四张碎图的原始 Markdown 锚点未能唯一定位；已停止自动跳转。");
+        if (!cancelled) retainFileSystem = true;
       })
       .catch((reason: unknown) => {
         if (!cancelled) setRawPreviewError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        finished = true;
+        if (cancelled || !retainFileSystem) dispose();
       });
     return () => {
       cancelled = true;
+      root.replaceChildren();
+      if (finished) dispose();
+      else void renderTask.finally(dispose);
     };
   }, [demo, rawView, stage]);
 
@@ -323,8 +360,9 @@ export default function DebyeCalculatorDemoPage() {
               <p className="demo-warning">Reader 展示的是派生 Markdown 与视觉投影，不会回写原始 <code>{demo.articlePath}</code>。两处正文和 Figure 2、Figure 3 图注只在源 PDF、原文哈希、区块 ID 与原始文字全部精确匹配时恢复；其他识别或拼写错误仍保留，便于对照。</p>
               {readerError ? <div className="demo-reader-error" role="alert">Reader 未能启动：{readerError}</div> : <div ref={readerRoot} className="demo-reader-mount" aria-label="After-MinerU 派生 Reader" />}
               <div className="demo-actions demo-package-actions">
-                <a className="site-primary" href={DEBYE_CALCULATOR_DEMO.derivedPackage.path} download>下载可验证论文包</a>
-                <span>包含原 PDF、原 MinerU ZIP/输出与派生 sidecar；不把显示投影冒充源 Markdown。</span>
+                <a className="site-primary" href={DEBYE_CALCULATOR_DEMO.verifiedPackage.path} download={DEBYE_CALCULATOR_DEMO.verifiedPackage.downloadName}>下载 formal v1 可验证论文包</a>
+                <a href={DEBYE_CALCULATOR_DEMO.legacyPackage.path} download={DEBYE_CALCULATOR_DEMO.legacyPackage.downloadName}>下载 v0.1.3 兼容包</a>
+                <span>formal v1 包含不可变原 PDF、原 MinerU ZIP/输出、派生 Markdown 与哈希绑定 sidecar；不把显示投影冒充源 Markdown。</span>
               </div>
             </div>
           ) : null}

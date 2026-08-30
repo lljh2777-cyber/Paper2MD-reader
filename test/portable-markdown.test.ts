@@ -15,8 +15,11 @@ import {
 } from "../packages/after-mineru-contract/src/index";
 import {
   AFTER_MINERU_PORTABLE_ARTICLE_PATH,
+  AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH,
+  AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION,
   AFTER_MINERU_PORTABLE_LIMITS,
   AFTER_MINERU_PORTABLE_MANIFEST_PATH,
+  AFTER_MINERU_PORTABLE_VERSION,
   buildPortableMarkdownExport,
   validatePortableMarkdownExport
 } from "../packages/repair-core/src/portable-markdown";
@@ -113,6 +116,10 @@ describe("portable After-MinerU Markdown export", () => {
     });
 
     expect(first.archiveName).toBe("debyecalculator.after-mineru-markdown.zip");
+    expect(first.manifest).toMatchObject({
+      schema_version: 1,
+      contract: AFTER_MINERU_PORTABLE_VERSION
+    });
     expect(first.manifest.representation).toBe("source-assets-fallback");
     expect(first.manifest.warnings).toEqual([
       { code: "pdf-crop-not-materialized", count: 1 }
@@ -140,6 +147,49 @@ describe("portable After-MinerU Markdown export", () => {
     expect(sha256Bytes(second.archiveBytes)).toBe(sha256Bytes(first.archiveBytes));
     expect(second.manifest).toEqual(first.manifest);
   }, 90_000);
+
+  it("reserves exactly one v2 inventory slot for attribution", () => {
+    const buildBoundaryFiles = (assetCount: number): Map<string, Uint8Array> => {
+      const assetBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      const assetPaths = Array.from({ length: assetCount }, (_, index) => (
+        `images/asset-${String(index).padStart(3, "0")}.png`
+      ));
+      const articleBytes = new TextEncoder().encode(
+        `# Portable boundary\n\n${assetPaths.map((path) => `![](${path})`).join("\n")}\n`
+      );
+      const attributionBytes = new TextEncoder().encode("# Attribution\n");
+      const manifest = {
+        schema_version: 2,
+        contract: AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION,
+        algorithm_version: "boundary-test-v1",
+        source_archive_sha256: "00".repeat(32),
+        representation: "portable-derived",
+        article: fileRecord(AFTER_MINERU_PORTABLE_ARTICLE_PATH, articleBytes),
+        assets: assetPaths.map((path) => fileRecord(path, assetBytes)),
+        attribution: fileRecord(AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH, attributionBytes),
+        warnings: []
+      };
+      return new Map<string, Uint8Array>([
+        [AFTER_MINERU_PORTABLE_MANIFEST_PATH, jsonBytes(manifest)],
+        [AFTER_MINERU_PORTABLE_ARTICLE_PATH, articleBytes],
+        ...assetPaths.map((path): [string, Uint8Array] => [path, assetBytes]),
+        [AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH, attributionBytes]
+      ]);
+    };
+
+    const maximum = buildBoundaryFiles(AFTER_MINERU_PORTABLE_LIMITS.fileCount - 3);
+    expect(maximum.size).toBe(AFTER_MINERU_PORTABLE_LIMITS.fileCount);
+    const maximumManifest = validatePortableMarkdownExport(maximum);
+    expect(maximumManifest).toMatchObject({
+      schema_version: 2,
+      contract: AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION
+    });
+    expect(maximumManifest.assets).toHaveLength(AFTER_MINERU_PORTABLE_LIMITS.fileCount - 3);
+
+    const overflow = buildBoundaryFiles(AFTER_MINERU_PORTABLE_LIMITS.fileCount - 2);
+    expect(overflow.size).toBe(AFTER_MINERU_PORTABLE_LIMITS.fileCount + 1);
+    expect(() => validatePortableMarkdownExport(overflow)).toThrow(/unsupported|limit|inventory/i);
+  });
 
   it("rejects unsafe image paths and Reader-only slots with stable unavailable reasons", async () => {
     const traversal = await withDerivedArticle(repaired, "# Unsafe\n\n![outside](../outside.png)\n");

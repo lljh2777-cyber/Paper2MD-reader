@@ -33,6 +33,7 @@
     "desktop:dist": "npm run desktop:build && npm run desktop:verify && electron-builder --config apps/desktop/electron-builder.cjs --win nsis portable --x64 && node apps/desktop/verify-release.mjs artifacts",
     "desktop:start": "electron apps/desktop",
     "desktop:dev": "npm run desktop:build && electron apps/desktop",
+    "demo:formal:build": "node scripts/build-formal-mineru-demo.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "preview": "vite --host 127.0.0.1"

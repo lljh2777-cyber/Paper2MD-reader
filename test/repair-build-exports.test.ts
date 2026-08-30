@@ -12,6 +12,8 @@ import {
   validateAfterMinerUPackage
 } from "../packages/after-mineru-contract/src/index";
 import {
+  AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH,
+  AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION,
   AFTER_MINERU_PORTABLE_LIMITS,
   buildAfterMinerUExports,
   RepairExecutionCancelledError,
@@ -26,6 +28,13 @@ const rawArchivePath = resolve(
   "demo",
   "debyecalculator",
   "mineru-original.mineru.zip"
+);
+const attributionPath = resolve(
+  "sites-reader",
+  "public",
+  "demo",
+  "debyecalculator",
+  "ATTRIBUTION.md"
 );
 
 const verifiedArchiveLimits: Readonly<SafeZipArchiveLimits> = Object.freeze({
@@ -64,16 +73,23 @@ function archiveWithReaderOnlySlot(sourceArchive: Uint8Array): Uint8Array {
 
 describe("After-MinerU dual export pipeline", () => {
   let sourceArchive: Uint8Array;
+  let attribution: Uint8Array;
 
   beforeAll(async () => {
-    sourceArchive = new Uint8Array(await readFile(rawArchivePath));
+    const [archiveBytes, attributionBytes] = await Promise.all([
+      readFile(rawArchivePath),
+      readFile(attributionPath)
+    ]);
+    sourceArchive = new Uint8Array(archiveBytes);
+    attribution = new Uint8Array(attributionBytes);
   });
 
   it("emits deterministic verified and portable Debye archives with complete monotonic progress", async () => {
     const progress: RepairProgress[] = [];
     const input = {
       archiveBytes: sourceArchive,
-      archiveName: "debyecalculator.mineru.zip"
+      archiveName: "debyecalculator.mineru.zip",
+      attribution: { bytes: attribution }
     };
 
     const first = await buildAfterMinerUExports(input, {
@@ -114,6 +130,24 @@ describe("After-MinerU dual export pipeline", () => {
       { allowDirectoryEntries: false }
     );
     expect(validatePortableMarkdownExport(portableFiles)).toEqual(first.portableMarkdown.output.manifest);
+    expect(first.portableMarkdown.output.manifest).toMatchObject({
+      schema_version: 2,
+      contract: AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION
+    });
+    expect(portableFiles.get(AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH)).toEqual(attribution);
+    expect(first.portableMarkdown.output.manifest.attribution).toEqual({
+      path: AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH,
+      size: attribution.byteLength,
+      sha256: sha256Bytes(attribution)
+    });
+    const tamperedAttribution = new Map(portableFiles);
+    const changedAttribution = tamperedAttribution.get(AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH)!.slice();
+    changedAttribution[0] = changedAttribution[0]! ^ 1;
+    tamperedAttribution.set(AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH, changedAttribution);
+    expect(() => validatePortableMarkdownExport(tamperedAttribution)).toThrow(/does not match its manifest/);
+    const missingAttribution = new Map(portableFiles);
+    missingAttribution.delete(AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH);
+    expect(() => validatePortableMarkdownExport(missingAttribution)).toThrow(/inventory is not exact/);
 
     expect(second.verifiedPackage.archiveBytes).toEqual(first.verifiedPackage.archiveBytes);
     expect(sha256Bytes(second.verifiedPackage.archiveBytes)).toBe(

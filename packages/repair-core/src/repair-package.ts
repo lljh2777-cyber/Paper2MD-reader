@@ -1,5 +1,7 @@
 import { zipSync, type Zippable } from "fflate";
 import {
+  AFTER_MINERU_ATTRIBUTION_ALIAS_PATH,
+  AFTER_MINERU_ATTRIBUTION_PATH,
   AFTER_MINERU_MANIFEST_PATH,
   AFTER_MINERU_PACKAGE_LIMITS,
   AFTER_MINERU_PACKAGE_VERSION,
@@ -82,11 +84,17 @@ export interface RepairDisplayRepair {
   name?: string;
 }
 
+export interface RepairAttribution {
+  /** Manifest-bound attribution or licensing Markdown supplied by the caller. */
+  bytes: Uint8Array;
+}
+
 export interface RepairMinerUArchiveInput {
   archiveBytes: Uint8Array;
   archiveName?: string;
   sourcePdf?: RepairSourcePdf;
   displayRepair?: RepairDisplayRepair;
+  attribution?: RepairAttribution;
 }
 
 export interface RepairMinerUArchiveSummary {
@@ -356,9 +364,11 @@ function compatibilityManifest(input: {
   repair: AfterMinerUCompatibilityAlias;
   candidates: AfterMinerUCompatibilityAlias;
   display?: AfterMinerUCompatibilityAlias;
+  attribution?: AfterMinerUCompatibilityAlias;
 }): UnknownRecord {
   const derivedContracts = [input.viewer, input.repair, input.candidates];
   if (input.display) derivedContracts.push(input.display);
+  if (input.attribution) derivedContracts.push(input.attribution);
   const derivedPaths = new Set(derivedContracts.map((entry) => entry.path));
   const outputs = input.aliases
     .filter((entry) => !derivedPaths.has(entry.path))
@@ -439,6 +449,13 @@ async function runRepairMinerUArchive(
   input: RepairMinerUArchiveInput,
   options?: RepairExecutionOptions
 ): Promise<RepairMinerUArchiveResult> {
+  const attributionByteLength = input.attribution?.bytes.byteLength;
+  if (attributionByteLength !== undefined && (
+    attributionByteLength < 1
+    || attributionByteLength > AFTER_MINERU_PACKAGE_LIMITS.attributionBytes
+  )) {
+    throw new Error("Attribution is empty or outside the safe metadata size limit");
+  }
   // Snapshot caller-owned buffers before parsing or reaching the first await.
   // The generated hashes, source tree, and exported bytes must all describe
   // one immutable input observation.
@@ -449,6 +466,15 @@ async function runRepairMinerUArchive(
   const displayRepairInput = input.displayRepair
     ? { bytes: input.displayRepair.bytes.slice(), name: input.displayRepair.name }
     : undefined;
+  const attributionInput = input.attribution
+    ? { bytes: input.attribution.bytes.slice() }
+    : undefined;
+  if (attributionInput) {
+    const attributionText = decodeUtf8(attributionInput.bytes, "attribution");
+    if (!attributionText.trim() || attributionText.includes("\0")) {
+      throw new Error("Attribution must be non-empty UTF-8 Markdown without null bytes");
+    }
+  }
   const archiveName = input.archiveName;
   emitProgress(options, "inspect-source", 5);
   const extraction = extractMinerUArchiveForReader(archiveBytes, MINERU_ARCHIVE_READER_LIMITS);
@@ -482,7 +508,6 @@ async function runRepairMinerUArchive(
   )) {
     throw new Error("Display repair is outside the safe sidecar size limit");
   }
-
   emitProgress(options, "analyze-visuals", 34);
   const markdownImages = extractMarkdownImageOccurrences(sourceArticle);
   const viewerIndex = buildMineruViewerIndex(
@@ -639,6 +664,9 @@ async function runRepairMinerUArchive(
       "Reader projection activation requires complete manifest, size, path, and SHA-256 verification.",
       ...(displayRepairPlan ? [
         "The materialized display repair was rebound to exact source text, Viewer blocks, and a byte-verified source PDF."
+      ] : []),
+      ...(attributionInput ? [
+        "Attribution metadata is stored as a separately manifest-bound sidecar and is not presented as MinerU source content."
       ] : [])
     ]
   };
@@ -684,6 +712,7 @@ async function runRepairMinerUArchive(
   if (displayRepairContract !== undefined) sidecarValues.push([DISPLAY_REPAIR_PATH, displayRepairContract]);
   emitProgress(options, "bind-package", 72);
   for (const [path, value] of sidecarValues) addFile(files, canonicalPaths, path, jsonBytes(value));
+  if (attributionInput) addFile(files, canonicalPaths, AFTER_MINERU_ATTRIBUTION_PATH, attributionInput.bytes);
 
   const aliases: AfterMinerUCompatibilityAlias[] = [];
   for (const path of [...extraction.files.keys()].sort(compareCodeUnits)) {
@@ -701,6 +730,9 @@ async function runRepairMinerUArchive(
   const displayAlias = displayRepairContract === undefined
     ? undefined
     : addAlias(files, canonicalPaths, aliases, "_extraction/display-repair.json", DISPLAY_REPAIR_PATH);
+  const attributionAlias = attributionInput === undefined
+    ? undefined
+    : addAlias(files, canonicalPaths, aliases, AFTER_MINERU_ATTRIBUTION_ALIAS_PATH, AFTER_MINERU_ATTRIBUTION_PATH);
 
   addFile(files, canonicalPaths, LEGACY_MANIFEST_PATH, jsonBytes(compatibilityManifest({
     aliases,
@@ -708,7 +740,8 @@ async function runRepairMinerUArchive(
     viewer: viewerAlias,
     repair: repairAlias,
     candidates: candidatesAlias,
-    display: displayAlias
+    display: displayAlias,
+    attribution: attributionAlias
   })));
   addFile(files, canonicalPaths, LEGACY_VALIDATION_PATH, jsonBytes(compatibilityValidation(summary, {
     article: sourceArticle,
@@ -734,7 +767,7 @@ async function runRepairMinerUArchive(
     summary: {
       source_file_count: sourceRecords.length,
       derived_file_count: 1,
-      sidecar_file_count: sidecarValues.length + 3,
+      sidecar_file_count: [...files.keys()].filter((path) => path.startsWith("sidecars/")).length + 1,
       compatibility_alias_count: aliases.length,
       repaired_visual_count: repairedVisualCount,
       review_candidate_count: reviewCandidateCount,

@@ -9,6 +9,8 @@ export { sha256Bytes, sha256Utf8 };
 export { extractValidatedZipEntries, type SafeZipArchiveLimits, type SafeZipExtractionOptions };
 
 export const AFTER_MINERU_MANIFEST_PATH = "after-mineru.manifest.json";
+export const AFTER_MINERU_ATTRIBUTION_PATH = "sidecars/ATTRIBUTION.md";
+export const AFTER_MINERU_ATTRIBUTION_ALIAS_PATH = "_source/ATTRIBUTION.md";
 export const AFTER_MINERU_PACKAGE_VERSION = "after-mineru-package-v1";
 export const AFTER_MINERU_VALIDATION_VERSION = "after-mineru-validation-v1";
 export const AFTER_MINERU_READER_PROJECTION_VERSION = "after-mineru-reader-projection-v1";
@@ -22,6 +24,7 @@ export const AFTER_MINERU_PACKAGE_LIMITS = Object.freeze({
   archiveFileCount: 2_048,
   fileBytes: 64 * 1024 * 1024,
   articleBytes: 32 * 1024 * 1024,
+  attributionBytes: 64 * 1024,
   manifestBytes: 512 * 1024,
   validationBytes: 256 * 1024,
   provenanceBytes: 256 * 1024,
@@ -375,6 +378,15 @@ export function parseAfterMinerUManifest(value: unknown): AfterMinerUManifest {
   assertRoleLimit(displayRepairPath, MAX_PROJECTION_BYTES, "display repair");
   assertRoleLimit(provenancePath, MAX_PROVENANCE_BYTES, "provenance");
   assertRoleLimit(validationPath, MAX_VALIDATION_BYTES, "validation");
+  const attributionCanonicalPath = canonicalPath(AFTER_MINERU_ATTRIBUTION_PATH);
+  const attributionEntries = sidecarFiles.filter((entry) => canonicalPath(entry.path) === attributionCanonicalPath);
+  if (attributionEntries.some((entry) => entry.path !== AFTER_MINERU_ATTRIBUTION_PATH)) {
+    throw new AfterMinerUPackageValidationError("Attribution must use its exact reserved canonical path");
+  }
+  const attribution = attributionEntries[0];
+  if (attribution && attribution.size > AFTER_MINERU_PACKAGE_LIMITS.attributionBytes) {
+    throw new AfterMinerUPackageValidationError("attribution exceeds the safe size limit");
+  }
 
   if (compatibility.profile !== "paper2md-reader-v0.1.3" || !Array.isArray(compatibility.aliases) || compatibility.aliases.length > MAX_FILE_RECORDS) {
     throw new AfterMinerUPackageValidationError("After-MinerU compatibility profile is invalid");
@@ -415,6 +427,17 @@ export function parseAfterMinerUManifest(value: unknown): AfterMinerUManifest {
   requiredAlias("_extraction/visual-repair.json", visualRepairPath);
   requiredAlias("_extraction/visual-candidates.json", visualCandidatesPath);
   if (displayRepairPath) requiredAlias("_extraction/display-repair.json", displayRepairPath);
+  const attributionAliasCanonicalPath = canonicalPath(AFTER_MINERU_ATTRIBUTION_ALIAS_PATH);
+  if (aliases.some((entry) => (
+    canonicalPath(entry.path) === attributionAliasCanonicalPath
+    && entry.path !== AFTER_MINERU_ATTRIBUTION_ALIAS_PATH
+  ))) {
+    throw new AfterMinerUPackageValidationError("Attribution alias must use its exact reserved path");
+  }
+  if (attribution) requiredAlias(AFTER_MINERU_ATTRIBUTION_ALIAS_PATH, AFTER_MINERU_ATTRIBUTION_PATH);
+  else if (aliases.some((entry) => entry.path === AFTER_MINERU_ATTRIBUTION_ALIAS_PATH)) {
+    throw new AfterMinerUPackageValidationError("Attribution alias exists without its reserved canonical sidecar");
+  }
   requiredAlias("_extraction/manifest.json", "sidecars/paper2md-v0.1.3-manifest.json");
   requiredAlias("_extraction/validation.json", "sidecars/paper2md-v0.1.3-validation.json");
   if (sourcePdfPath) requiredAlias("_extraction/source.pdf", sourcePdfPath);
@@ -1023,6 +1046,19 @@ export async function validateAfterMinerUPackage(reader: AfterMinerUPackageReade
     decodeJson(projectionBytes, "After-MinerU Reader projection"),
     manifest
   );
+  const attributionRecord = manifest.sidecars.files.find((entry) => entry.path === AFTER_MINERU_ATTRIBUTION_PATH);
+  if (attributionRecord) {
+    const attributionBytes = verifiedRecordBytes.get(attributionRecord.path)!;
+    let attributionText: string;
+    try {
+      attributionText = new TextDecoder("utf-8", { fatal: true }).decode(attributionBytes);
+    } catch {
+      throw new AfterMinerUPackageValidationError("Attribution is not valid UTF-8 Markdown");
+    }
+    if (!attributionText.trim() || attributionText.includes("\0")) {
+      throw new AfterMinerUPackageValidationError("Attribution must be non-empty UTF-8 Markdown without null bytes");
+    }
+  }
   if (
     validation.summary.repaired_visual_count !== readerProjection.summary.repaired_visual_count
     || validation.summary.review_candidate_count !== readerProjection.summary.review_candidate_count

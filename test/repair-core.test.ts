@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { zipSync, type Zippable } from "fflate";
 import {
+  AFTER_MINERU_ATTRIBUTION_ALIAS_PATH,
+  AFTER_MINERU_ATTRIBUTION_PATH,
   AFTER_MINERU_PACKAGE_LIMITS,
   mapAfterMinerUPackageReader,
   sha256Bytes,
@@ -43,11 +45,22 @@ const displayRepairPath = resolve(
   "debyecalculator",
   "display-repair.json"
 );
+const attributionPath = resolve(
+  "sites-reader",
+  "public",
+  "demo",
+  "debyecalculator",
+  "ATTRIBUTION.md"
+);
 
 function uncheckedZip(files: ReadonlyMap<string, Uint8Array>): Uint8Array {
   const entries = Object.create(null) as Zippable;
   for (const [path, bytes] of files) entries[path] = bytes;
   return zipSync(entries, { level: 1 });
+}
+
+function jsonBytes(value: unknown): Uint8Array {
+  return new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`);
 }
 
 describe("After-MinerU repair-core", () => {
@@ -326,6 +339,22 @@ describe("After-MinerU repair-core", () => {
     await expect(zipAfterMinerUPackage(tampered)).rejects.toThrow("File does not match the manifest");
   }, 60_000);
 
+  it("rejects invalid attribution before attempting to parse an untrusted source archive", async () => {
+    const invalidValues = [
+      new Uint8Array(),
+      new Uint8Array([0xff]),
+      new TextEncoder().encode("  \n\t"),
+      new TextEncoder().encode("license\0text"),
+      new Uint8Array(AFTER_MINERU_PACKAGE_LIMITS.attributionBytes + 1).fill(0x41)
+    ];
+    for (const bytes of invalidValues) {
+      await expect(repairMinerUArchive({
+        archiveBytes: new Uint8Array(),
+        attribution: { bytes }
+      })).rejects.toThrow(/attribution/i);
+    }
+  });
+
   it("binds an explicitly selected PDF outside the original MinerU source tree", async () => {
     const sourceArchive = new Uint8Array(await readFile(rawArchivePath));
     const explicitPdf = new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
@@ -367,42 +396,49 @@ describe("After-MinerU repair-core", () => {
   }, 60_000);
 
   it("materializes a source-bound display repair without changing any source bytes", async () => {
-    const [archiveBuffer, pdfBuffer, displayRepairBuffer] = await Promise.all([
+    const [archiveBuffer, pdfBuffer, displayRepairBuffer, attributionBuffer] = await Promise.all([
       readFile(rawArchivePath),
       readFile(sourcePdfPath),
-      readFile(displayRepairPath)
+      readFile(displayRepairPath),
+      readFile(attributionPath)
     ]);
     const sourceArchive = new Uint8Array(archiveBuffer);
     const sourcePdf = new Uint8Array(pdfBuffer);
     const displayRepair = new Uint8Array(displayRepairBuffer);
+    const attribution = new Uint8Array(attributionBuffer);
     const expectedPdf = sourcePdf.slice();
     const expectedDisplayRepair = JSON.parse(new TextDecoder().decode(displayRepair)) as unknown;
 
     const mutableArchive = sourceArchive.slice();
     const mutablePdf = sourcePdf.slice();
     const mutableDisplayRepair = displayRepair.slice();
+    const mutableAttribution = attribution.slice();
     const firstPromise = buildAfterMinerUArchive({
       archiveBytes: mutableArchive,
       archiveName: "debyecalculator.mineru.zip",
       sourcePdf: { bytes: mutablePdf, name: "source.pdf" },
-      displayRepair: { bytes: mutableDisplayRepair, name: "display-repair.json" }
+      displayRepair: { bytes: mutableDisplayRepair, name: "display-repair.json" },
+      attribution: { bytes: mutableAttribution }
     }, {
       onProgress(update) {
         if (update.stage !== "inspect-source") return;
         mutableArchive.fill(0);
         mutablePdf.fill(0);
         mutableDisplayRepair.fill(0);
+        mutableAttribution.fill(0);
       }
     });
     mutableArchive.fill(0);
     mutablePdf.fill(0);
     mutableDisplayRepair.fill(0);
+    mutableAttribution.fill(0);
     const first = await firstPromise;
     const second = await buildAfterMinerUArchive({
       archiveBytes: sourceArchive,
       archiveName: "debyecalculator.mineru.zip",
       sourcePdf: { bytes: sourcePdf, name: "source.pdf" },
-      displayRepair: { bytes: displayRepair, name: "display-repair.json" }
+      displayRepair: { bytes: displayRepair, name: "display-repair.json" },
+      attribution: { bytes: attribution }
     });
 
     expect(first.archiveBytes).toEqual(second.archiveBytes);
@@ -415,6 +451,13 @@ describe("After-MinerU repair-core", () => {
     expect(first.manifest.compatibility.aliases).toContainEqual(expect.objectContaining({
       path: "_extraction/display-repair.json",
       canonical_path: "sidecars/display-repair.json"
+    }));
+    expect(first.files.get("sidecars/ATTRIBUTION.md")).toEqual(attribution);
+    expect(first.files.get("_source/ATTRIBUTION.md")).toEqual(attribution);
+    expect(first.files.has("source/ATTRIBUTION.md")).toBe(false);
+    expect(first.manifest.compatibility.aliases).toContainEqual(expect.objectContaining({
+      path: "_source/ATTRIBUTION.md",
+      canonical_path: "sidecars/ATTRIBUTION.md"
     }));
     const raw = extractMinerUArchiveForReader(sourceArchive);
     const embeddedPdfPath = [...raw.files.keys()].find((path) => /(?:^|\/)[^/]*_origin\.pdf$/i.test(path));
@@ -444,6 +487,69 @@ describe("After-MinerU repair-core", () => {
     const verified = await validateAfterMinerUPackage(mapAfterMinerUPackageReader(first.files));
     expect(verified.manifest.sidecars.display_repair_path).toBe("sidecars/display-repair.json");
     expect(verified.readerProjection.summary.unresolved_text_replacement_count).toBe(0);
+
+    const withAttributionBytes = (bytes: Uint8Array): Map<string, Uint8Array> => {
+      const files = new Map(first.files);
+      const manifest = structuredClone(first.manifest);
+      const record = manifest.sidecars.files.find((entry) => entry.path === AFTER_MINERU_ATTRIBUTION_PATH)!;
+      const alias = manifest.compatibility.aliases.find((entry) => entry.path === AFTER_MINERU_ATTRIBUTION_ALIAS_PATH)!;
+      const binding = { size: bytes.byteLength, sha256: sha256Bytes(bytes) };
+      Object.assign(record, binding);
+      Object.assign(alias, binding);
+      files.set(AFTER_MINERU_ATTRIBUTION_PATH, bytes);
+      files.set(AFTER_MINERU_ATTRIBUTION_ALIAS_PATH, bytes);
+      files.set("after-mineru.manifest.json", jsonBytes(manifest));
+      return files;
+    };
+    for (const invalidAttribution of [
+      new Uint8Array([0xff]),
+      new TextEncoder().encode(" \n\t"),
+      new TextEncoder().encode("license\0text"),
+      new Uint8Array(AFTER_MINERU_PACKAGE_LIMITS.attributionBytes + 1).fill(0x41)
+    ]) {
+      await expect(validateAfterMinerUPackage(mapAfterMinerUPackageReader(
+        withAttributionBytes(invalidAttribution)
+      ))).rejects.toThrow(/attribution/i);
+    }
+
+    const missingAlias = new Map(first.files);
+    missingAlias.delete(AFTER_MINERU_ATTRIBUTION_ALIAS_PATH);
+    await expect(validateAfterMinerUPackage(mapAfterMinerUPackageReader(missingAlias)))
+      .rejects.toThrow();
+    const tamperedAlias = new Map(first.files);
+    const changedAlias = tamperedAlias.get(AFTER_MINERU_ATTRIBUTION_ALIAS_PATH)!.slice();
+    changedAlias[0] = changedAlias[0]! ^ 1;
+    tamperedAlias.set(AFTER_MINERU_ATTRIBUTION_ALIAS_PATH, changedAlias);
+    await expect(validateAfterMinerUPackage(mapAfterMinerUPackageReader(tamperedAlias)))
+      .rejects.toThrow(/manifest|alias/i);
+
+    const wrongCaseAlias = new Map(first.files);
+    const wrongCaseAliasManifest = structuredClone(first.manifest);
+    const attributionAlias = wrongCaseAliasManifest.compatibility.aliases.find(
+      (entry) => entry.path === AFTER_MINERU_ATTRIBUTION_ALIAS_PATH
+    )!;
+    attributionAlias.path = "_source/attribution.md";
+    wrongCaseAlias.delete(AFTER_MINERU_ATTRIBUTION_ALIAS_PATH);
+    wrongCaseAlias.set("_source/attribution.md", attribution);
+    wrongCaseAlias.set("after-mineru.manifest.json", jsonBytes(wrongCaseAliasManifest));
+    await expect(validateAfterMinerUPackage(mapAfterMinerUPackageReader(wrongCaseAlias)))
+      .rejects.toThrow(/exact reserved path/i);
+
+    const wrongCaseCanonical = new Map(first.files);
+    const wrongCaseCanonicalManifest = structuredClone(first.manifest);
+    const attributionRecord = wrongCaseCanonicalManifest.sidecars.files.find(
+      (entry) => entry.path === AFTER_MINERU_ATTRIBUTION_PATH
+    )!;
+    attributionRecord.path = "sidecars/attribution.md";
+    const canonicalAlias = wrongCaseCanonicalManifest.compatibility.aliases.find(
+      (entry) => entry.path === AFTER_MINERU_ATTRIBUTION_ALIAS_PATH
+    )!;
+    canonicalAlias.canonical_path = "sidecars/attribution.md";
+    wrongCaseCanonical.delete(AFTER_MINERU_ATTRIBUTION_PATH);
+    wrongCaseCanonical.set("sidecars/attribution.md", attribution);
+    wrongCaseCanonical.set("after-mineru.manifest.json", jsonBytes(wrongCaseCanonicalManifest));
+    await expect(validateAfterMinerUPackage(mapAfterMinerUPackageReader(wrongCaseCanonical)))
+      .rejects.toThrow(/exact reserved canonical path/i);
 
     const fileSystem = new MemoryReaderFileSystem(Object.fromEntries(first.files));
     const loaded = await new PackageLoader(fileSystem, {

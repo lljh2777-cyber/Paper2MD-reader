@@ -1,6 +1,7 @@
 import { zipSync, type Zippable } from "fflate";
 import MarkdownIt from "markdown-it";
 import {
+  AFTER_MINERU_ATTRIBUTION_PATH,
   AFTER_MINERU_PACKAGE_LIMITS,
   type AfterMinerUFileRecord,
   type AfterMinerUManifest,
@@ -14,8 +15,10 @@ import {
 } from "../../after-mineru-contract/src/index";
 
 export const AFTER_MINERU_PORTABLE_VERSION = "after-mineru-portable-markdown-v1" as const;
+export const AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION = "after-mineru-portable-markdown-v2" as const;
 export const AFTER_MINERU_PORTABLE_ARTICLE_PATH = "article.after-mineru.md" as const;
 export const AFTER_MINERU_PORTABLE_MANIFEST_PATH = "after-mineru-portable.json" as const;
+export const AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH = "ATTRIBUTION.md" as const;
 
 export const AFTER_MINERU_PORTABLE_LIMITS: Readonly<SafeZipArchiveLimits> = Object.freeze({
   archiveBytes: AFTER_MINERU_PACKAGE_LIMITS.compressedArchiveBytes,
@@ -37,9 +40,7 @@ export interface PortableMarkdownWarning {
   count: number;
 }
 
-export interface PortableMarkdownManifest {
-  schema_version: 1;
-  contract: typeof AFTER_MINERU_PORTABLE_VERSION;
+interface PortableMarkdownManifestBase {
   algorithm_version: string;
   source_archive_sha256: string;
   representation: PortableMarkdownRepresentation;
@@ -47,6 +48,19 @@ export interface PortableMarkdownManifest {
   assets: AfterMinerUFileRecord[];
   warnings: PortableMarkdownWarning[];
 }
+
+export type PortableMarkdownManifest = PortableMarkdownManifestBase & (
+  | {
+    schema_version: 1;
+    contract: typeof AFTER_MINERU_PORTABLE_VERSION;
+    attribution?: never;
+  }
+  | {
+    schema_version: 2;
+    contract: typeof AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION;
+    attribution: AfterMinerUFileRecord;
+  }
+);
 
 export interface BuildPortableMarkdownExportInput {
   archiveName?: string;
@@ -232,7 +246,7 @@ function parseFileRecord(value: unknown, label: string): AfterMinerUFileRecord {
 function parsePortableManifest(value: unknown): PortableMarkdownManifest {
   const manifest = record(value);
   if (!manifest) throw new PortableMarkdownValidationError("Portable Markdown manifest must be an object");
-  exactKeys(manifest, [
+  const baseKeys = [
     "schema_version",
     "contract",
     "algorithm_version",
@@ -241,18 +255,22 @@ function parsePortableManifest(value: unknown): PortableMarkdownManifest {
     "article",
     "assets",
     "warnings"
-  ], "Portable Markdown manifest");
+  ];
+  const isV1 = manifest.schema_version === 1 && manifest.contract === AFTER_MINERU_PORTABLE_VERSION;
+  const isV2 = manifest.schema_version === 2 && manifest.contract === AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION;
+  if (!isV1 && !isV2) {
+    throw new PortableMarkdownValidationError("Portable Markdown manifest version or structure is unsupported");
+  }
+  exactKeys(manifest, isV1 ? baseKeys : [...baseKeys, "attribution"], "Portable Markdown manifest");
   if (
-    manifest.schema_version !== 1
-    || manifest.contract !== AFTER_MINERU_PORTABLE_VERSION
-    || typeof manifest.algorithm_version !== "string"
+    typeof manifest.algorithm_version !== "string"
     || !manifest.algorithm_version.trim()
     || manifest.algorithm_version.length > 128
     || typeof manifest.source_archive_sha256 !== "string"
     || !SHA256.test(manifest.source_archive_sha256)
     || !["portable-derived", "source-assets-fallback"].includes(String(manifest.representation))
     || !Array.isArray(manifest.assets)
-    || manifest.assets.length > AFTER_MINERU_PORTABLE_LIMITS.fileCount - 2
+    || manifest.assets.length > AFTER_MINERU_PORTABLE_LIMITS.fileCount - (isV2 ? 3 : 2)
     || !Array.isArray(manifest.warnings)
   ) throw new PortableMarkdownValidationError("Portable Markdown manifest version or structure is unsupported");
 
@@ -266,6 +284,14 @@ function parsePortableManifest(value: unknown): PortableMarkdownManifest {
     || assets.some((entry, index) => index > 0 && compareCodeUnits(assets[index - 1]!.path, entry.path) >= 0)
     || new Set(assets.map((entry) => canonicalPath(entry.path))).size !== assets.length
   ) throw new PortableMarkdownValidationError("Portable Markdown asset inventory is invalid or unsorted");
+  const attribution = isV2
+    ? parseFileRecord(manifest.attribution, "Portable Markdown attribution")
+    : undefined;
+  if (
+    attribution
+    && (attribution.path !== AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH
+      || attribution.size > AFTER_MINERU_PACKAGE_LIMITS.attributionBytes)
+  ) throw new PortableMarkdownValidationError("Portable Markdown attribution is invalid");
 
   const allowedWarnings = new Set<PortableMarkdownWarningCode>([
     "fragment-set-not-materialized",
@@ -287,9 +313,7 @@ function parsePortableManifest(value: unknown): PortableMarkdownManifest {
     || (warnings.length === 0) !== (manifest.representation === "portable-derived")
   ) throw new PortableMarkdownValidationError("Portable Markdown warnings and representation are inconsistent");
 
-  return {
-    schema_version: 1,
-    contract: AFTER_MINERU_PORTABLE_VERSION,
+  const parsedBase: PortableMarkdownManifestBase = {
     algorithm_version: manifest.algorithm_version,
     source_archive_sha256: manifest.source_archive_sha256,
     representation: manifest.representation as PortableMarkdownManifest["representation"],
@@ -297,6 +321,18 @@ function parsePortableManifest(value: unknown): PortableMarkdownManifest {
     assets,
     warnings
   };
+  return isV2
+    ? {
+      ...parsedBase,
+      schema_version: 2,
+      contract: AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION,
+      attribution: attribution!
+    }
+    : {
+      ...parsedBase,
+      schema_version: 1,
+      contract: AFTER_MINERU_PORTABLE_VERSION
+    };
 }
 
 function readRequired(files: ReadonlyMap<string, Uint8Array>, path: string): Uint8Array {
@@ -323,11 +359,13 @@ export function validatePortableMarkdownExport(
   const expectedPaths = [
     AFTER_MINERU_PORTABLE_MANIFEST_PATH,
     manifest.article.path,
-    ...manifest.assets.map((entry) => entry.path)
+    ...manifest.assets.map((entry) => entry.path),
+    ...(manifest.attribution ? [manifest.attribution.path] : [])
   ];
   const actualPaths = [...files.keys()];
   if (
-    actualPaths.length !== expectedPaths.length
+    actualPaths.length > AFTER_MINERU_PORTABLE_LIMITS.fileCount
+    || actualPaths.length !== expectedPaths.length
     || actualPaths.some((path) => !isSafeAfterMinerUPath(path))
     || new Set(actualPaths.map(canonicalPath)).size !== actualPaths.length
     || expectedPaths.some((path) => !files.has(path))
@@ -335,7 +373,7 @@ export function validatePortableMarkdownExport(
   ) throw new PortableMarkdownValidationError("Portable Markdown inventory is not exact");
 
   let totalBytes = manifestBytes.byteLength;
-  for (const entry of [manifest.article, ...manifest.assets]) {
+  for (const entry of [manifest.article, ...manifest.assets, ...(manifest.attribution ? [manifest.attribution] : [])]) {
     const bytes = readRequired(files, entry.path);
     totalBytes += bytes.byteLength;
     if (bytes.byteLength !== entry.size || sha256Bytes(bytes) !== entry.sha256) {
@@ -349,6 +387,17 @@ export function validatePortableMarkdownExport(
   const article = decodeUtf8(readRequired(files, manifest.article.path), "Portable Markdown article");
   if (!article.trim() || READER_SLOT.test(article)) {
     throw new PortableMarkdownValidationError("Portable Markdown article is empty or contains a Reader-only slot");
+  }
+  if (manifest.attribution) {
+    const attribution = decodeUtf8(
+      readRequired(files, manifest.attribution.path),
+      "Portable Markdown attribution"
+    );
+    if (!attribution.trim() || attribution.includes("\0")) {
+      throw new PortableMarkdownValidationError(
+        "Portable Markdown attribution must be non-empty and contain no null bytes"
+      );
+    }
   }
   let references: string[];
   try {
@@ -368,17 +417,45 @@ export function validatePortableMarkdownExport(
 export async function buildPortableMarkdownExport(
   input: BuildPortableMarkdownExportInput
 ): Promise<BuiltPortableMarkdownExport> {
+  if (input.verifiedPackageFiles.size > AFTER_MINERU_PACKAGE_LIMITS.archiveFileCount) {
+    throw new PortableMarkdownValidationError("After-MinerU package exceeds the safe file-count limit");
+  }
+  let packageTotalBytes = 0;
+  const packageEntries: Array<[string, Uint8Array]> = [];
+  for (const [path, bytes] of input.verifiedPackageFiles) {
+    if (
+      !isSafeAfterMinerUPath(path)
+      || !(bytes instanceof Uint8Array)
+      || bytes.byteLength > AFTER_MINERU_PACKAGE_LIMITS.fileBytes
+    ) throw new PortableMarkdownValidationError("After-MinerU package contains an unsafe file entry");
+    packageTotalBytes += bytes.byteLength;
+    if (packageTotalBytes > AFTER_MINERU_PACKAGE_LIMITS.totalBytes) {
+      throw new PortableMarkdownValidationError("After-MinerU package exceeds the safe aggregate size limit");
+    }
+    packageEntries.push([path, bytes]);
+  }
+  const packageFiles = new Map(
+    packageEntries.map(([path, bytes]): [string, Uint8Array] => [path, bytes.slice()])
+  );
+  const inputManifest = structuredClone(input.manifest);
+  const inputReaderProjection = structuredClone(input.readerProjection);
   // Verification must precede every interpretation of caller-supplied package
   // metadata or derived Markdown.
-  const verified = await validateAfterMinerUPackage(mapAfterMinerUPackageReader(input.verifiedPackageFiles));
-  if (canonicalJson(input.manifest) !== canonicalJson(verified.manifest)) {
+  const verified = await validateAfterMinerUPackage(mapAfterMinerUPackageReader(packageFiles));
+  if (canonicalJson(inputManifest) !== canonicalJson(verified.manifest)) {
     throw new PortableMarkdownValidationError("Caller manifest does not match the verified package manifest");
   }
-  if (canonicalJson(input.readerProjection) !== canonicalJson(verified.readerProjection)) {
+  if (canonicalJson(inputReaderProjection) !== canonicalJson(verified.readerProjection)) {
     throw new PortableMarkdownValidationError("Caller Reader projection does not match the verified package projection");
   }
 
-  const derivedBytes = input.verifiedPackageFiles.get(verified.manifest.derived.article_path)!;
+  const derivedBytes = packageFiles.get(verified.manifest.derived.article_path)!;
+  const attributionRecord = verified.manifest.sidecars.files.find(
+    (entry) => entry.path === AFTER_MINERU_ATTRIBUTION_PATH
+  );
+  const attributionBytes = attributionRecord
+    ? packageFiles.get(AFTER_MINERU_ATTRIBUTION_PATH)!.slice()
+    : undefined;
   const article = decodeUtf8(derivedBytes, "After-MinerU derived article");
   if (READER_SLOT.test(article)) throw new PortableMarkdownUnavailableError("reader-slots-not-materialized");
 
@@ -391,7 +468,7 @@ export async function buildPortableMarkdownExport(
     );
   }
   const referencePaths = [...new Set(references)].sort(compareCodeUnits);
-  if (referencePaths.length > AFTER_MINERU_PORTABLE_LIMITS.fileCount - 2) {
+  if (referencePaths.length > AFTER_MINERU_PORTABLE_LIMITS.fileCount - (attributionBytes ? 3 : 2)) {
     throw new PortableMarkdownUnavailableError("portable-size-limit-exceeded");
   }
   const sourceRecords = new Map(verified.manifest.source.files
@@ -400,14 +477,14 @@ export async function buildPortableMarkdownExport(
     .map((entry): [string, string] => [entry.path, entry.canonical_path]));
   const referenceTargets = new Set(referencePaths.map((path) => aliasTargets.get(path) ?? path));
   const portableAssetSources: Array<{ path: string; bytes: Uint8Array }> = [];
-  let projectedTotalBytes = derivedBytes.byteLength;
+  let projectedTotalBytes = derivedBytes.byteLength + (attributionBytes?.byteLength ?? 0);
   for (const path of referencePaths) {
     const target = aliasTargets.get(path) ?? path;
     const sourceRecord = sourceRecords.get(target);
     if (!target.startsWith("source/") || !sourceRecord) {
       throw new PortableMarkdownUnavailableError("missing-source-asset");
     }
-    const bytes = input.verifiedPackageFiles.get(target);
+    const bytes = packageFiles.get(target);
     if (!bytes) throw new PortableMarkdownUnavailableError("missing-source-asset");
     projectedTotalBytes += sourceRecord.size;
     if (projectedTotalBytes > AFTER_MINERU_PORTABLE_LIMITS.totalBytes) {
@@ -440,12 +517,11 @@ export async function buildPortableMarkdownExport(
   const files = new Map<string, Uint8Array>();
   files.set(AFTER_MINERU_PORTABLE_ARTICLE_PATH, articleBytes);
   for (const [path, bytes] of portableAssets) files.set(path, bytes);
+  if (attributionBytes) files.set(AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH, attributionBytes);
   const warnings = [...warningCounts]
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([code, count]) => ({ code, count }));
-  const portableManifest: PortableMarkdownManifest = {
-    schema_version: 1,
-    contract: AFTER_MINERU_PORTABLE_VERSION,
+  const portableManifestBase: PortableMarkdownManifestBase = {
     algorithm_version: verified.manifest.algorithm_version,
     source_archive_sha256: verified.validation.source_archive_sha256,
     representation: warnings.length ? "source-assets-fallback" : "portable-derived",
@@ -454,6 +530,18 @@ export async function buildPortableMarkdownExport(
       .map(([path, bytes]) => fileRecord(path, bytes)),
     warnings
   };
+  const portableManifest: PortableMarkdownManifest = attributionBytes
+    ? {
+      ...portableManifestBase,
+      schema_version: 2,
+      contract: AFTER_MINERU_PORTABLE_ATTRIBUTION_VERSION,
+      attribution: fileRecord(AFTER_MINERU_PORTABLE_ATTRIBUTION_PATH, attributionBytes)
+    }
+    : {
+      ...portableManifestBase,
+      schema_version: 1,
+      contract: AFTER_MINERU_PORTABLE_VERSION
+    };
   const portableManifestBytes = jsonBytes(portableManifest);
   if (
     portableManifestBytes.byteLength > AFTER_MINERU_PACKAGE_LIMITS.manifestBytes

@@ -375,7 +375,7 @@ describe("Repair to Reader preview protocol", () => {
     expect(REPAIR_READER_HANDOFF_LIMITS.archiveBytes).toBe(32 * 1024 * 1024);
   });
 
-  it("mounts Sites Reader surfaces with strict capabilities or the explicit read-only demo compatibility profile", () => {
+  it("mounts every Sites Reader surface with strict read-only capabilities", () => {
     const readerMountFiles = readdirSync("sites-reader/app", { recursive: true, encoding: "utf8" })
       .filter((path) => path.endsWith(".tsx"))
       .map((path) => `sites-reader/app/${path.replace(/\\/g, "/")}`)
@@ -390,15 +390,14 @@ describe("Repair to Reader preview protocol", () => {
     expect(readerMountFiles.length).toBeGreaterThan(0);
     readerMountFiles.forEach((path) => {
       const source = readFileSync(path, "utf8");
-      if (path === "sites-reader/app/demo/debyecalculator/page.tsx") {
-        expect(source).toContain('capabilityProfile: "legacy-v0.1.3"');
-        expect(source).toContain('visualReviewMode: "disabled"');
-        expect(source).toContain("allowRuntimeTextRecovery: false");
-        return;
-      }
       expect(source, `${path} must use the strict Reader profile`)
         .toContain('capabilityProfile: "strict-readonly"');
     });
+    const demoSource = readFileSync("sites-reader/app/demo/debyecalculator/page.tsx", "utf8");
+    expect(demoSource).toContain("mountLocalReaderWithReady");
+    expect(demoSource).toContain("createReaderFileSystem");
+    expect(demoSource).toContain("createRawPreviewFileSystem");
+    expect(demoSource).not.toContain('capabilityProfile: "legacy-v0.1.3"');
   });
 
   it("returns an untouched normal Reader path when no preview fragment exists", async () => {
