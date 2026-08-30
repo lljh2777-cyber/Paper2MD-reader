@@ -6,6 +6,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@paper2md/after-mineru-contract": "0.1.0",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "markdown-it": "^14.1.0"
   }
 }

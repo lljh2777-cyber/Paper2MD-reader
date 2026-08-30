@@ -12,12 +12,14 @@
   },
   "dependencies": {
     "fflate": "0.8.2",
+    "markdown-it": "14.3.0",
     "next": "16.2.11",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.54.2",
+    "@types/markdown-it": "14.1.2",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",

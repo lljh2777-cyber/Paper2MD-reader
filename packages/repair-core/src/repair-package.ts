@@ -30,6 +30,12 @@ import {
   buildMineruVisualRepair,
   extractMarkdownImageOccurrences
 } from "./reader-contract-generator";
+import {
+  buildPortableMarkdownExport,
+  PortableMarkdownUnavailableError,
+  type BuiltPortableMarkdownExport,
+  type PortableMarkdownUnavailableReason
+} from "./portable-markdown";
 
 const SOURCE_ARCHIVE_PATH = "source/mineru-original.mineru.zip";
 const DERIVED_ARTICLE_PATH = "derived/article.after-mineru.md";
@@ -80,6 +86,9 @@ export type RepairProgressStage =
   | "materialize-derived"
   | "bind-package"
   | "verify-package"
+  | "build-portable-export"
+  | "compress-portable-export"
+  | "compress-verified-package"
   | "compress-package"
   | "complete";
 
@@ -136,6 +145,15 @@ export interface RepairMinerUArchiveResult {
 
 export interface BuiltAfterMinerUArchive extends RepairMinerUArchiveResult {
   archiveBytes: Uint8Array;
+}
+
+export type PortableMarkdownExportOutcome =
+  | { status: "ready"; output: BuiltPortableMarkdownExport }
+  | { status: "unavailable"; reason: PortableMarkdownUnavailableReason };
+
+export interface BuiltAfterMinerUExports {
+  verifiedPackage: BuiltAfterMinerUArchive;
+  portableMarkdown: PortableMarkdownExportOutcome;
 }
 
 export class RepairExecutionCancelledError extends Error {
@@ -705,6 +723,38 @@ export async function buildAfterMinerUArchive(
   const archiveBytes = await zipAfterMinerUPackage(repaired.files);
   emitProgress(options, "complete", 100);
   return { ...repaired, archiveBytes };
+}
+
+export async function buildAfterMinerUExports(
+  input: RepairMinerUArchiveInput,
+  options?: RepairExecutionOptions
+): Promise<BuiltAfterMinerUExports> {
+  const repaired = await runRepairMinerUArchive(input, options);
+  emitProgress(options, "build-portable-export", 89);
+  let portableMarkdown: PortableMarkdownExportOutcome;
+  try {
+    emitProgress(options, "compress-portable-export", 92);
+    portableMarkdown = {
+      status: "ready",
+      output: await buildPortableMarkdownExport({
+        archiveName: repaired.archiveName,
+        verifiedPackageFiles: repaired.files,
+        manifest: repaired.manifest,
+        readerProjection: repaired.readerProjection
+      })
+    };
+  } catch (error) {
+    if (!(error instanceof PortableMarkdownUnavailableError)) throw error;
+    portableMarkdown = { status: "unavailable", reason: error.reason };
+  }
+  checkpoint(options);
+  emitProgress(options, "compress-verified-package", 96);
+  const archiveBytes = await zipAfterMinerUPackage(repaired.files);
+  emitProgress(options, "complete", 100);
+  return {
+    verifiedPackage: { ...repaired, archiveBytes },
+    portableMarkdown
+  };
 }
 
 export async function zipAfterMinerUPackage(files: ReadonlyMap<string, Uint8Array>): Promise<Uint8Array> {

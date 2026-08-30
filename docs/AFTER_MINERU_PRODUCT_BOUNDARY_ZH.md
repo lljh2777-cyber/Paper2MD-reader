@@ -27,12 +27,20 @@ Repair 不修改原 ZIP、`full.md`、content-list JSON、原图或源 PDF。它
 
 `sidecars/repair-report.json` 使用 `after-mineru-repair-report-v1`，只记录稳定的算法版本、输入/派生哈希、检查结果、结构化计数与警告代码，不记录时间、耗时、平台、本地文件名或本地化消息。它作为普通 sidecar 进入 manifest 的大小与 SHA-256 清单，不增加 v1 manifest 的必需字段，也不建立 v0.1.3 兼容别名；旧 Reader 可以安全忽略其语义，但仍会验证其字节完整性。
 
+## `after-mineru-portable-markdown-v1`
+
+通用 Markdown ZIP 与可验证论文包是两个独立输出，portable 契约不改变 `after-mineru-package-v1` 或桌面版 v0.1.3 ABI。它只包含根目录的 `article.after-mineru.md`、正文实际引用的本地图片，以及 `after-mineru-portable.json`；不包含源 ZIP、PDF、MinerU JSON、Reader sidecar 或交互样式，因此不建立 Reader 信任语义。
+
+portable manifest 绑定算法版本、源 ZIP SHA-256、正文和排序后的图片文件记录，并区分 `portable-derived` 与 `source-assets-fallback`。构建和验证使用与阅读渲染一致的 Markdown AST 收集图片引用，并拒绝 Reader 专用 slot、未被解析为图片的 `![` 语法、带括号的歧义目标、绝对路径、URL/data scheme、查询或 fragment、目录穿越、反斜杠、Windows/NFKC/大小写落盘冲突、缺失图片、非图片资源、未登记或额外文件，以及任意大小或 SHA-256 不匹配。HTML 图片只接受仅含单一带引号 `src` 的 `<img>`；其他 raw HTML 除无属性的安全排版标签与注释外一律 fail closed，因此 `srcset`、`<source>`、SVG/MathML 图片、CSS 背景、多行资源标签与额外属性都不能绕过闭包，`<sup>` 等不加载资源的排版标签仍按正文保留。portable 闭包上限为 256 个文件、64 MB 解压总量；超过上限或独立封装复验失败时只关闭 portable 输出，可验证论文包仍继续生成。portable ZIP 使用 store 模式避免合法的高重复位图触发自身压缩比防护，封装后仍会重新受限解包并复验精确库存。
+
+当前尚不在浏览器中栅格化 PDF crop 或 fragment-set。只有当派生 Markdown 仍完整引用该视觉对象的全部源图片时，portable 导出才允许 `source-assets-fallback`，并记录 `pdf-crop-not-materialized` 或 `fragment-set-not-materialized`；否则 portable 输出独立 fail closed。可验证论文包仍保留经过哈希绑定的 Reader 投影，不会把这种回退宣称为已物化裁剪图。
+
 ## 浏览器执行边界
 
-站点 `/repair` 每次运行创建一个一次性 module Worker。主线程只负责选择文件、展示进度和下载；ZIP 与可选 PDF 的 `ArrayBuffer` 通过 transferable 移交，Worker 内完成修复、最终验证与压缩，只返回一个最终 ZIP buffer 和小型摘要。取消会立即终止该 Worker，并通过 request ID / generation 隔离迟到消息；不会退回主线程继续计算，也不会保留半成品。Worker 化避免长计算阻塞界面，但不会消除解压、快照和压缩阶段的峰值内存，因此输入边界仍为每个文件 64 MB。
+站点 `/repair` 每次运行创建一个一次性 module Worker。主线程只负责选择文件、展示进度和下载；ZIP 与可选 PDF 的 `ArrayBuffer` 通过 transferable 移交，Worker 内只运行一次修复分析，再分别验证和压缩 portable ZIP 与可验证论文包。Worker 使用版本化协议一次性返回完整结果：portable 可用时转移两个最终 ZIP buffer；portable 因资源闭包不完整而安全关闭时，只转移可验证包并返回稳定原因代码。取消会立即终止该 Worker，并通过 request ID / generation 隔离迟到消息；不会退回主线程继续计算，也不会保留半成品。Worker 化避免长计算阻塞界面，但不会消除解压、快照和双重压缩阶段的峰值内存，因此输入边界仍为每个文件 64 MB。
 
 ## 第一条完整切片及限制
 
-当前切片已实现：真实 MinerU ZIP → Worker 中的确定性视觉契约 → `derived/article.after-mineru.md` → sidecar / provenance / validation / repair report → 可验证 ZIP → Reader 只读加载。Repair 提供阶段进度、强取消和报告下载；站点提供同级的 `/repair` 与 `/reader` 入口。Reader 也可以在不生成 Markdown 的情况下直接只读打开原始 PDF。正式派生包的正文、图片与 PDF 均从 manifest-bound 内容能力读取，原始 MinerU 包则忠实显示并忽略未验证 sidecar。
+当前切片已实现：真实 MinerU ZIP → Worker 中的确定性视觉契约 → `derived/article.after-mineru.md` → sidecar / provenance / validation / repair report → portable Markdown ZIP + 可验证论文包 → Reader 只读加载。Repair 提供阶段进度、强取消、两种导出和报告下载；站点提供同级的 `/repair` 与 `/reader` 入口。Reader 也可以在不生成 Markdown 的情况下直接只读打开原始 PDF。正式派生包的正文、图片与 PDF 均从 manifest-bound 内容能力读取，原始 MinerU 包则忠实显示并忽略未验证 sidecar。
 
-尚未纳入本版本的能力包括通用 PDF 正文自动恢复、完整 display-repair 生成、将 PDF 裁切物化为新的派生位图，以及面向任意 Markdown 消费者的精简通用 Markdown ZIP。PDF crop 仍是已验证 Reader projection 中的显示指令；它不会伪装成 Markdown 原图。证据不足的修复保留为候选或原始显示。
+尚未纳入本版本的能力包括通用 PDF 正文自动恢复、完整 display-repair 生成、将 PDF 裁切或碎图组合物化为新的派生位图，以及从 Repair 到 Reader 的同源内存预览交接。PDF crop 仍是已验证 Reader projection 中的显示指令；portable ZIP 会明确回退到完整源图片而不会伪装成已裁剪原图。证据不足的修复保留为候选或原始显示。

@@ -90,6 +90,64 @@ function startRequest(worker: FakeWorker): { requestId: string } {
   return worker.posts[0]!.message as { requestId: string };
 }
 
+function readySuccess(
+  requestId: string,
+  markdownBytes: ArrayBuffer,
+  verifiedBytes: ArrayBuffer
+): unknown {
+  return {
+    protocol: REPAIR_WORKER_PROTOCOL,
+    type: "success",
+    requestId,
+    result: {
+      algorithmVersion: report.algorithm_version,
+      outputs: {
+        markdownZip: {
+          status: "ready",
+          bytes: markdownBytes,
+          name: "paper.after-mineru-markdown.zip",
+          fileCount: 3,
+          representation: "portable-derived",
+          warnings: []
+        },
+        verifiedPackage: {
+          bytes: verifiedBytes,
+          name: "paper.after-mineru.zip",
+          fileCount: 12
+        }
+      },
+      report,
+      sourceSha256: report.source_archive_sha256,
+      summary
+    }
+  };
+}
+
+function unavailableSuccess(requestId: string, verifiedBytes: ArrayBuffer): unknown {
+  return {
+    protocol: REPAIR_WORKER_PROTOCOL,
+    type: "success",
+    requestId,
+    result: {
+      algorithmVersion: report.algorithm_version,
+      outputs: {
+        markdownZip: {
+          status: "unavailable",
+          reason: "reader-slots-not-materialized"
+        },
+        verifiedPackage: {
+          bytes: verifiedBytes,
+          name: "paper.after-mineru.zip",
+          fileCount: 12
+        }
+      },
+      report,
+      sourceSha256: report.source_archive_sha256,
+      summary
+    }
+  };
+}
+
 describe("Repair browser Worker client", () => {
   beforeEach(() => {
     FakeWorker.instances = [];
@@ -101,10 +159,11 @@ describe("Repair browser Worker client", () => {
     vi.unstubAllGlobals();
   });
 
-  it("transfers source buffers, forwards progress, and returns one final ZIP buffer", async () => {
+  it("transfers two source buffers, forwards progress, and preserves both output buffer references", async () => {
     const archiveBytes = new Uint8Array([1, 2, 3]).buffer;
     const pdfBytes = new Uint8Array([4, 5]).buffer;
-    const outputBytes = new Uint8Array([80, 75, 3, 4]).buffer;
+    const markdownBytes = new Uint8Array([80, 75, 3, 4, 1]).buffer;
+    const verifiedBytes = new Uint8Array([80, 75, 3, 4, 2]).buffer;
     const progress: number[] = [];
     const resultPromise = runBrowserRepair({
       archive: file("paper.mineru.zip", archiveBytes),
@@ -127,25 +186,43 @@ describe("Repair browser Worker client", () => {
       protocol: REPAIR_WORKER_PROTOCOL,
       type: "progress",
       requestId: request.requestId,
-      progress: { stage: "analyze-visuals", percent: 34 }
+      progress: { stage: "compress-portable-export", percent: 90 }
     });
-    worker.emit("message", {
-      protocol: REPAIR_WORKER_PROTOCOL,
-      type: "success",
-      requestId: request.requestId,
-      result: {
-        algorithmVersion: report.algorithm_version,
-        archiveBytes: outputBytes,
-        archiveName: "paper.after-mineru.zip",
-        fileCount: 12,
-        report,
-        sourceSha256: report.source_archive_sha256,
-        summary
-      }
-    });
+    worker.emit("message", readySuccess(request.requestId, markdownBytes, verifiedBytes));
 
-    await expect(resultPromise).resolves.toEqual(expect.objectContaining({ archiveBytes: outputBytes }));
-    expect(progress).toEqual([34]);
+    const result = await resultPromise;
+    expect(result.outputs.markdownZip.status).toBe("ready");
+    if (result.outputs.markdownZip.status !== "ready") throw new Error("Expected a ready Markdown ZIP");
+    expect(result.outputs.markdownZip.bytes).toBe(markdownBytes);
+    expect(result.outputs.verifiedPackage.bytes).toBe(verifiedBytes);
+    expect(progress).toEqual([90]);
+    expect(worker.terminateCount).toBe(1);
+  });
+
+  it("transfers only the archive buffer without a PDF and accepts a fail-closed Markdown outcome", async () => {
+    const archiveBytes = new Uint8Array([1, 2, 3]).buffer;
+    const verifiedBytes = new Uint8Array([80, 75, 3, 4]).buffer;
+    const resultPromise = runBrowserRepair({
+      archive: file("paper.mineru.zip", archiveBytes)
+    });
+    const worker = await activeWorker();
+    const request = startRequest(worker);
+
+    expect(worker.posts[0]!.transfer).toEqual([archiveBytes]);
+    expect(worker.posts[0]!.message).toEqual(expect.objectContaining({
+      protocol: REPAIR_WORKER_PROTOCOL,
+      type: "start",
+      archive: { bytes: archiveBytes, name: "paper.mineru.zip" },
+      sourcePdf: undefined
+    }));
+
+    worker.emit("message", unavailableSuccess(request.requestId, verifiedBytes));
+    const result = await resultPromise;
+    expect(result.outputs.markdownZip).toEqual({
+      status: "unavailable",
+      reason: "reader-slots-not-materialized"
+    });
+    expect(result.outputs.verifiedPackage.bytes).toBe(verifiedBytes);
     expect(worker.terminateCount).toBe(1);
   });
 
@@ -157,6 +234,8 @@ describe("Repair browser Worker client", () => {
     const worker = await activeWorker();
     const request = startRequest(worker);
 
+    expect(worker.posts[0]!.transfer).toHaveLength(1);
+
     controller.abort();
     await expect(resultPromise).rejects.toBeInstanceOf(BrowserRepairCancelledError);
     expect(worker.posts.at(-1)?.message).toEqual({
@@ -166,12 +245,11 @@ describe("Repair browser Worker client", () => {
     });
     expect(worker.terminateCount).toBe(1);
 
-    worker.emit("message", {
-      protocol: REPAIR_WORKER_PROTOCOL,
-      type: "success",
-      requestId: request.requestId,
-      result: {}
-    });
+    worker.emit("message", readySuccess(
+      request.requestId,
+      new Uint8Array([80, 75, 1]).buffer,
+      new Uint8Array([80, 75, 2]).buffer
+    ));
     expect(worker.terminateCount).toBe(1);
   });
 

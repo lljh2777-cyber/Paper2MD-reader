@@ -1,5 +1,5 @@
 import {
-  buildAfterMinerUArchive,
+  buildAfterMinerUExports,
   RepairExecutionCancelledError
 } from "../../../packages/repair-core/src/index";
 import {
@@ -20,6 +20,15 @@ function post(message: RepairWorkerResponse, transfer: Transferable[] = []): voi
   workerScope.postMessage(message, transfer);
 }
 
+function transferableBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (
+    bytes.buffer instanceof ArrayBuffer
+    && bytes.byteOffset === 0
+    && bytes.byteLength === bytes.buffer.byteLength
+  ) return bytes.buffer;
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 async function runRepair(message: RepairWorkerStartMessage): Promise<void> {
   if (activeRequest) {
     post({
@@ -34,7 +43,7 @@ async function runRepair(message: RepairWorkerStartMessage): Promise<void> {
   const controller = new AbortController();
   activeRequest = { id: message.requestId, controller };
   try {
-    const result = await buildAfterMinerUArchive({
+    const result = await buildAfterMinerUExports({
       archiveBytes: new Uint8Array(message.archive.bytes),
       archiveName: message.archive.name,
       sourcePdf: message.sourcePdf
@@ -52,24 +61,43 @@ async function runRepair(message: RepairWorkerStartMessage): Promise<void> {
       }
     });
     if (controller.signal.aborted) throw new RepairExecutionCancelledError();
-    const archiveBytes = result.archiveBytes.buffer.slice(
-      result.archiveBytes.byteOffset,
-      result.archiveBytes.byteOffset + result.archiveBytes.byteLength
-    ) as ArrayBuffer;
+    const verified = result.verifiedPackage;
+    const verifiedBytes = transferableBuffer(verified.archiveBytes);
+    const markdownZip = result.portableMarkdown.status === "ready"
+      ? {
+        status: "ready" as const,
+        bytes: transferableBuffer(result.portableMarkdown.output.archiveBytes),
+        name: result.portableMarkdown.output.archiveName,
+        fileCount: result.portableMarkdown.output.fileCount,
+        representation: result.portableMarkdown.output.manifest.representation,
+        warnings: result.portableMarkdown.output.manifest.warnings
+      }
+      : {
+        status: "unavailable" as const,
+        reason: result.portableMarkdown.reason
+      };
+    const transfer: ArrayBuffer[] = markdownZip.status === "ready"
+      ? [markdownZip.bytes, verifiedBytes]
+      : [verifiedBytes];
     post({
       protocol: REPAIR_WORKER_PROTOCOL,
       type: "success",
       requestId: message.requestId,
       result: {
-        algorithmVersion: result.manifest.algorithm_version,
-        archiveBytes,
-        archiveName: result.archiveName,
-        fileCount: result.files.size,
-        report: result.report,
-        sourceSha256: result.validation.source_archive_sha256,
-        summary: result.summary
+        algorithmVersion: verified.manifest.algorithm_version,
+        outputs: {
+          markdownZip,
+          verifiedPackage: {
+            bytes: verifiedBytes,
+            name: verified.archiveName,
+            fileCount: verified.files.size
+          }
+        },
+        report: verified.report,
+        sourceSha256: verified.validation.source_archive_sha256,
+        summary: verified.summary
       }
-    }, [archiveBytes]);
+    }, transfer);
   } catch (error) {
     const cancelled = controller.signal.aborted || error instanceof RepairExecutionCancelledError;
     post({

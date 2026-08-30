@@ -136,7 +136,7 @@ export default function Home() {
       <section className="site-hero" id="top"><p className="site-eyebrow">LOCAL PROCESSING WORKBENCH</p><h1>在线转换、临时阅读，<br />结果仍由你带走。</h1><p className="site-lede">在浏览器内打开 PDF、Markdown、ZIP 或论文目录，生成派生阅读投影并导出。Paper2MD 不提供云端论文库，也不长期保存你的论文。</p><div className="site-actions"><a className="site-primary" href="/repair">修复 MinerU 结果 <span aria-hidden="true">→</span></a><a className="site-secondary" href="/reader">打开 Reader</a></div><p className="site-boundary"><span aria-hidden="true">●</span> 浏览器本地解析不上传；MinerU 在线处理只有在你选择且直连能力通过时才会上传。</p></section>
 
       <section className="site-product-entries" aria-label="独立产品入口">
-        <a href="/repair"><span>PRODUCT A · AFTER-MINERU REPAIR</span><h2>修复 MinerU 结果</h2><p>输入原始 MinerU ZIP 和可选源 PDF，确定性生成派生 Markdown、sidecar、manifest 与可验证下载包。</p><b>进入 Repair <span aria-hidden="true">→</span></b></a>
+        <a href="/repair"><span>PRODUCT A · AFTER-MINERU REPAIR</span><h2>修复 MinerU 结果</h2><p>输入原始 MinerU ZIP 和可选源 PDF，一次生成通用 Markdown ZIP 与可验证 After-MinerU 论文包。</p><b>进入 Repair <span aria-hidden="true">→</span></b></a>
         <a href="/reader"><span>PRODUCT B · PAPER2MD READER</span><h2>打开 Reader</h2><p>只读打开 Markdown、MinerU ZIP、Paper2MD 包或本地目录；验证已有派生契约，不写回源文件。</p><b>进入 Reader <span aria-hidden="true">→</span></b></a>
       </section>
 
