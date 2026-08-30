@@ -38,6 +38,15 @@ function exactKeys(value: UnknownRecord, keys: readonly string[]): boolean {
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
+function replacementCharacterCount(value: string): number {
+  return [...value].filter((character) => character === "\uFFFD").length;
+}
+
+function nonnegativeInteger(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 function uniqueRange(source: string, value: string): { start: number; end: number } | undefined {
   const start = source.indexOf(value);
   if (start < 0 || source.indexOf(value, start + value.length) >= 0) return undefined;
@@ -149,6 +158,7 @@ export async function prepareMinerUDisplayRepair(input: {
   const articleInput = record(inputs?.article);
   const mineruInput = record(inputs?.mineru_result);
   const pdfInput = record(inputs?.source_pdf);
+  const summary = record(contract?.summary);
   if (
     !contract
     || !exactKeys(contract, ["schema_version", "algorithm_version", "inputs", "repairs", "summary"])
@@ -157,12 +167,26 @@ export async function prepareMinerUDisplayRepair(input: {
     || !SHA256.test(input.sourcePdfHash)
     || !inputs
     || !exactKeys(inputs, ["article", "mineru_result", "source_pdf"])
+    || !articleInput
+    || !exactKeys(articleInput, ["sha256"])
+    || !mineruInput
+    || !exactKeys(mineruInput, ["sha256"])
+    || !pdfInput
+    || !exactKeys(pdfInput, ["sha256"])
     || articleInput?.sha256 !== input.articleHash
     || mineruInput?.sha256 !== input.mineruHash
     || pdfInput?.sha256 !== input.sourcePdfHash
     || !Array.isArray(contract.repairs)
     || contract.repairs.length < 1
     || contract.repairs.length > MAX_REPAIRS
+    || !summary
+    || !exactKeys(summary, [
+      "repair_count",
+      "article_repair_count",
+      "caption_repair_count",
+      "replacement_characters_before",
+      "replacement_characters_after"
+    ])
   ) throw new Error("显示修复契约与当前 Markdown、MinerU JSON 或源 PDF 不匹配");
 
   const blocks = viewerBlocks(input.viewerIndex);
@@ -251,6 +275,21 @@ export async function prepareMinerUDisplayRepair(input: {
   }
   const article = entries.filter((entry) => entry.target === "article");
   const captions = entries.filter((entry) => entry.target === "caption");
+  const replacementCharactersBefore = entries.reduce(
+    (count, entry) => count + replacementCharacterCount(entry.sourceText),
+    0
+  );
+  const replacementCharactersAfter = entries.reduce(
+    (count, entry) => count + replacementCharacterCount(entry.replacementMarkdown),
+    0
+  );
+  if (
+    nonnegativeInteger(summary.repair_count) !== entries.length
+    || nonnegativeInteger(summary.article_repair_count) !== article.length
+    || nonnegativeInteger(summary.caption_repair_count) !== captions.length
+    || nonnegativeInteger(summary.replacement_characters_before) !== replacementCharactersBefore
+    || nonnegativeInteger(summary.replacement_characters_after) !== replacementCharactersAfter
+  ) throw new Error("显示修复契约摘要与已验证修复记录不一致");
   return {
     article,
     captions,
@@ -292,6 +331,27 @@ export function applyMinerUDisplayArticleRepairs(
   for (const repair of plan.article) {
     const range = uniqueRange(result, repair.sourceText);
     if (!range) throw new Error(`正文显示修复不再具有唯一原文区间：${repair.id}`);
+    result = `${result.slice(0, range.start)}${repair.replacementMarkdown}${result.slice(range.end)}`;
+  }
+  return result;
+}
+
+/**
+ * Materialize every verified display repair that remains in the projected
+ * Markdown. Captions already removed by the visual projection stay removed;
+ * retained captions are replaced exactly once so portable Markdown cannot
+ * leak the known-bad source text.
+ */
+export function applyMinerUDisplayMarkdownRepairs(
+  projectedArticle: string,
+  plan: MinerUDisplayRepairPlan
+): string {
+  let result = applyMinerUDisplayArticleRepairs(projectedArticle, plan);
+  for (const repair of plan.captions) {
+    const first = result.indexOf(repair.sourceText);
+    if (first < 0) continue;
+    const range = uniqueRange(result, repair.sourceText);
+    if (!range) throw new Error(`图注显示修复不再具有唯一原文区间：${repair.id}`);
     result = `${result.slice(0, range.start)}${repair.replacementMarkdown}${result.slice(range.end)}`;
   }
   return result;

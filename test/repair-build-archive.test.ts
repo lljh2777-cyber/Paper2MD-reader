@@ -49,18 +49,23 @@ const expectedStages: readonly RepairProgressStage[] = [
 describe("After-MinerU build archive pipeline", () => {
   it("reports monotonic progress and deterministically emits a verified Debye package with a bound report", async () => {
     const sourceArchive = new Uint8Array(await readFile(rawArchivePath));
+    const mutableSourceArchive = sourceArchive.slice();
     const progress: RepairProgress[] = [];
     const input = {
-      archiveBytes: sourceArchive,
+      archiveBytes: mutableSourceArchive,
       archiveName: "debyecalculator.mineru.zip"
     };
 
     const first = await buildAfterMinerUArchive(input, {
       onProgress(update) {
+        if (update.stage === "inspect-source") mutableSourceArchive.fill(0);
         progress.push({ ...update });
       }
     });
-    const second = await buildAfterMinerUArchive(input);
+    const second = await buildAfterMinerUArchive({
+      archiveBytes: sourceArchive,
+      archiveName: "debyecalculator.mineru.zip"
+    });
 
     expect(progress.map(({ stage }) => stage)).toEqual(expectedStages);
     expect(progress.every(({ percent }) => Number.isFinite(percent) && percent >= 0 && percent <= 100)).toBe(true);
@@ -68,6 +73,7 @@ describe("After-MinerU build archive pipeline", () => {
       expect(progress[index]!.percent).toBeGreaterThanOrEqual(progress[index - 1]!.percent);
     }
     expect(progress.at(-1)).toEqual({ stage: "complete", percent: 100 });
+    expect(first.files.get("source/mineru-original.mineru.zip")).toEqual(sourceArchive);
 
     const extracted = extractValidatedZipEntries(
       first.archiveBytes,

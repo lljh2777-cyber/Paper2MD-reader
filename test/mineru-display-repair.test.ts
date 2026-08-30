@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { prepareMinerUDisplayRepair } from "../src/model/mineru-display-repair";
+import {
+  applyMinerUDisplayMarkdownRepairs,
+  prepareMinerUDisplayRepair
+} from "../src/model/mineru-display-repair";
 
 type RepairTarget = "article" | "caption";
 
@@ -46,7 +49,15 @@ function fixture(input: {
         source_text_sha256: sha256(input.sourceText),
         replacement_markdown_sha256: sha256(input.replacementMarkdown)
       }],
-      summary: {}
+      summary: {
+        repair_count: 1,
+        article_repair_count: input.target === "article" ? 1 : 0,
+        caption_repair_count: input.target === "caption" ? 1 : 0,
+        replacement_characters_before: [...input.sourceText]
+          .filter((character) => character === "\uFFFD").length,
+        replacement_characters_after: [...input.replacementMarkdown]
+          .filter((character) => character === "\uFFFD").length
+      }
     },
     viewerIndex: { schema_version: 1, pages: [{ page_idx: 0, blocks: [block] }] },
     mineruPayload: input.mineruPayload,
@@ -98,5 +109,39 @@ describe("MinerU display repair binding", () => {
     });
 
     await expect(prepareMinerUDisplayRepair(input)).rejects.toThrow("图注修复记录未绑定唯一原始图注");
+  });
+
+  it("rejects a display repair whose declared summary does not match its records", async () => {
+    const sourceText = "Broken � text";
+    const input = fixture({
+      target: "article",
+      sourceText,
+      replacementMarkdown: "Repaired text",
+      mineruPayload: [{ text: sourceText }],
+      sourceIndex: 0
+    });
+    input.contract.summary.repair_count = 2;
+
+    await expect(prepareMinerUDisplayRepair(input)).rejects.toThrow("摘要");
+  });
+
+  it("materializes a retained caption once and accepts a caption already removed by projection", async () => {
+    const sourceText = "Figure 1: Broken � caption.";
+    const replacementMarkdown = "Figure 1: Repaired caption.";
+    const input = fixture({
+      target: "caption",
+      sourceText,
+      replacementMarkdown,
+      mineruPayload: [{ type: "image", image_caption: [sourceText] }],
+      sourceIndex: 0
+    });
+    const plan = await prepareMinerUDisplayRepair(input);
+
+    expect(applyMinerUDisplayMarkdownRepairs(`Before\n${sourceText}\nAfter`, plan))
+      .toBe(`Before\n${replacementMarkdown}\nAfter`);
+    expect(applyMinerUDisplayMarkdownRepairs("Caption projected away", plan))
+      .toBe("Caption projected away");
+    expect(() => applyMinerUDisplayMarkdownRepairs(`${sourceText}\n${sourceText}`, plan))
+      .toThrow("唯一原文区间");
   });
 });

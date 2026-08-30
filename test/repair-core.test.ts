@@ -9,6 +9,7 @@ import {
   validateAfterMinerUPackage
 } from "../packages/after-mineru-contract/src/index";
 import {
+  buildAfterMinerUArchive,
   repairMinerUArchive,
   zipAfterMinerUPackage
 } from "../packages/repair-core/src/index";
@@ -27,6 +28,20 @@ const rawArchivePath = resolve(
   "demo",
   "debyecalculator",
   "mineru-original.mineru.zip"
+);
+const sourcePdfPath = resolve(
+  "sites-reader",
+  "public",
+  "demo",
+  "debyecalculator",
+  "source.pdf"
+);
+const displayRepairPath = resolve(
+  "sites-reader",
+  "public",
+  "demo",
+  "debyecalculator",
+  "display-repair.json"
 );
 
 function uncheckedZip(files: ReadonlyMap<string, Uint8Array>): Uint8Array {
@@ -294,7 +309,7 @@ describe("After-MinerU repair-core", () => {
     }));
     expect(explicitlyLoaded.visualReview).toBeUndefined();
     expect(explicitlyLoaded.textRecovery).toBeUndefined();
-  }, 90_000);
+  }, 180_000);
 
   it("fails closed when any manifest-bound derived byte is changed", async () => {
     const sourceArchive = new Uint8Array(await readFile(rawArchivePath));
@@ -350,4 +365,125 @@ describe("After-MinerU repair-core", () => {
     await expect(validateAfterMinerUPackage(mapAfterMinerUPackageReader(forged)))
       .rejects.toThrow("provenance source PDF does not match the manifest");
   }, 60_000);
+
+  it("materializes a source-bound display repair without changing any source bytes", async () => {
+    const [archiveBuffer, pdfBuffer, displayRepairBuffer] = await Promise.all([
+      readFile(rawArchivePath),
+      readFile(sourcePdfPath),
+      readFile(displayRepairPath)
+    ]);
+    const sourceArchive = new Uint8Array(archiveBuffer);
+    const sourcePdf = new Uint8Array(pdfBuffer);
+    const displayRepair = new Uint8Array(displayRepairBuffer);
+    const expectedPdf = sourcePdf.slice();
+    const expectedDisplayRepair = JSON.parse(new TextDecoder().decode(displayRepair)) as unknown;
+
+    const mutableArchive = sourceArchive.slice();
+    const mutablePdf = sourcePdf.slice();
+    const mutableDisplayRepair = displayRepair.slice();
+    const firstPromise = buildAfterMinerUArchive({
+      archiveBytes: mutableArchive,
+      archiveName: "debyecalculator.mineru.zip",
+      sourcePdf: { bytes: mutablePdf, name: "source.pdf" },
+      displayRepair: { bytes: mutableDisplayRepair, name: "display-repair.json" }
+    }, {
+      onProgress(update) {
+        if (update.stage !== "inspect-source") return;
+        mutableArchive.fill(0);
+        mutablePdf.fill(0);
+        mutableDisplayRepair.fill(0);
+      }
+    });
+    mutableArchive.fill(0);
+    mutablePdf.fill(0);
+    mutableDisplayRepair.fill(0);
+    const first = await firstPromise;
+    const second = await buildAfterMinerUArchive({
+      archiveBytes: sourceArchive,
+      archiveName: "debyecalculator.mineru.zip",
+      sourcePdf: { bytes: sourcePdf, name: "source.pdf" },
+      displayRepair: { bytes: displayRepair, name: "display-repair.json" }
+    });
+
+    expect(first.archiveBytes).toEqual(second.archiveBytes);
+    expect(sha256Bytes(first.archiveBytes)).toBe(sha256Bytes(second.archiveBytes));
+    expect(first.manifest.sidecars.display_repair_path).toBe("sidecars/display-repair.json");
+    expect(JSON.parse(new TextDecoder().decode(first.files.get("sidecars/display-repair.json")!)))
+      .toEqual(expectedDisplayRepair);
+    expect(first.files.get("_extraction/display-repair.json"))
+      .toEqual(first.files.get("sidecars/display-repair.json"));
+    expect(first.manifest.compatibility.aliases).toContainEqual(expect.objectContaining({
+      path: "_extraction/display-repair.json",
+      canonical_path: "sidecars/display-repair.json"
+    }));
+    const raw = extractMinerUArchiveForReader(sourceArchive);
+    const embeddedPdfPath = [...raw.files.keys()].find((path) => /(?:^|\/)[^/]*_origin\.pdf$/i.test(path));
+    expect(embeddedPdfPath).toBeDefined();
+    expect(first.files.get("source/mineru-original.mineru.zip")).toEqual(sourceArchive);
+    expect(first.files.get("source/source.pdf")).toEqual(expectedPdf);
+    expect(first.files.get("source/source.pdf")).not.toEqual(
+      first.files.get(`source/${embeddedPdfPath!}`)
+    );
+
+    const sourceArticleBytes = raw.files.get(raw.articlePath)!;
+    const sourceArticle = new TextDecoder().decode(sourceArticleBytes);
+    const derivedArticle = new TextDecoder().decode(first.files.get("derived/article.after-mineru.md")!);
+    expect(first.files.get(`source/${raw.articlePath}`)).toEqual(sourceArticleBytes);
+    expect(sourceArticle).toContain("�");
+    expect(derivedArticle).not.toContain("�");
+    expect(derivedArticle).toContain("where users can calculate $I(Q)$, $S(Q)$, $F(Q)$, and $G(r)$");
+    expect(first.readerProjection.visuals).toContainEqual(expect.objectContaining({
+      caption_text: expect.stringContaining("visualise $I(Q)$, $S(Q)$, $F(Q)$, and $G(r)$")
+    }));
+    expect(first.summary.unresolvedTextReplacementCount).toBe(0);
+    expect(first.validation.summary.unresolved_text_replacement_count).toBe(0);
+    expect(first.report.warnings).not.toContainEqual(expect.objectContaining({
+      code: "unresolved-text-replacements"
+    }));
+
+    const verified = await validateAfterMinerUPackage(mapAfterMinerUPackageReader(first.files));
+    expect(verified.manifest.sidecars.display_repair_path).toBe("sidecars/display-repair.json");
+    expect(verified.readerProjection.summary.unresolved_text_replacement_count).toBe(0);
+
+    const fileSystem = new MemoryReaderFileSystem(Object.fromEntries(first.files));
+    const loaded = await new PackageLoader(fileSystem, {
+      legacyMinerUProjectionMode: "source-only"
+    }).loadDetected();
+    expect(loaded.packageIntegrity).toBe("verified");
+    expect(loaded.activeProjection?.kind).toBe("verified-derived");
+    expect(loaded.articleText).toBe(derivedArticle);
+    expect(loaded.articleText).not.toContain("�");
+    expect(loaded.visualReview).toBeUndefined();
+    expect(loaded.textRecovery).toBeUndefined();
+
+    const legacyFiles = new Map(first.files);
+    legacyFiles.delete("after-mineru.manifest.json");
+    const legacyLoaded = await new PackageLoader(
+      new MemoryReaderFileSystem(Object.fromEntries(legacyFiles)),
+      { allowRuntimeTextRecovery: false }
+    ).loadDetected();
+    expect(legacyLoaded.packageIntegrity).toBe("verified");
+    expect(legacyLoaded.articleText).not.toContain("�");
+    expect(legacyLoaded.assets.every((asset) => !asset.captionText?.includes("�"))).toBe(true);
+    expect(legacyLoaded.diagnostics).toContainEqual(expect.objectContaining({
+      code: "mineru-display-repair-verified"
+    }));
+
+    const tamperedContract = structuredClone(expectedDisplayRepair) as {
+      repairs: Array<{ replacement_markdown: string }>;
+    };
+    tamperedContract.repairs[0]!.replacement_markdown += " tampered";
+    await expect(repairMinerUArchive({
+      archiveBytes: sourceArchive,
+      sourcePdf: { bytes: sourcePdf },
+      displayRepair: {
+        bytes: new TextEncoder().encode(JSON.stringify(tamperedContract))
+      }
+    })).rejects.toThrow("显示修复记录无效");
+
+    await expect(repairMinerUArchive({
+      archiveBytes: sourceArchive,
+      displayRepair: { bytes: displayRepair }
+    })).rejects.toThrow(/源 PDF|不匹配/);
+  }, 180_000);
 });

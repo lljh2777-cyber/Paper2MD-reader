@@ -414,6 +414,7 @@ export function parseAfterMinerUManifest(value: unknown): AfterMinerUManifest {
   requiredAlias("_extraction/viewer-index.json", viewerIndexPath);
   requiredAlias("_extraction/visual-repair.json", visualRepairPath);
   requiredAlias("_extraction/visual-candidates.json", visualCandidatesPath);
+  if (displayRepairPath) requiredAlias("_extraction/display-repair.json", displayRepairPath);
   requiredAlias("_extraction/manifest.json", "sidecars/paper2md-v0.1.3-manifest.json");
   requiredAlias("_extraction/validation.json", "sidecars/paper2md-v0.1.3-validation.json");
   if (sourcePdfPath) requiredAlias("_extraction/source.pdf", sourcePdfPath);

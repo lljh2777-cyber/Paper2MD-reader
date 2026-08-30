@@ -1,6 +1,7 @@
 import { zipSync, type Zippable } from "fflate";
 import {
   AFTER_MINERU_MANIFEST_PATH,
+  AFTER_MINERU_PACKAGE_LIMITS,
   AFTER_MINERU_PACKAGE_VERSION,
   AFTER_MINERU_PROVENANCE_VERSION,
   AFTER_MINERU_READER_PROJECTION_VERSION,
@@ -21,6 +22,11 @@ import {
 } from "../../after-mineru-contract/src/index";
 import { extractMinerUArchiveForReader, MINERU_ARCHIVE_READER_LIMITS } from "../../../src/model/mineru-archive";
 import { parseMinerUContentList } from "../../../src/model/mineru-content-list";
+import {
+  applyMinerUDisplayCaptionRepairs,
+  applyMinerUDisplayMarkdownRepairs,
+  prepareMinerUDisplayRepair
+} from "../../../src/model/mineru-display-repair";
 import { applyMinerUVisualRepair, type RepairedMinerUVisual } from "../../../src/model/mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "../../../src/model/mineru-reader-projection";
 import { prepareMinerUVisualReview } from "../../../src/model/mineru-visual-review";
@@ -43,6 +49,7 @@ const READER_PROJECTION_PATH = "sidecars/reader-projection.json";
 const VIEWER_INDEX_PATH = "sidecars/viewer-index.json";
 const VISUAL_REPAIR_PATH = "sidecars/visual-repair.json";
 const VISUAL_CANDIDATES_PATH = "sidecars/visual-candidates.json";
+const DISPLAY_REPAIR_PATH = "sidecars/display-repair.json";
 const PROVENANCE_PATH = "sidecars/provenance.json";
 export const AFTER_MINERU_REPAIR_REPORT_PATH = "sidecars/repair-report.json";
 export const AFTER_MINERU_REPAIR_REPORT_VERSION = "after-mineru-repair-report-v1";
@@ -63,10 +70,23 @@ export interface RepairSourcePdf {
   name?: string;
 }
 
+export interface RepairDisplayRepair {
+  /**
+   * A precomputed display-repair sidecar. Repair revalidates every source
+   * hash, block identity, exact source range, replacement hash, and PDF hash
+   * before materializing it; this is not a loose text override. The binding
+   * does not authenticate who authored the sidecar or infer replacements
+   * from PDF bytes, so callers must obtain it from a trusted repair workflow.
+   */
+  bytes: Uint8Array;
+  name?: string;
+}
+
 export interface RepairMinerUArchiveInput {
   archiveBytes: Uint8Array;
   archiveName?: string;
   sourcePdf?: RepairSourcePdf;
+  displayRepair?: RepairDisplayRepair;
 }
 
 export interface RepairMinerUArchiveSummary {
@@ -335,8 +355,11 @@ function compatibilityManifest(input: {
   viewer: AfterMinerUCompatibilityAlias;
   repair: AfterMinerUCompatibilityAlias;
   candidates: AfterMinerUCompatibilityAlias;
+  display?: AfterMinerUCompatibilityAlias;
 }): UnknownRecord {
-  const derivedPaths = new Set([input.viewer.path, input.repair.path, input.candidates.path]);
+  const derivedContracts = [input.viewer, input.repair, input.candidates];
+  if (input.display) derivedContracts.push(input.display);
+  const derivedPaths = new Set(derivedContracts.map((entry) => entry.path));
   const outputs = input.aliases
     .filter((entry) => !derivedPaths.has(entry.path))
     .filter((entry) => !entry.path.startsWith("_extraction/") && !entry.path.startsWith("_source/"))
@@ -363,7 +386,7 @@ function compatibilityManifest(input: {
     },
     options: { include_source_pdf: Boolean(sourcePdf) },
     outputs,
-    derived_contracts: [input.viewer, input.repair, input.candidates]
+    derived_contracts: derivedContracts
       .map(({ canonical_path: _canonical, ...entry }) => entry)
   };
 }
@@ -419,12 +442,15 @@ async function runRepairMinerUArchive(
   // Snapshot caller-owned buffers before parsing or reaching the first await.
   // The generated hashes, source tree, and exported bytes must all describe
   // one immutable input observation.
-  emitProgress(options, "inspect-source", 5);
   const archiveBytes = input.archiveBytes.slice();
   const sourcePdfInput = input.sourcePdf
     ? { bytes: input.sourcePdf.bytes.slice(), name: input.sourcePdf.name }
     : undefined;
+  const displayRepairInput = input.displayRepair
+    ? { bytes: input.displayRepair.bytes.slice(), name: input.displayRepair.name }
+    : undefined;
   const archiveName = input.archiveName;
+  emitProgress(options, "inspect-source", 5);
   const extraction = extractMinerUArchiveForReader(archiveBytes, MINERU_ARCHIVE_READER_LIMITS);
   emitProgress(options, "parse-content", 18);
   const sourceArticleBytes = extraction.files.get(extraction.articlePath)!;
@@ -447,6 +473,15 @@ async function runRepairMinerUArchive(
       ? { path: `source/${embeddedPdf.path}`, bytes: embeddedPdf.bytes }
       : undefined;
   if (selectedPdf) assertPdf(selectedPdf.bytes);
+  if (displayRepairInput && !selectedPdf) {
+    throw new Error("Display repair requires a byte-verified source PDF");
+  }
+  if (displayRepairInput && (
+    displayRepairInput.bytes.byteLength < 2
+    || displayRepairInput.bytes.byteLength > AFTER_MINERU_PACKAGE_LIMITS.projectionBytes
+  )) {
+    throw new Error("Display repair is outside the safe sidecar size limit");
+  }
 
   emitProgress(options, "analyze-visuals", 34);
   const markdownImages = extractMarkdownImageOccurrences(sourceArticle);
@@ -458,6 +493,15 @@ async function runRepairMinerUArchive(
   );
   const visualRepair = buildMineruVisualRepair(viewerIndex);
   const visualCandidates = buildMineruVisualCandidates(viewerIndex, visualRepair);
+  let displayRepairContract: unknown | undefined;
+  if (displayRepairInput) {
+    try {
+      displayRepairContract = JSON.parse(decodeUtf8(displayRepairInput.bytes, "display repair")) as unknown;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("UTF-8")) throw error;
+      throw new Error("Display repair is not valid JSON");
+    }
+  }
   const visualCandidatesBytes = jsonBytes(visualCandidates);
   const preparedReview = await prepareMinerUVisualReview({
     candidatePackage: visualCandidates,
@@ -486,8 +530,24 @@ async function runRepairMinerUArchive(
   if (applied.diagnostics.some((item) => item.code.endsWith("-invalid"))) {
     throw new Error("Generated visual repair could not be applied transactionally");
   }
+  const displayRepairPlan = displayRepairContract === undefined
+    ? undefined
+    : await prepareMinerUDisplayRepair({
+      contract: displayRepairContract,
+      viewerIndex,
+      mineruPayload,
+      sourceArticle,
+      articleHash,
+      mineruHash,
+      sourcePdfHash: sha256Bytes(selectedPdf!.bytes)
+    });
+  const displayVisuals = displayRepairPlan
+    ? applyMinerUDisplayCaptionRepairs(applied.visuals, displayRepairPlan)
+    : applied.visuals;
   const projected = projectMinerUReaderMarkdown({
     markdown: sourceArticle,
+    // Projection must locate/remove the exact original caption text. The
+    // verified replacement is carried by readerProjection.visuals instead.
     visuals: applied.visuals,
     viewerIndex,
     articleHash,
@@ -496,6 +556,9 @@ async function runRepairMinerUArchive(
   if (projected.diagnostics.some((item) => item.code === "mineru-reader-projection-binding-invalid")) {
     throw new Error("Generated Reader projection is not bound to the source Markdown");
   }
+  const projectedMarkdown = displayRepairPlan
+    ? applyMinerUDisplayMarkdownRepairs(projected.markdown, displayRepairPlan)
+    : projected.markdown;
 
   emitProgress(options, "materialize-derived", 58);
   const files = new Map<string, Uint8Array>();
@@ -513,15 +576,15 @@ async function runRepairMinerUArchive(
   const sourceContentListRecord = sourceRecords.find((entry) => entry.path === sourceContentListPath)!;
   const sourceArchiveRecord = sourceRecords.find((entry) => entry.path === SOURCE_ARCHIVE_PATH)!;
 
-  const derivedArticleBytes = new TextEncoder().encode(projected.markdown);
+  const derivedArticleBytes = new TextEncoder().encode(projectedMarkdown);
   addFile(files, canonicalPaths, DERIVED_ARTICLE_PATH, derivedArticleBytes);
   const derivedArticleRecord = fileRecord(DERIVED_ARTICLE_PATH, derivedArticleBytes);
-  const visibleVisuals = applied.visuals.filter((visual) => !visual.hidden);
+  const visibleVisuals = displayVisuals.filter((visual) => !visual.hidden);
   const repairedVisualCount = visibleVisuals.filter((visual) => (
     (visual.display !== undefined && visual.display.mode !== "asset")
     || (visual.memberAssetPaths?.length ?? 0) > 1
   )).length;
-  const unresolvedTextReplacementCount = [...projected.markdown].filter((character) => character === "\uFFFD").length;
+  const unresolvedTextReplacementCount = [...projectedMarkdown].filter((character) => character === "\uFFFD").length;
   const reviewCandidateCount = candidateCount(visualCandidates);
   const readerProjection: AfterMinerUReaderProjection = {
     schema_version: 1,
@@ -573,7 +636,10 @@ async function runRepairMinerUArchive(
     guarantees: [
       "The original MinerU ZIP and every extracted source entry are byte-preserved under source/.",
       "Derived content is stored separately and never overwrites full.md, MinerU JSON, images, or the source PDF.",
-      "Reader projection activation requires complete manifest, size, path, and SHA-256 verification."
+      "Reader projection activation requires complete manifest, size, path, and SHA-256 verification.",
+      ...(displayRepairPlan ? [
+        "The materialized display repair was rebound to exact source text, Viewer blocks, and a byte-verified source PDF."
+      ] : [])
     ]
   };
   const warnings: AfterMinerURepairReport["warnings"] = [];
@@ -615,6 +681,7 @@ async function runRepairMinerUArchive(
     [PROVENANCE_PATH, provenance],
     [AFTER_MINERU_REPAIR_REPORT_PATH, report]
   ];
+  if (displayRepairContract !== undefined) sidecarValues.push([DISPLAY_REPAIR_PATH, displayRepairContract]);
   emitProgress(options, "bind-package", 72);
   for (const [path, value] of sidecarValues) addFile(files, canonicalPaths, path, jsonBytes(value));
 
@@ -631,13 +698,17 @@ async function runRepairMinerUArchive(
   const viewerAlias = addAlias(files, canonicalPaths, aliases, "_extraction/viewer-index.json", VIEWER_INDEX_PATH);
   const repairAlias = addAlias(files, canonicalPaths, aliases, "_extraction/visual-repair.json", VISUAL_REPAIR_PATH);
   const candidatesAlias = addAlias(files, canonicalPaths, aliases, "_extraction/visual-candidates.json", VISUAL_CANDIDATES_PATH);
+  const displayAlias = displayRepairContract === undefined
+    ? undefined
+    : addAlias(files, canonicalPaths, aliases, "_extraction/display-repair.json", DISPLAY_REPAIR_PATH);
 
   addFile(files, canonicalPaths, LEGACY_MANIFEST_PATH, jsonBytes(compatibilityManifest({
     aliases,
     sourcePdf: sourcePdfAlias,
     viewer: viewerAlias,
     repair: repairAlias,
-    candidates: candidatesAlias
+    candidates: candidatesAlias,
+    display: displayAlias
   })));
   addFile(files, canonicalPaths, LEGACY_VALIDATION_PATH, jsonBytes(compatibilityValidation(summary, {
     article: sourceArticle,
@@ -688,7 +759,7 @@ async function runRepairMinerUArchive(
       viewer_index_path: VIEWER_INDEX_PATH,
       visual_repair_path: VISUAL_REPAIR_PATH,
       visual_candidates_path: VISUAL_CANDIDATES_PATH,
-      display_repair_path: null,
+      display_repair_path: displayRepairContract === undefined ? null : DISPLAY_REPAIR_PATH,
       provenance_path: PROVENANCE_PATH,
       validation_path: VALIDATION_PATH,
       files: sortedRecords(sidecarPaths, files)
