@@ -116,7 +116,7 @@ describe("MinerU formal package integrity", () => {
     )).resolves.toEqual(expect.objectContaining({ schema_version: 1 }));
   });
 
-  it("reads the three hash-bound contracts from legacy outputs without trusting arbitrary files", async () => {
+  it("keeps the three hash-bound v0.1.3 contracts compatible by default without trusting arbitrary files", async () => {
     const built = await fixture({ legacyDerivedInOutputs: true });
     const fileSystem = new MemoryReaderFileSystem(built.files);
     const integrity = await inspectMinerUPackageIntegrity({
@@ -135,7 +135,36 @@ describe("MinerU formal package integrity", () => {
     ]);
     const loaded = await new PackageLoader(fileSystem).loadDetected();
     expect(loaded.contractVersion).toBe("mineru-viewer-index-v1");
+    expect(loaded.visualReview).toEqual(expect.objectContaining({ candidates: [], decisions: [] }));
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-review-ready" }));
     expect(loaded.diagnostics).not.toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-invalid" }));
+  });
+
+  it("keeps a verified v0.1.3 package source-only without activating runtime sidecars", async () => {
+    const built = await fixture();
+    const loaded = await new PackageLoader(new MemoryReaderFileSystem(built.files), {
+      legacyMinerUProjectionMode: "source-only"
+    }).loadDetected();
+
+    expect(loaded.packageIntegrity).toBe("verified");
+    expect(loaded.contractVersion).toBe("mineru-content-list-v1");
+    expect(loaded.articleText).toContain("![](images/a.png)");
+    expect(loaded.assets).toEqual([
+      expect.objectContaining({ path: "images/a.png", display: undefined })
+    ]);
+    expect(loaded.visualReview).toBeUndefined();
+    expect(loaded.pageMap).toBeUndefined();
+    expect(loaded.pdfLayout).toBeUndefined();
+    expect(loaded.textRecovery).toBeUndefined();
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({
+      code: "mineru-legacy-runtime-projection-disabled"
+    }));
+    expect(loaded.diagnostics).not.toContainEqual(expect.objectContaining({
+      code: "mineru-visual-review-ready"
+    }));
+    expect(loaded.diagnostics).not.toContainEqual(expect.objectContaining({
+      code: "mineru-visual-repair-applied"
+    }));
   });
 
   it("refuses a formal package when validation failed or a core hash is stale", async () => {
@@ -146,6 +175,9 @@ describe("MinerU formal package integrity", () => {
     const stale = await fixture({ staleArticle: true });
     await expect(new PackageLoader(new MemoryReaderFileSystem(stale.files)).loadDetected())
       .rejects.toThrow("文件哈希与 manifest.json 不一致：article.md");
+    await expect(new PackageLoader(new MemoryReaderFileSystem(stale.files), {
+      legacyMinerUProjectionMode: "source-only"
+    }).loadDetected()).rejects.toThrow("文件哈希与 manifest.json 不一致：article.md");
   });
 
   it("rejects manifest traversal before reading anything outside the selected folder", async () => {

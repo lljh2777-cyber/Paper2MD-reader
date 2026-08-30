@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   HandoffAcceptedMessage,
@@ -373,6 +373,32 @@ describe("Repair to Reader preview protocol", () => {
     expect(readerSource).toContain("allowRuntimeTextRecovery: false");
     expect(readerSource).toContain("persistPaperState: false");
     expect(REPAIR_READER_HANDOFF_LIMITS.archiveBytes).toBe(32 * 1024 * 1024);
+  });
+
+  it("mounts Sites Reader surfaces with strict capabilities or the explicit read-only demo compatibility profile", () => {
+    const readerMountFiles = readdirSync("sites-reader/app", { recursive: true, encoding: "utf8" })
+      .filter((path) => path.endsWith(".tsx"))
+      .map((path) => `sites-reader/app/${path.replace(/\\/g, "/")}`)
+      .filter((path) => readFileSync(path, "utf8").includes("mountLocalReader"))
+      .sort();
+
+    expect(readerMountFiles).toEqual(expect.arrayContaining([
+      "sites-reader/app/demo/debyecalculator/page.tsx",
+      "sites-reader/app/page.tsx",
+      "sites-reader/app/reader/page.tsx"
+    ]));
+    expect(readerMountFiles.length).toBeGreaterThan(0);
+    readerMountFiles.forEach((path) => {
+      const source = readFileSync(path, "utf8");
+      if (path === "sites-reader/app/demo/debyecalculator/page.tsx") {
+        expect(source).toContain('capabilityProfile: "legacy-v0.1.3"');
+        expect(source).toContain('visualReviewMode: "disabled"');
+        expect(source).toContain("allowRuntimeTextRecovery: false");
+        return;
+      }
+      expect(source, `${path} must use the strict Reader profile`)
+        .toContain('capabilityProfile: "strict-readonly"');
+    });
   });
 
   it("returns an untouched normal Reader path when no preview fragment exists", async () => {

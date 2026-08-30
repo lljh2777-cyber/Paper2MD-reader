@@ -58,6 +58,8 @@ describe("desktop Reader integration", () => {
 
     expect(mountStart).toBeGreaterThanOrEqual(0);
     expect(mountEnd).toBeGreaterThan(mountStart);
+    expect(mountBlock).toContain('capabilityProfile: "legacy-v0.1.3"');
+    expect(mountBlock).toContain('visualReviewMode: "legacy-editable"');
     expect(mountBlock).toMatch(/visualResolver\s*,/);
     expect(mountBlock).toMatch(/visualReviewStore:\s*\{/);
     expect(mountBlock).toMatch(/read:\s*\(candidatePackageSha256\)\s*=>\s*api\.readVisualReviewSidecar/);

@@ -54,7 +54,17 @@ import {
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
 
+export type LegacyMinerUProjectionMode = "compatible" | "source-only";
+
 export interface PackageLoaderOptions {
+  /**
+   * Control the v0.1.3 compatibility path that derives a Reader-only
+   * projection from legacy MinerU sidecars. `source-only` keeps the original
+   * MinerU Markdown/content-list view and disables every legacy runtime repair,
+   * including PDF text recovery. The current desktop contract remains the
+   * default through `compatible`.
+   */
+  legacyMinerUProjectionMode?: LegacyMinerUProjectionMode;
   /**
    * Allow the legacy Reader to derive display-only text recovery from a
    * bundled PDF at load time. Read-only Reader entry points disable this so
@@ -520,6 +530,10 @@ export class PackageLoader {
     let pdfLayout: LoadedPaperPackage["pdfLayout"];
     let visualReview: LoadedPaperPackage["visualReview"];
     let contractVersion = `mineru-content-list-${parsed.version}`;
+    const legacyRuntimeProjectionEnabled = this.options.legacyMinerUProjectionMode === undefined
+      || this.options.legacyMinerUProjectionMode === "compatible";
+    const runtimeTextRecoveryEnabled = legacyRuntimeProjectionEnabled
+      && this.options.allowRuntimeTextRecovery !== false;
     const viewerIndexPath = "_extraction/viewer-index.json";
     const visualRepairPath = "_extraction/visual-repair.json";
     const visualCandidatesPath = "_extraction/visual-candidates.json";
@@ -549,7 +563,13 @@ export class PackageLoader {
         );
       }
     }
-    if (hasViewerIndex && hasVisualRepair && integrity.status === "verified") {
+    if (!legacyRuntimeProjectionEnabled) {
+      diagnostics.push({
+        level: "info",
+        code: "mineru-legacy-runtime-projection-disabled",
+        message: "Reader 已按 source-only 模式忠实显示 MinerU 原始内容；未运行 v0.1.3 视觉、显示或 PDF 文字修复。"
+      });
+    } else if (hasViewerIndex && hasVisualRepair && integrity.status === "verified") {
       try {
         const [viewerContract, visualRepairContract] = integrity.status === "verified"
           ? await Promise.all([
@@ -686,7 +706,7 @@ export class PackageLoader {
         }
         visuals = visibleVisuals;
         diagnostics.push(...applied.diagnostics);
-        if (hasSourcePdf && this.options.allowRuntimeTextRecovery !== false) {
+        if (hasSourcePdf && runtimeTextRecoveryEnabled) {
           captionContinuations = collectPdfCaptionContinuationRequests({
             visuals,
             viewerIndex: viewerContract,
@@ -827,7 +847,7 @@ export class PackageLoader {
       sourcePdf: hasSourcePdf ? { path: sourcePdfPath } : undefined,
       pageMap,
       pdfLayout,
-      textRecovery: hasSourcePdf && this.options.allowRuntimeTextRecovery !== false ? {
+      textRecovery: hasSourcePdf && runtimeTextRecoveryEnabled ? {
         pdfPath: sourcePdfPath,
         candidates: collectMinerUTextRecoveryCandidates(mineruPayload, article.text),
         sourceArticleText: captionContinuations.length || paragraphRecoveries.length ? article.text : undefined,

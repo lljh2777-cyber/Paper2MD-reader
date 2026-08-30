@@ -112,6 +112,11 @@ export default function DebyeCalculatorDemoPage() {
         if (cancelled || !readerRoot.current) return;
         dispose = mountLocalReader(readerRoot.current, {
           initialFileSystem: demo.fileSystem,
+          capabilityProfile: "legacy-v0.1.3",
+          visualReviewMode: "disabled",
+          allowPdfProjection: false,
+          allowDirectPdfOpen: true,
+          allowRuntimeTextRecovery: false,
           enableWebMcp: false,
           enableProcessingApi: false,
           persistPaperState: false

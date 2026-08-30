@@ -60,6 +60,46 @@ function loadedPackage(): LoadedPaperPackage {
 }
 
 describe("web Reader initial mount readiness", () => {
+  it("makes strict-readonly close every mutating Web capability even when legacy flags are enabled", async () => {
+    const root = installDom();
+    const registerTool = vi.fn(async () => undefined);
+    (document as Document & { modelContext?: { registerTool: typeof registerTool } }).modelContext = { registerTool };
+    (window as Window & { __PAPER2MD_READER_CONFIG__?: { processingApiBaseUrl?: string } })
+      .__PAPER2MD_READER_CONFIG__ = { processingApiBaseUrl: "http://untrusted.example" };
+    const persistentStorage = {
+      getItem: vi.fn((_key: string) => null),
+      setItem: vi.fn((_key: string, _value: string) => undefined)
+    };
+    Object.defineProperty(window, "localStorage", { configurable: true, value: persistentStorage });
+    const source = new MemoryReaderFileSystem({ "article.md": "# Strict\n" });
+    vi.spyOn(PackageLoader.prototype, "loadDetected").mockResolvedValue(loadedPackage());
+
+    const mounted = mountWebReaderWithReady(root, {
+      initialFileSystem: source,
+      capabilityProfile: "strict-readonly",
+      allowPdfProjection: true,
+      allowDirectPdfOpen: true,
+      allowRuntimeTextRecovery: true,
+      enableWebMcp: true,
+      enableProcessingApi: true,
+      persistPaperState: true
+    });
+
+    await expect(mounted.ready).resolves.toBeUndefined();
+    expect(document.querySelector('input[data-reader-pdf-mode="projection"]')).toBeNull();
+    expect(document.querySelector('input[data-reader-pdf-mode="direct"]')).not.toBeNull();
+    expect(document.querySelector(".p2md-web-ingest")).toBeNull();
+    expect(registerTool).not.toHaveBeenCalled();
+    expect(persistentStorage.getItem.mock.calls.map(([key]) => key)).not.toContain(
+      `paper2md-reader:view:v1:${"1".repeat(64)}`
+    );
+
+    mounted.dispose();
+    expect(persistentStorage.setItem.mock.calls.map(([key]) => key)).not.toContain(
+      `paper2md-reader:view:v1:${"1".repeat(64)}`
+    );
+  });
+
   it("resolves only after the initial package reaches a rendered state", async () => {
     const root = installDom();
     const source = new MemoryReaderFileSystem({ "article.md": "# Ready\n" });
@@ -68,6 +108,7 @@ describe("web Reader initial mount readiness", () => {
 
     const mounted = mountWebReaderWithReady(root, {
       initialFileSystem: source,
+      capabilityProfile: "strict-readonly",
       allowPdfProjection: false,
       allowDirectPdfOpen: true,
       allowRuntimeTextRecovery: false,
@@ -90,6 +131,7 @@ describe("web Reader initial mount readiness", () => {
 
     const mounted = mountWebReaderWithReady(root, {
       initialFileSystem: source,
+      capabilityProfile: "strict-readonly",
       allowPdfProjection: false,
       allowRuntimeTextRecovery: false,
       enableWebMcp: false,

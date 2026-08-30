@@ -25,6 +25,7 @@ type ReaderPreviewSession = {
 };
 
 const READ_ONLY_READER_OPTIONS = Object.freeze({
+  capabilityProfile: "strict-readonly" as const,
   allowPdfProjection: false,
   allowDirectPdfOpen: true,
   allowRuntimeTextRecovery: false,

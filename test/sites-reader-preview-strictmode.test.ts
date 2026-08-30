@@ -164,6 +164,11 @@ describe("Reader preview StrictMode lifecycle", () => {
     await vi.waitFor(() => {
       expect(localReaderMocks.mountWithReady).toHaveBeenCalledTimes(1);
     });
+    expect(localReaderMocks.mountWithReady).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      capabilityProfile: "strict-readonly",
+      allowRuntimeTextRecovery: false,
+      persistPaperState: false
+    }));
 
     expect(previewMocks.receive).toHaveBeenCalledTimes(1);
     expect(archiveImportMocks.importBytes.mock.calls.length + previewWorkerMocks.importBytes.mock.calls.length).toBe(1);
@@ -197,6 +202,11 @@ describe("Reader preview StrictMode lifecycle", () => {
     await vi.waitFor(() => {
       expect(localReaderMocks.mount).toHaveBeenCalledTimes(1);
     });
+    expect(localReaderMocks.mount).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      capabilityProfile: "strict-readonly",
+      allowRuntimeTextRecovery: false,
+      persistPaperState: false
+    }));
 
     expect(localReaderMocks.mountWithReady).not.toHaveBeenCalled();
     expect(normalReaderDispose).not.toHaveBeenCalled();

@@ -114,7 +114,10 @@ describe("Sites real MinerU demo", () => {
     files.set("_extraction/display-repair.json", asFile("_extraction/display-repair.json", bytes));
     const fileSystem = BrowserDirectoryReaderFileSystem.fromFileMap("DebyeCalculator stale repair", files);
     try {
-      const loaded = await new PackageLoader(fileSystem).loadDetected();
+      const loaded = await new PackageLoader(fileSystem, {
+        legacyMinerUProjectionMode: "compatible",
+        allowRuntimeTextRecovery: false
+      }).loadDetected();
       expect(loaded.packageIntegrity).toBe("verified");
       expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-display-repair-invalid" }));
       expect(loaded.articleText).toContain("�");
@@ -150,7 +153,10 @@ describe("Sites real MinerU demo", () => {
     const files = extractClippingArchiveBytes(packageBytes);
     const fileSystem = BrowserDirectoryReaderFileSystem.fromFileMap("DebyeCalculator verified demo", files);
     try {
-      const loaded = await new PackageLoader(fileSystem).loadDetected();
+      const loaded = await new PackageLoader(fileSystem, {
+        legacyMinerUProjectionMode: "compatible",
+        allowRuntimeTextRecovery: false
+      }).loadDetected();
       expect(loaded).toMatchObject({
         sourceFormat: "mineru",
         state: "mineru",
@@ -161,6 +167,7 @@ describe("Sites real MinerU demo", () => {
       expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-package-integrity-verified" }));
       expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-visual-repair-applied" }));
       expect(loaded.diagnostics).toContainEqual(expect.objectContaining({ code: "mineru-display-repair-verified" }));
+      expect(loaded.textRecovery).toBeUndefined();
       expect(loaded.diagnostics).toContainEqual(expect.objectContaining({
         code: "mineru-reader-projection-applied",
         message: expect.stringContaining("3 段可验证图注")
@@ -249,9 +256,13 @@ describe("Sites real MinerU demo", () => {
       }
     );
     try {
-      const loaded = await new PackageLoader(fileSystem).loadDetected();
+      const loaded = await new PackageLoader(fileSystem, {
+        legacyMinerUProjectionMode: "compatible",
+        allowRuntimeTextRecovery: false
+      }).loadDetected();
       expect(loaded.packageIntegrity).toBe("verified");
       expect(loaded.contractVersion).toBe("mineru-viewer-index-v1");
+      expect(loaded.textRecovery).toBeUndefined();
       expect(fileSystem.sourceArchive?.sourceArchive).toBe(rawArchive);
       expect(files.get(extracted.articlePath)).toBe(sourceArticle);
       expect(await fileSystem.readText(extracted.articlePath)).toBe(await sourceArticle.text());

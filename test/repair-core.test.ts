@@ -255,8 +255,12 @@ describe("After-MinerU repair-core", () => {
     expect(oversizedReads).toEqual(["after-mineru.manifest.json"]);
 
     const fileSystem = new MemoryReaderFileSystem(Object.fromEntries(first.files));
-    const loaded = await new PackageLoader(fileSystem).loadDetected();
-    const explicitlyLoaded = await new PackageLoader(fileSystem).load("article.md");
+    const loaded = await new PackageLoader(fileSystem, {
+      legacyMinerUProjectionMode: "source-only"
+    }).loadDetected();
+    const explicitlyLoaded = await new PackageLoader(fileSystem, {
+      legacyMinerUProjectionMode: "source-only"
+    }).load("article.md");
     expect(loaded.state).toBe("mineru");
     expect(loaded.packageIntegrity).toBe("verified");
     expect(loaded.articlePath).toBe("fixture/derived/article.after-mineru.md");
@@ -276,6 +280,9 @@ describe("After-MinerU repair-core", () => {
     expect(loaded.assets).toHaveLength(first.readerProjection.visuals.length);
     expect(loaded.diagnostics).toContainEqual(expect.objectContaining({
       code: "after-mineru-derived-projection-verified"
+    }));
+    expect(loaded.diagnostics).not.toContainEqual(expect.objectContaining({
+      code: "mineru-legacy-runtime-projection-disabled"
     }));
     expect(loaded.visualReview).toBeUndefined();
     expect(loaded.textRecovery).toBeUndefined();

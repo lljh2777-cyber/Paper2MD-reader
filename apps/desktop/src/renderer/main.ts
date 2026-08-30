@@ -344,6 +344,8 @@ const referencePaneController = createReferencePaneController({
 const visualResolver = new PdfVisualResolver();
 const workspace = mountReaderWorkspace(readerHost, {
   picker: new DesktopPackagePicker(api),
+  capabilityProfile: "legacy-v0.1.3",
+  visualReviewMode: "legacy-editable",
   visualReviewStore: {
     read: (candidatePackageSha256) => api.readVisualReviewSidecar(candidatePackageSha256),
     write: (candidatePackageSha256, sidecar) => api.writeVisualReviewSidecar(candidatePackageSha256, sidecar)

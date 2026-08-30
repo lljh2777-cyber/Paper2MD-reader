@@ -32,4 +32,17 @@ describe("PackageLoader strict read-only mode", () => {
     expect(loaded.articleText).toContain("symbol � remains byte-identical");
     expect(loaded.sourcePdf).toEqual({ path: "_extraction/source.pdf" });
   });
+
+  it("makes source-only mode a fail-closed boundary for legacy PDF text recovery", async () => {
+    const loaded = await new PackageLoader(rawMineruWithRecoverablePdfText(), {
+      legacyMinerUProjectionMode: "source-only"
+    }).loadDetected();
+
+    expect(loaded.textRecovery).toBeUndefined();
+    expect(loaded.articleText).toContain("symbol � remains byte-identical");
+    expect(loaded.sourcePdf).toEqual({ path: "_extraction/source.pdf" });
+    expect(loaded.diagnostics).toContainEqual(expect.objectContaining({
+      code: "mineru-legacy-runtime-projection-disabled"
+    }));
+  });
 });

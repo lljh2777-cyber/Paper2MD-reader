@@ -4,7 +4,9 @@ import "katex/dist/katex.min.css";
 import {
   mountReaderWorkspace,
   ReaderWorkspace,
-  type ReaderPaperStateStorage
+  type ReaderCapabilityProfile,
+  type ReaderPaperStateStorage,
+  type ReaderVisualReviewMode
 } from "../../../packages/reader-ui/src/index";
 import { BrowserPackagePicker } from "./browser-package-picker";
 import { readerText, ReaderLocale } from "../../../src/ui/locale";
@@ -19,6 +21,13 @@ export interface WebReaderMountOptions {
   initialFileSystem?: ReaderFileSystem;
   enableWebMcp?: boolean;
   enableProcessingApi?: boolean;
+  /**
+   * Select strict Reader consumption or the historical v0.1.3 compatibility
+   * surface. Strict mode overrides mutating legacy flags even if they are true.
+   */
+  capabilityProfile?: ReaderCapabilityProfile;
+  /** Override legacy visual-review visibility outside strict read-only mode. */
+  visualReviewMode?: ReaderVisualReviewMode;
   /**
    * Allow a selected PDF to be converted into a generated Markdown package.
    * Set false on read-only Reader routes; existing Local Reader entry points
@@ -36,7 +45,7 @@ export interface WebReaderMountOptions {
    * with allowPdfProjection on strict read-only Reader routes.
    */
   allowRuntimeTextRecovery?: boolean;
-  /** Set false for ephemeral hosts that must not persist paper-derived state across refreshes. */
+  /** Set false for ephemeral hosts; strict-readonly always keeps paper-derived state in memory. */
   persistPaperState?: boolean;
 }
 
@@ -75,31 +84,41 @@ export function mountWebReaderWithReady(
   root: HTMLElement,
   options: WebReaderMountOptions = {}
 ): WebReaderMountHandle {
+  const strictReadOnly = options.capabilityProfile === "strict-readonly";
+  const processingApiEnabled = !strictReadOnly && options.enableProcessingApi !== false;
+  const pdfProjectionEnabled = !strictReadOnly && options.allowPdfProjection !== false;
+  const webMcpEnabled = !strictReadOnly && options.enableWebMcp !== false;
+  const runtimeTextRecoveryEnabled = !strictReadOnly && options.allowRuntimeTextRecovery !== false;
+  const persistentPaperStateEnabled = !strictReadOnly && options.persistPaperState !== false;
   const ingestHost = document.createElement("div");
   const readerHost = document.createElement("div");
   root.replaceChildren(ingestHost, readerHost);
   const picker = new BrowserPackagePicker({
-    enableProcessingApi: options.enableProcessingApi !== false,
-    allowPdfProjection: options.allowPdfProjection !== false,
+    enableProcessingApi: processingApiEnabled,
+    allowPdfProjection: pdfProjectionEnabled,
     allowDirectPdfOpen: options.allowDirectPdfOpen === true
   });
   const visualResolver = new PdfVisualResolver();
   const pdfProcessingEnabled = Boolean(picker.choosePdfPackage);
   const directPdfEnabled = Boolean(picker.choosePdfDocument);
   const packageId = requestedPackageId(window.location.pathname);
-  const apiBaseUrl = options.enableProcessingApi === false ? undefined : configuredProcessingApiBaseUrl();
+  const apiBaseUrl = processingApiEnabled ? configuredProcessingApiBaseUrl() : undefined;
   const processingClient = apiBaseUrl ? new ProcessingClient(apiBaseUrl) : undefined;
-  const paperStateStorage = options.persistPaperState === false
+  const paperStateStorage = !persistentPaperStateEnabled
     ? createMemoryPaperStateStorage()
     : undefined;
   let activePackageId = packageId;
   const workspace: ReaderWorkspace = mountReaderWorkspace(readerHost, {
     picker,
-    allowRuntimeTextRecovery: options.allowRuntimeTextRecovery !== false,
+    capabilityProfile: options.capabilityProfile,
+    allowRuntimeTextRecovery: runtimeTextRecoveryEnabled,
+    visualReviewMode: strictReadOnly
+      ? "disabled"
+      : options.visualReviewMode ?? (processingClient ? "read-only" : undefined),
     paperStateStorage,
     visualResolver,
     pdfRuntime: visualResolver,
-    visualReviewStore: processingClient ? {
+    visualReviewSource: processingClient ? {
       read: async () => activePackageId ? processingClient.readVisualReviewSidecar(activePackageId) : undefined
     } : undefined,
     localizedCopy: {
@@ -107,7 +126,7 @@ export function mountWebReaderWithReady(
       "zh-CN": webCopy("zh-CN", pdfProcessingEnabled, directPdfEnabled)
     }
   });
-  const webMcp = options.enableWebMcp === false ? { dispose: () => undefined } : registerReaderWebMcp(
+  const webMcp = !webMcpEnabled ? { dispose: () => undefined } : registerReaderWebMcp(
     workspace,
     document,
     navigator,

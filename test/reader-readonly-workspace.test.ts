@@ -2,6 +2,11 @@ import { parseHTML } from "linkedom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountReaderWorkspace } from "../packages/reader-ui/src/reader-workspace";
 import { PackageLoader } from "../src/model/package-loader";
+import type {
+  MinerUVisualReview,
+  MinerUVisualReviewDecision,
+  MinerUVisualReviewSidecar
+} from "../src/model/mineru-visual-review";
 import type { LoadedPaperPackage } from "../src/model/reader-contract";
 import { MemoryReaderFileSystem } from "./memory-reader-file-system";
 
@@ -20,6 +25,14 @@ function installDom(): Document {
     get() { return selectValues.get(this) ?? ""; },
     set(value: string) { selectValues.set(this, String(value)); }
   });
+  Object.defineProperty(window.HTMLElement.prototype, "showModal", {
+    configurable: true,
+    value(this: HTMLElement) { this.setAttribute("open", ""); }
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "close", {
+    configurable: true,
+    value(this: HTMLElement) { this.removeAttribute("open"); }
+  });
   class TestIntersectionObserver {
     observe(): void {}
     unobserve(): void {}
@@ -34,6 +47,92 @@ function installDom(): Document {
   vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
   vi.stubGlobal("navigator", { language: "en", languages: ["en"] });
   return document as unknown as Document;
+}
+
+const REVIEW_HASH = "c".repeat(64);
+const REVIEW_DECISION: MinerUVisualReviewDecision = {
+  candidate_id: "candidate-1",
+  verdict: "abstain",
+  correction: null
+};
+
+function leakedVisualReview(decisions: MinerUVisualReviewDecision[] = []): MinerUVisualReview {
+  return {
+    packageHash: REVIEW_HASH,
+    storageKey: `paper2md-reader:visual-review:v2:${REVIEW_HASH}`,
+    candidates: [{
+      id: "candidate-1",
+      kind: "fragment_group",
+      pageIndex: 0,
+      memberBlockIds: ["visual-1", "visual-2"],
+      replacementMode: "existing_asset",
+      reviewState: "needs-review"
+    }],
+    blocks: [{
+      id: "visual-1",
+      pageIndex: 0,
+      pageOrder: 0,
+      role: "visual",
+      bbox: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }
+    }, {
+      id: "visual-2",
+      pageIndex: 0,
+      pageOrder: 1,
+      role: "visual",
+      bbox: { x: 0.4, y: 0.1, width: 0.3, height: 0.3 }
+    }],
+    decisions
+  };
+}
+
+function packageWithLeakedRepairCapabilities(
+  decisions: MinerUVisualReviewDecision[] = []
+): LoadedPaperPackage {
+  const sourceText = "# Raw paper\n\nThe original � remains visible.\n";
+  return {
+    state: "mineru",
+    sourceFormat: "mineru",
+    packageIntegrity: "verified",
+    articlePath: "article.md",
+    articleText: sourceText,
+    anchors: {
+      blockIds: [],
+      slotIds: [],
+      duplicateIds: [],
+      malformedMarkers: [],
+      blockKinds: new Map(),
+      slotAssets: new Map()
+    },
+    assets: [],
+    diagnostics: [],
+    visualReview: leakedVisualReview(decisions),
+    textRecovery: {
+      pdfPath: "_extraction/source.pdf",
+      candidates: [{
+        id: "mineru-text-000000",
+        pageIndex: 0,
+        bbox: { x: 0.1, y: 0.1, width: 0.8, height: 0.2 },
+        sourceText: "The original � remains visible."
+      }]
+    }
+  };
+}
+
+function openDiagnostics(workspace: ReturnType<typeof mountReaderWorkspace>): void {
+  (workspace as unknown as { openDiagnostics(): void }).openDiagnostics();
+}
+
+async function attemptStoreReviewDecision(
+  workspace: ReturnType<typeof mountReaderWorkspace>,
+  review: MinerUVisualReview
+): Promise<void> {
+  await (workspace as unknown as {
+    storeVisualReviewDecision(
+      review: MinerUVisualReview,
+      decision: MinerUVisualReviewDecision,
+      trigger: HTMLElement
+    ): Promise<void>;
+  }).storeVisualReviewDecision(review, REVIEW_DECISION, document.createElement("button"));
 }
 
 describe("ReaderWorkspace strict read-only mode", () => {
@@ -187,6 +286,117 @@ describe("ReaderWorkspace strict read-only mode", () => {
     expect(recoverText).not.toHaveBeenCalled();
     expect(root.querySelector(".p2md-article")?.textContent).toContain("original � remains visible");
     workspace.destroy();
+  });
+
+  it("suppresses every leaked repair capability in the strict read-only profile", async () => {
+    const document = installDom();
+    const root = document.querySelector<HTMLElement>("#reader")!;
+    const loaded = packageWithLeakedRepairCapabilities();
+    const loadDetected = vi.spyOn(PackageLoader.prototype, "loadDetected").mockResolvedValue(loaded);
+    const sourceRead = vi.fn(async (): Promise<MinerUVisualReviewSidecar> => ({
+      schema_version: 1,
+      contract: "paper2md-user-visual-review",
+      candidate_package_sha256: REVIEW_HASH,
+      decisions: [REVIEW_DECISION]
+    }));
+    const sinkWrite = vi.fn(async () => undefined);
+    const localStorage = {
+      getItem: vi.fn(() => JSON.stringify({ decisions: [REVIEW_DECISION] })),
+      setItem: vi.fn()
+    };
+    const recoverText = vi.fn(async () => ({
+      articleText: "# Raw paper\n\nThe repaired symbol is X.\n",
+      diagnostics: []
+    }));
+    const workspace = mountReaderWorkspace(root, {
+      picker: { platform: "web", choosePackage: vi.fn(async () => undefined) },
+      capabilityProfile: "strict-readonly",
+      allowRuntimeTextRecovery: true,
+      visualReviewMode: "legacy-editable",
+      paperStateStorage: localStorage,
+      visualReviewSource: { read: sourceRead },
+      visualReviewSink: { write: sinkWrite },
+      visualResolver: {
+        resolve: vi.fn(async () => ""),
+        recoverText,
+        dispose: vi.fn()
+      }
+    });
+
+    await workspace.attachFileSystem(new MemoryReaderFileSystem({ "article.md": loaded.articleText }));
+
+    expect(loadDetected).toHaveBeenCalledTimes(1);
+    expect(sourceRead).not.toHaveBeenCalled();
+    expect(localStorage.getItem).not.toHaveBeenCalled();
+    expect(recoverText).not.toHaveBeenCalled();
+    expect(workspace.getReaderState().repairCandidateCount).toBe(0);
+    expect(workspace.getVisualRepairCandidates().items).toEqual([]);
+    await expect(workspace.previewVisualCorrection(REVIEW_DECISION)).rejects.toThrow(/preview is disabled/i);
+
+    openDiagnostics(workspace);
+    expect(document.querySelector(".p2md-visual-review")).toBeNull();
+    expect(document.querySelector(".p2md-review-button")).toBeNull();
+    await attemptStoreReviewDecision(workspace, loaded.visualReview!);
+    expect(sinkWrite).not.toHaveBeenCalled();
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+
+    workspace.destroy();
+    expect(localStorage.getItem).not.toHaveBeenCalled();
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it("loads a read-only visual review source without exposing mutation controls or writing", async () => {
+    const document = installDom();
+    const root = document.querySelector<HTMLElement>("#reader")!;
+    const sidecar: MinerUVisualReviewSidecar = {
+      schema_version: 1,
+      contract: "paper2md-user-visual-review",
+      candidate_package_sha256: REVIEW_HASH,
+      decisions: [REVIEW_DECISION]
+    };
+    const loadDetected = vi.spyOn(PackageLoader.prototype, "loadDetected")
+      .mockImplementation(async (storedSidecar) => packageWithLeakedRepairCapabilities(
+        storedSidecar === sidecar ? [REVIEW_DECISION] : []
+      ));
+    const sourceRead = vi.fn(async () => sidecar);
+    const localStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn()
+    };
+    const workspace = mountReaderWorkspace(root, {
+      picker: { platform: "web", choosePackage: vi.fn(async () => undefined) },
+      capabilityProfile: "legacy-v0.1.3",
+      allowRuntimeTextRecovery: false,
+      visualReviewMode: "read-only",
+      visualReviewSource: { read: sourceRead },
+      paperStateStorage: localStorage
+    });
+
+    await workspace.attachFileSystem(new MemoryReaderFileSystem({
+      "article.md": "# Raw paper\n\nThe original � remains visible.\n"
+    }));
+
+    expect(sourceRead).toHaveBeenCalledOnce();
+    expect(sourceRead).toHaveBeenCalledWith(REVIEW_HASH);
+    expect(loadDetected).toHaveBeenCalledTimes(2);
+    expect(loadDetected).toHaveBeenNthCalledWith(1);
+    expect(loadDetected).toHaveBeenNthCalledWith(2, sidecar);
+    expect(localStorage.getItem).not.toHaveBeenCalled();
+    expect(workspace.getReaderState().repairCandidateCount).toBe(1);
+    expect(workspace.getVisualRepairCandidates().items).toHaveLength(1);
+    await expect(workspace.previewVisualCorrection(REVIEW_DECISION)).rejects.toThrow(/源契约上下文/);
+
+    openDiagnostics(workspace);
+    expect(document.querySelector(".p2md-visual-review")).not.toBeNull();
+    expect(document.querySelectorAll(".p2md-review-card")).toHaveLength(1);
+    expect(document.querySelector(".p2md-review-actions")).toBeNull();
+    expect(document.querySelector(".p2md-review-button")).toBeNull();
+    expect(document.querySelector(".p2md-review-correction")).toBeNull();
+    await attemptStoreReviewDecision(workspace, leakedVisualReview([REVIEW_DECISION]));
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+
+    workspace.destroy();
+    expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 
   it("opens a direct PDF as an ephemeral PDF-only session without loading or repairing a package", async () => {

@@ -64,16 +64,44 @@ export interface ReaderPaperStateStorage {
   setItem(key: string, value: string): void;
 }
 
+export type ReaderCapabilityProfile = "strict-readonly" | "legacy-v0.1.3";
+export type ReaderVisualReviewMode = "disabled" | "read-only" | "legacy-editable";
+
+export interface ReaderVisualReviewSource {
+  read(candidatePackageSha256: string): Promise<unknown | undefined>;
+}
+
+export interface ReaderVisualReviewSink {
+  write(candidatePackageSha256: string, sidecar: MinerUVisualReviewSidecar): Promise<void>;
+}
+
 export interface ReaderWorkspaceOptions {
   picker: ReaderPackagePicker;
   /**
+   * Select the Reader product boundary. Strict read-only mode consumes raw or
+   * verified package content without applying legacy runtime projections,
+   * external review decisions, or PDF text recovery. The legacy profile is the
+   * compatibility default for desktop v0.1.3 and existing Local Reader hosts.
+   */
+  capabilityProfile?: ReaderCapabilityProfile;
+  /**
    * Allow the legacy Reader to repair displayed text from a bundled PDF at
-   * runtime. Disable for strict read-only consumers of raw or verified
-   * packages. Existing desktop and Local Reader mounts default to true.
+   * runtime. This legacy override is always ignored by strict-readonly.
    */
   allowRuntimeTextRecovery?: boolean;
+  /**
+   * Control whether verified legacy visual-review evidence is hidden, shown
+   * without mutation controls, or editable through the v0.1.3 compatibility UI.
+   * Strict read-only always resolves this to disabled.
+   */
+  visualReviewMode?: ReaderVisualReviewMode;
   /** Host-owned storage for paper-derived view state and browser visual-review sidecars. */
   paperStateStorage?: ReaderPaperStateStorage;
+  /** Host source for an existing, package-hash-bound legacy visual-review sidecar. */
+  visualReviewSource?: ReaderVisualReviewSource;
+  /** Host sink used only by the legacy editable compatibility UI. */
+  visualReviewSink?: ReaderVisualReviewSink;
+  /** @deprecated Use visualReviewSource and visualReviewSink for explicit capabilities. */
   visualReviewStore?: {
     read(candidatePackageSha256: string): Promise<unknown | undefined>;
     write?(candidatePackageSha256: string, sidecar: MinerUVisualReviewSidecar): Promise<void>;
@@ -197,6 +225,31 @@ export class ReaderWorkspace implements ReaderAgentController {
     this.stopLocaleSubscription = subscribeReaderLocale((locale) => this.applyLocale(locale));
   }
 
+  private isStrictReadOnly(): boolean {
+    return this.options.capabilityProfile === "strict-readonly";
+  }
+
+  private allowsRuntimeTextRecovery(): boolean {
+    return !this.isStrictReadOnly() && this.options.allowRuntimeTextRecovery !== false;
+  }
+
+  private effectiveVisualReviewMode(): ReaderVisualReviewMode {
+    if (this.isStrictReadOnly()) return "disabled";
+    return this.options.visualReviewMode ?? "legacy-editable";
+  }
+
+  private visualReviewSource(): ReaderVisualReviewSource | undefined {
+    return this.options.visualReviewSource ?? this.options.visualReviewStore;
+  }
+
+  private visualReviewSink(): ReaderVisualReviewSink | undefined {
+    if (this.options.visualReviewSink) return this.options.visualReviewSink;
+    const store = this.options.visualReviewStore;
+    return store?.write ? {
+      write: (candidatePackageSha256, sidecar) => store.write!(candidatePackageSha256, sidecar)
+    } : undefined;
+  }
+
   destroy(): void {
     this.invalidateArticleLayout();
     this.saveViewState();
@@ -296,7 +349,9 @@ export class ReaderWorkspace implements ReaderAgentController {
       headingCount: headings.length,
       activeHeadingId: headings.find((heading) => heading.active)?.id,
       visualCount: this.figures.length,
-      repairCandidateCount: this.loaded?.visualReview?.candidates.length ?? 0,
+      repairCandidateCount: this.effectiveVisualReviewMode() === "disabled"
+        ? 0
+        : this.loaded?.visualReview?.candidates.length ?? 0,
       reference
     };
   }
@@ -367,6 +422,7 @@ export class ReaderWorkspace implements ReaderAgentController {
   }
 
   getVisualRepairCandidates(start = 0, limit = 100): ReaderAgentPage<ReaderVisualRepairCandidateSummary> {
+    if (this.effectiveVisualReviewMode() === "disabled") return agentPage([], start, limit);
     const review = this.loaded?.visualReview;
     if (!review) return agentPage([], start, limit);
     const decisions = new Map(review.decisions.map((decision) => [decision.candidate_id, decision]));
@@ -401,6 +457,9 @@ export class ReaderWorkspace implements ReaderAgentController {
   }
 
   async previewVisualCorrection(decision: MinerUVisualReviewDecision) {
+    if (this.effectiveVisualReviewMode() === "disabled") {
+      throw new Error("Visual repair preview is disabled in strict read-only Reader mode");
+    }
     const review = this.loaded?.visualReview;
     if (!review) throw new Error("Visual repair candidates are unavailable for the current package");
     return previewMinerUVisualReviewDecision(review, decision);
@@ -571,7 +630,8 @@ export class ReaderWorkspace implements ReaderAgentController {
     let loaded: LoadedPaperPackage | undefined;
     try {
       const loader = new PackageLoader(sourceFileSystem, {
-        allowRuntimeTextRecovery: this.options.allowRuntimeTextRecovery !== false
+        allowRuntimeTextRecovery: this.allowsRuntimeTextRecovery(),
+        legacyMinerUProjectionMode: this.isStrictReadOnly() ? "source-only" : "compatible"
       });
       loaded = await loader.loadDetected();
       if (!isCurrentLoad()) {
@@ -579,9 +639,11 @@ export class ReaderWorkspace implements ReaderAgentController {
         return;
       }
       let storedSidecar: unknown | undefined;
-      if (loaded.visualReview && this.options.visualReviewStore?.write) {
+      const visualReviewMode = this.effectiveVisualReviewMode();
+      const visualReviewSource = this.visualReviewSource();
+      if (visualReviewMode !== "disabled" && loaded.visualReview && visualReviewSource) {
         try {
-          storedSidecar = await this.options.visualReviewStore.read(loaded.visualReview.packageHash);
+          storedSidecar = await visualReviewSource.read(loaded.visualReview.packageHash);
           if (!isCurrentLoad()) {
             disposeLoadedContent(loaded);
             return;
@@ -593,7 +655,7 @@ export class ReaderWorkspace implements ReaderAgentController {
             message: "本地视觉修复 sidecar 无法安全读取，已忽略用户决定；正文和已验证视觉投影仍可继续加载。"
           });
         }
-      } else {
+      } else if (visualReviewMode !== "disabled") {
         storedSidecar = this.readVisualReviewSidecar(loaded);
       }
       if (storedSidecar !== undefined) {
@@ -611,7 +673,7 @@ export class ReaderWorkspace implements ReaderAgentController {
       const contractUsable = loaded.state === "valid" || loaded.state === "edited-with-anchors" || loaded.state === "recoverable" || loaded.state === "mineru" || loaded.state === "markdown";
       let articleText = loaded.articleText;
       if (
-        this.options.allowRuntimeTextRecovery !== false
+        this.allowsRuntimeTextRecovery()
         && loaded.textRecovery
         && (
           loaded.textRecovery.candidates.length
@@ -1217,6 +1279,7 @@ export class ReaderWorkspace implements ReaderAgentController {
   }
 
   private readVisualReviewSidecar(loaded: LoadedPaperPackage): unknown | undefined {
+    if (this.effectiveVisualReviewMode() === "disabled") return undefined;
     const review = loaded.visualReview;
     if (!review) return undefined;
     try {
@@ -1246,6 +1309,7 @@ export class ReaderWorkspace implements ReaderAgentController {
     decision: MinerUVisualReviewDecision,
     trigger: HTMLElement
   ): Promise<void> {
+    if (this.effectiveVisualReviewMode() !== "legacy-editable") return;
     const decisions = new Map(review.decisions.map((item) => [item.candidate_id, item]));
     decisions.set(decision.candidate_id, decision);
     const sidecar = createVisualReviewSidecar(review.packageHash, [...decisions.values()]);
@@ -1253,9 +1317,11 @@ export class ReaderWorkspace implements ReaderAgentController {
       if (visualReviewSidecarByteLength(sidecar) > MAX_VISUAL_REVIEW_SIDECAR_BYTES) {
         throw new Error("Visual review sidecar exceeds 64 KiB");
       }
-      if (this.options.visualReviewStore) {
-        if (!this.options.visualReviewStore.write) throw new Error("Visual review store is read-only");
-        await this.options.visualReviewStore.write(review.packageHash, sidecar);
+      const sink = this.visualReviewSink();
+      if (sink) {
+        await sink.write(review.packageHash, sidecar);
+      } else if (this.options.visualReviewSource || this.options.visualReviewStore) {
+        throw new Error("Visual review store is read-only");
       } else {
         this.paperStateStorage().setItem(review.storageKey, JSON.stringify(sidecar));
       }
@@ -1315,6 +1381,11 @@ export class ReaderWorkspace implements ReaderAgentController {
         badge.dataset.verdict = existing?.verdict ?? "abstain";
         badge.textContent = decisionLabel;
         cardHeader.appendChild(badge);
+      }
+      if (this.effectiveVisualReviewMode() !== "legacy-editable") {
+        card.appendChild(cardHeader);
+        section.appendChild(card);
+        return;
       }
       const actions = element("div", "p2md-review-actions");
       const saveVerdict = (verdict: MinerUReviewVerdict) => (event: MouseEvent) => {
@@ -1466,7 +1537,9 @@ export class ReaderWorkspace implements ReaderAgentController {
       list.appendChild(item);
     });
     content.append(heading, summary, list);
-    if (this.loaded.visualReview) content.appendChild(this.createVisualReviewSection(this.loaded.visualReview));
+    if (this.loaded.visualReview && this.effectiveVisualReviewMode() !== "disabled") {
+      content.appendChild(this.createVisualReviewSection(this.loaded.visualReview));
+    }
     this.openDialog(content, readerText(this.locale, "closeDiagnostics"));
   }
 

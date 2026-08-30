@@ -300,7 +300,10 @@ export async function loadStaticMinerUDemo(signal: AbortSignal): Promise<LoadedS
     }
   );
   try {
-    const loaded = await new PackageLoader(fileSystem).loadDetected();
+    const loaded = await new PackageLoader(fileSystem, {
+      legacyMinerUProjectionMode: "compatible",
+      allowRuntimeTextRecovery: false
+    }).loadDetected();
     const repaired = loaded.assets.find((asset) => asset.memberAssetPaths?.length === 4);
     const repairApplied = loaded.diagnostics.some((item) => item.code === "mineru-visual-repair-applied");
     if (

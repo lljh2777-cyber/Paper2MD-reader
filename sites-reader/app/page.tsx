@@ -57,6 +57,10 @@ export default function Home() {
       .then(([{ mountLocalReader }, initialFileSystem]) => {
         if (!cancelled && readerRoot.current) dispose = mountLocalReader(readerRoot.current, {
           initialFileSystem,
+          capabilityProfile: "strict-readonly",
+          allowPdfProjection: false,
+          allowDirectPdfOpen: true,
+          allowRuntimeTextRecovery: false,
           enableWebMcp: false,
           enableProcessingApi: false,
           persistPaperState: false

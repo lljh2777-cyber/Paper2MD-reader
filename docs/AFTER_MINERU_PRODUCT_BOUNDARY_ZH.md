@@ -43,4 +43,8 @@ portable manifest 绑定算法版本、源 ZIP SHA-256、正文和排序后的�
 
 当前切片已实现：真实 MinerU ZIP → Worker 中的确定性视觉契约 → `derived/article.after-mineru.md` → sidecar / provenance / validation / repair report → portable Markdown ZIP + 可验证论文包 → Reader 只读加载。Repair 提供阶段进度、强取消、两种导出和报告下载；站点提供同级的 `/repair` 与 `/reader` 入口。Reader 也可以在不生成 Markdown 的情况下直接只读打开原始 PDF。正式派生包的正文、图片与 PDF 均从 manifest-bound 内容能力读取，原始 MinerU 包则忠实显示并忽略未验证 sidecar。
 
-尚未纳入本版本的能力包括通用 PDF 正文自动恢复、完整 display-repair 生成、将 PDF 裁切或碎图组合物化为新的派生位图，以及从 Repair 到 Reader 的同源内存预览交接。PDF crop 仍是已验证 Reader projection 中的显示指令；portable ZIP 会明确回退到完整源图片而不会伪装成已裁剪原图。证据不足的修复保留为候选或原始显示。
+Repair 到 Reader 已支持由用户明确触发的同源、一次性内存预览交接：发送端复制可验证包后通过随机 handoff ID 与 nonce 绑定目标窗口，接收端在专用 Worker 中执行 ZIP 库存预检、共享契约验证和受限解包，只有 Reader 实际进入 ready 或 degraded 状态才确认成功。交接限制为 32 MiB 压缩包、256 MiB 解压总量和 2,048 个文件；取消或超时会终止 Worker 并丢弃迟到消息。该流程不使用云传输、IndexedDB、localStorage 或持久论文库。
+
+站点通用 Reader、首页嵌入 Reader 与内存预览使用 `strict-readonly` 能力档位：旧版 v0.1.3 MinerU 包只显示原始结构化内容，不在运行时应用 legacy sidecar、用户 review 或 PDF 文字恢复；正式 `after-mineru-package-v1` 仍在完整验证后显示物化派生正文。DebyeCalculator 真实示例当前仍是预制的 v0.1.3 哈希绑定包，因此显式使用 `legacy-v0.1.3` 兼容投影，但关闭用户 review 与 PDF 文字恢复；后续应将该示例重新物化为正式 v1 包。桌面 v0.1.3 暂保留显式兼容档位及现有 sidecar IPC/文件契约。
+
+尚未纳入本版本的能力包括通用 PDF 正文自动恢复、完整 display-repair 生成，以及将 PDF 裁切或碎图组合物化为新的派生位图。PDF crop 仍是已验证 Reader projection 中的显示指令；portable ZIP 会明确回退到完整源图片而不会伪装成已裁剪原图。证据不足的修复保留为候选或原始显示；大型包仍需继续进行跨浏览器内存压力测试。
