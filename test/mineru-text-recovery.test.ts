@@ -101,6 +101,22 @@ describe("MinerU PDF text recovery", () => {
     expect(collectMinerUTextRecoveryCandidates(raw, `${source}\n${source}`)).toEqual([]);
   });
 
+  it("keeps candidate source indexes aligned with Viewer flattening", () => {
+    const valid = { type: "text", page_idx: 2, bbox: [100, 100, 900, 300], text: source };
+    expect(collectMinerUTextRecoveryCandidates([null, valid], source)).toMatchObject([{
+      id: "mineru-text-000001",
+      pageIndex: 2
+    }]);
+    expect(collectMinerUTextRecoveryCandidates([[valid], valid], source)).toMatchObject([{
+      id: "mineru-text-000001",
+      pageIndex: 2
+    }]);
+    expect(collectMinerUTextRecoveryCandidates([[null, { ...valid, page_idx: undefined }]], source)).toMatchObject([{
+      id: "mineru-text-000001",
+      pageIndex: 0
+    }]);
+  });
+
   it("applies recovered text only when the source block is unique", () => {
     const recovered = source.replace("�", "𝒩").replace("�", "𝒢").replace("�", "𝒢");
     expect(applyRecoveredText(`# Paper\n\n${source}`, source, recovered)).toContain("𝒩");

@@ -1,5 +1,6 @@
 import { Diagnostic } from "./reader-contract";
 import { RepairedMinerUVisual } from "./mineru-visual-repair";
+import { AFTER_MINERU_DISPLAY_REPAIR_VERSION } from "../../packages/after-mineru-contract/src/index";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -163,7 +164,7 @@ export async function prepareMinerUDisplayRepair(input: {
     !contract
     || !exactKeys(contract, ["schema_version", "algorithm_version", "inputs", "repairs", "summary"])
     || contract.schema_version !== 1
-    || contract.algorithm_version !== "source-pdf-exact-display-repair-v1"
+    || contract.algorithm_version !== AFTER_MINERU_DISPLAY_REPAIR_VERSION
     || !SHA256.test(input.sourcePdfHash)
     || !inputs
     || !exactKeys(inputs, ["article", "mineru_result", "source_pdf"])

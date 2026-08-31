@@ -35,6 +35,7 @@ const PROGRESS_LABELS: Record<RepairProgressStage, string> = {
   "inspect-source": "检查源 ZIP 与安全边界",
   "parse-content": "解析 Markdown、JSON 与源文件树",
   "analyze-visuals": "分析图表、图注与视觉候选",
+  "recover-pdf-text": "核对源 PDF 文字证据",
   "materialize-derived": "物化派生 Markdown",
   "bind-package": "绑定 sidecar、来源与兼容契约",
   "verify-package": "校验 manifest、大小与 SHA-256",

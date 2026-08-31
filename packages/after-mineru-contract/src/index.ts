@@ -16,6 +16,7 @@ export const AFTER_MINERU_VALIDATION_VERSION = "after-mineru-validation-v1";
 export const AFTER_MINERU_READER_PROJECTION_VERSION = "after-mineru-reader-projection-v1";
 export const AFTER_MINERU_PROVENANCE_VERSION = "after-mineru-provenance-v1";
 export const AFTER_MINERU_REPAIR_ALGORITHM_VERSION = "after-mineru-visual-repair-v1";
+export const AFTER_MINERU_DISPLAY_REPAIR_VERSION = "source-pdf-exact-display-repair-v1";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -181,6 +182,35 @@ export interface AfterMinerUReaderProjection {
     hidden_visual_count: number;
     review_candidate_count: number;
     unresolved_text_replacement_count: number;
+  };
+}
+
+export interface AfterMinerUDisplayRepairEntry {
+  id: string;
+  target: "article" | "caption";
+  source_block_id: string;
+  page_index: number;
+  source_text: string;
+  replacement_markdown: string;
+  source_text_sha256: string;
+  replacement_markdown_sha256: string;
+}
+
+export interface AfterMinerUDisplayRepairContract {
+  schema_version: 1;
+  algorithm_version: typeof AFTER_MINERU_DISPLAY_REPAIR_VERSION;
+  inputs: {
+    article: { sha256: string };
+    mineru_result: { sha256: string };
+    source_pdf: { sha256: string };
+  };
+  repairs: AfterMinerUDisplayRepairEntry[];
+  summary: {
+    repair_count: number;
+    article_repair_count: number;
+    caption_repair_count: number;
+    replacement_characters_before: number;
+    replacement_characters_after: number;
   };
 }
 

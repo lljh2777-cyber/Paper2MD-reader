@@ -10,6 +10,7 @@ import {
 } from "../apps/processing-service/src/reader-contract-generator";
 import { extractMinerUArchiveForReader } from "../src/model/mineru-archive";
 import { prepareMinerUVisualReview } from "../src/model/mineru-visual-review";
+import { AFTER_MINERU_DISPLAY_REPAIR_VERSION } from "../packages/after-mineru-contract/src/index";
 
 type FileRecord = { path: string; size: number; sha256: string };
 type UnknownRecord = Record<string, unknown>;
@@ -171,7 +172,7 @@ function buildSourceVerifiedDemoDisplayRepair(input: {
   if (before !== 33 || after !== 0) throw new Error("The source-verified display repair character count is invalid.");
   return {
     schema_version: 1,
-    algorithm_version: "source-pdf-exact-display-repair-v1",
+    algorithm_version: AFTER_MINERU_DISPLAY_REPAIR_VERSION,
     inputs: {
       article: { sha256: articleHash },
       mineru_result: { sha256: contentListHash },

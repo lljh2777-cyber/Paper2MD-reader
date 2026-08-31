@@ -83,6 +83,7 @@ const PROGRESS_STAGES = new Set([
   "inspect-source",
   "parse-content",
   "analyze-visuals",
+  "recover-pdf-text",
   "materialize-derived",
   "bind-package",
   "verify-package",

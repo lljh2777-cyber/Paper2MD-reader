@@ -20,6 +20,15 @@ describe("host boundaries", () => {
     expect(violations).toEqual([]);
   });
 
+  it("keeps automatic display-repair generation out of Reader runtimes", () => {
+    const roots = ["src", "packages/reader-core", "packages/reader-ui", "apps/web"];
+    const forbidden = /(?:display-repair-generator|generateMinerUReplacementCharacterDisplayRepair)/;
+    const violations = roots.flatMap((root) => sourceFiles(root)
+      .filter((path) => forbidden.test(readFileSync(path, "utf8")))
+      .map((path) => relative(process.cwd(), path)));
+    expect(violations).toEqual([]);
+  });
+
   it("rejects absolute, parent, empty-segment and Windows package paths", () => {
     for (const path of ["../article.md", "images//figure.png", "./article.md", "C:/paper/article.md", "images\\figure.png"]) {
       expect(() => normalizeDesktopRelativePath(path)).toThrow("Unsafe package path");

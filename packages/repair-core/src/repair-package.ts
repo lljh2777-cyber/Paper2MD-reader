@@ -29,6 +29,9 @@ import {
   applyMinerUDisplayMarkdownRepairs,
   prepareMinerUDisplayRepair
 } from "../../../src/model/mineru-display-repair";
+import {
+  collectMinerUTextRecoveryCandidates,
+} from "../../../src/model/mineru-text-recovery";
 import { applyMinerUVisualRepair, type RepairedMinerUVisual } from "../../../src/model/mineru-visual-repair";
 import { projectMinerUReaderMarkdown } from "../../../src/model/mineru-reader-projection";
 import { prepareMinerUVisualReview } from "../../../src/model/mineru-visual-review";
@@ -44,6 +47,10 @@ import {
   type BuiltPortableMarkdownExport,
   type PortableMarkdownUnavailableReason
 } from "./portable-markdown";
+import {
+  generateMinerUReplacementCharacterDisplayRepair,
+  type MinerUPdfTextEvidence
+} from "./display-repair-generator";
 
 const SOURCE_ARCHIVE_PATH = "source/mineru-original.mineru.zip";
 const DERIVED_ARTICLE_PATH = "derived/article.after-mineru.md";
@@ -111,6 +118,7 @@ export type RepairProgressStage =
   | "inspect-source"
   | "parse-content"
   | "analyze-visuals"
+  | "recover-pdf-text"
   | "materialize-derived"
   | "bind-package"
   | "verify-package"
@@ -128,7 +136,31 @@ export interface RepairProgress {
 export interface RepairExecutionOptions {
   signal?: AbortSignal;
   onProgress?: (progress: RepairProgress) => void;
+  /**
+   * Trusted local adapter for extracting bounded text evidence from the exact
+   * PDF snapshot owned by repair-core. The adapter cannot provide replacement
+   * Markdown; core re-derives candidates and generates the verified sidecar.
+   */
+  resolvePdfText?: RepairPdfTextResolver;
 }
+
+export interface RepairPdfTextRequest {
+  readonly id: string;
+  readonly pageIndex: number;
+  readonly bbox: Readonly<AfterMinerUNormalizedBBox>;
+  readonly sourceText: string;
+}
+
+export interface RepairPdfTextContext {
+  pdfBytes: Uint8Array;
+  pdfSha256: string;
+  signal?: AbortSignal;
+}
+
+export type RepairPdfTextResolver = (
+  requests: readonly RepairPdfTextRequest[],
+  context: RepairPdfTextContext
+) => Promise<readonly MinerUPdfTextEvidence[]> | readonly MinerUPdfTextEvidence[];
 
 export type RepairReportWarningCode =
   | "source-pdf-unavailable"
@@ -526,6 +558,35 @@ async function runRepairMinerUArchive(
       if (error instanceof Error && error.message.includes("UTF-8")) throw error;
       throw new Error("Display repair is not valid JSON");
     }
+  } else if (selectedPdf && options?.resolvePdfText) {
+    const requests = collectMinerUTextRecoveryCandidates(mineruPayload, sourceArticle)
+      .map((request) => ({ ...request, bbox: { ...request.bbox } }));
+    if (requests.length) {
+      emitProgress(options, "recover-pdf-text", 46);
+      const resolved = await options.resolvePdfText(requests, {
+        pdfBytes: selectedPdf.bytes.slice(),
+        pdfSha256: sha256Bytes(selectedPdf.bytes),
+        signal: options.signal
+      });
+      checkpoint(options);
+      if (!Array.isArray(resolved) || resolved.length > 64) {
+        throw new Error("PDF text resolver returned an invalid evidence collection");
+      }
+      const evidence = resolved.map((entry) => ({
+        candidateId: entry.candidateId,
+        pageIndex: entry.pageIndex,
+        text: entry.text
+      }));
+      displayRepairContract = generateMinerUReplacementCharacterDisplayRepair({
+        viewerIndex,
+        mineruPayload,
+        sourceArticle,
+        articleHash,
+        mineruHash,
+        sourcePdfHash: sha256Bytes(selectedPdf.bytes),
+        evidence
+      }).contract ?? undefined;
+    }
   }
   const visualCandidatesBytes = jsonBytes(visualCandidates);
   const preparedReview = await prepareMinerUVisualReview({
@@ -814,8 +875,11 @@ async function runRepairMinerUArchive(
   };
 }
 
-export async function repairMinerUArchive(input: RepairMinerUArchiveInput): Promise<RepairMinerUArchiveResult> {
-  return await runRepairMinerUArchive(input);
+export async function repairMinerUArchive(
+  input: RepairMinerUArchiveInput,
+  options?: RepairExecutionOptions
+): Promise<RepairMinerUArchiveResult> {
+  return await runRepairMinerUArchive(input, options);
 }
 
 export async function buildAfterMinerUArchive(

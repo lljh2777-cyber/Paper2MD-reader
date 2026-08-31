@@ -271,6 +271,8 @@ export function collectMinerUTextRecoveryCandidates(raw: unknown, markdown: stri
   const candidates: MinerUTextRecoveryCandidate[] = [];
   let sourceIndex = 0;
   const visit = (value: unknown, pageFallback?: number) => {
+    const currentSourceIndex = sourceIndex;
+    sourceIndex += 1;
     const item = record(value);
     if (!item) return;
     const text = typeof item.text === "string" ? item.text : "";
@@ -291,15 +293,15 @@ export function collectMinerUTextRecoveryCandidates(raw: unknown, markdown: stri
       && uniqueOccurrence(markdown, text)
     ) {
       candidates.push({
-        id: `mineru-text-${sourceIndex.toString().padStart(6, "0")}`,
+        id: `mineru-text-${currentSourceIndex.toString().padStart(6, "0")}`,
         pageIndex,
         bbox,
         sourceText: text
       });
     }
-    sourceIndex += 1;
   };
-  if (raw.some(Array.isArray)) {
+  const nestedByPage = raw.length > 0 && raw.every(Array.isArray);
+  if (nestedByPage) {
     raw.forEach((page, pageIndex) => {
       if (Array.isArray(page)) page.forEach((value) => visit(value, pageIndex));
     });
