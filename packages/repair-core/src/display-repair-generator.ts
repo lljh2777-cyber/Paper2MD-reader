@@ -9,6 +9,7 @@ import {
   recoverReplacementCharacters,
   type MinerUTextRecoveryCandidate
 } from "../../../src/model/mineru-text-recovery";
+import { alignMinerUReplacementCharactersToPdfText } from "./pdf-text-alignment";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -20,6 +21,7 @@ const MAX_EVIDENCE_ITEMS = 64;
 const MAX_VIEWER_PAGES = 2_048;
 const MAX_BLOCKS_PER_PAGE = 512;
 const MAX_VIEWER_BLOCKS = 8_192;
+const MAX_ALIGNMENT_CELLS = 8_000_000;
 
 export interface MinerUPdfTextEvidence {
   candidateId: string;
@@ -173,13 +175,19 @@ export function generateMinerUReplacementCharacterDisplayRepair(
   const repairs: AfterMinerUDisplayRepairEntry[] = [];
   const abstainedCandidateIds: string[] = [];
   let recoveredReplacementCharacterCount = 0;
+  let remainingAlignmentCells = MAX_ALIGNMENT_CELLS;
   for (const candidate of candidates) {
     const pdfText = evidence.get(candidate.id)?.text;
     if (!pdfText) {
       abstainedCandidateIds.push(candidate.id);
       continue;
     }
-    const recovered = recoverReplacementCharacters(candidate.sourceText, pdfText);
+    const exactContextRecovery = recoverReplacementCharacters(candidate.sourceText, pdfText);
+    const alignment = exactContextRecovery
+      ? undefined
+      : alignMinerUReplacementCharactersToPdfText(candidate.sourceText, pdfText, remainingAlignmentCells);
+    remainingAlignmentCells -= alignment?.cellsEvaluated ?? 0;
+    const recovered = exactContextRecovery ?? alignment?.recovery;
     if (
       !recovered
       || recovered.recoveredCount < 1

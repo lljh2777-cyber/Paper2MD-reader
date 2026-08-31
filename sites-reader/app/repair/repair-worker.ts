@@ -8,6 +8,7 @@ import {
   type RepairWorkerResponse,
   type RepairWorkerStartMessage
 } from "./repair-worker-protocol";
+import { resolveRepairPdfText } from "./pdf-text-resolver";
 
 const workerScope = self as unknown as {
   addEventListener(type: "message", listener: (event: MessageEvent<RepairWorkerRequest>) => void): void;
@@ -51,6 +52,7 @@ async function runRepair(message: RepairWorkerStartMessage): Promise<void> {
         : undefined
     }, {
       signal: controller.signal,
+      resolvePdfText: resolveRepairPdfText,
       onProgress(progress) {
         post({
           protocol: REPAIR_WORKER_PROTOCOL,

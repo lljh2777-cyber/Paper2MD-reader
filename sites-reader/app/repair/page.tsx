@@ -258,7 +258,7 @@ export default function RepairPage() {
           <h1 id="repair-title">修复 MinerU 结果，<br />原始文件保持不变。</h1>
         </div>
         <div className="repair-hero-copy">
-          <p>选择一个原始 MinerU ZIP，并可选加入你明确选择的源 PDF。Repair 会在当前浏览器会话中生成两种独立输出：供普通 Markdown 工具使用的通用 ZIP，以及供 Reader 验证的 After-MinerU 论文包。</p>
+          <p>选择一个原始 MinerU ZIP，并可选加入你明确选择的源 PDF。若 PDF 有可用文字层，Repair 会用高置信、唯一对齐恢复正文中的替换字符（不做 OCR）；随后生成供普通 Markdown 工具使用的通用 ZIP，以及供 Reader 验证的 After-MinerU 论文包。</p>
           <p><b>本地边界：</b>不上传到 Paper2MD，不建立云端论文库，不写 IndexedDB 或 localStorage；关闭页面或点击清除后，本页不再持有本次文件与结果。</p>
         </div>
       </section>
@@ -298,7 +298,7 @@ export default function RepairPage() {
           </label>
 
           <label className="repair-file-field optional">
-            <span><b>源 PDF</b><small>可选 · 仅使用你明确选择的文件 · ≤64 MB</small></span>
+            <span><b>源 PDF</b><small>可选 · 启用精确正文恢复（无 OCR） · ≤64 MB</small></span>
             <input
               ref={pdfInput}
               type="file"
@@ -319,10 +319,10 @@ export default function RepairPage() {
                 }
               }}
             />
-            <em>{sourcePdf ? `${sourcePdf.name} · ${formatBytes(sourcePdf.size)}` : "不额外加入；若 ZIP 有唯一 _origin.pdf，Repair 会绑定该副本"}</em>
+            <em>{sourcePdf ? `${sourcePdf.name} · ${formatBytes(sourcePdf.size)}` : "不额外加入；若 ZIP 有唯一 _origin.pdf，Repair 会绑定该副本并尝试正文恢复"}</em>
           </label>
 
-          <p className="repair-safety-note"><b>Fail closed：</b>ZIP 与可选 PDF 会在读取前执行 64 MB 大小边界；路径冲突、内容列表无效、哈希不匹配或修复无法事务性应用时，不会生成下载包，也不会覆盖任何本地源文件。通用 Markdown 的图片闭包会独立验证；无法形成安全、完整资源闭包时明确关闭，未物化的 Reader 视觉则只做源图片回退并提示。计算在一次性专用 Worker 中进行；接近上限的合法输入仍可能占用较多浏览器内存。</p>
+          <p className="repair-safety-note"><b>Fail closed：</b>ZIP 与可选 PDF 会在读取前执行 64 MB 大小边界；路径冲突、内容列表无效、哈希不匹配或修复无法事务性应用时，不会生成下载包，也不会覆盖任何本地源文件。PDF 文字层缺失、低置信或存在多处匹配时会放弃该项并保留原文。通用 Markdown 的图片闭包会独立验证；无法形成安全、完整资源闭包时明确关闭，未物化的 Reader 视觉则只做源图片回退并提示。计算在一次性专用 Worker 中进行；接近上限的合法输入仍可能占用较多浏览器内存。</p>
 
           <div className="repair-actions">
             <button className="site-primary" type="submit" disabled={!mineruArchive || busy}>{busy ? "正在修复与验证…" : "修复并生成两种 ZIP"}</button>
@@ -355,7 +355,8 @@ export default function RepairPage() {
                 <div><dt>验证包</dt><dd>{formatBytes(prepared.outputs.verifiedPackage.bytes.byteLength)} · {prepared.outputs.verifiedPackage.fileCount} 个文件</dd></div>
                 <div><dt>源图片</dt><dd>{prepared.summary.sourceImageCount}</dd></div>
                 <div><dt>可见视觉项</dt><dd>{prepared.summary.visibleVisualCount}</dd></div>
-                <div><dt>确定性修复</dt><dd>{prepared.summary.repairedVisualCount}</dd></div>
+                <div><dt>视觉修复</dt><dd>{prepared.summary.repairedVisualCount}</dd></div>
+                <div><dt>派生内容剩余 �</dt><dd>{prepared.summary.unresolvedTextReplacementCount}</dd></div>
                 <div><dt>待复核候选</dt><dd>{prepared.summary.reviewCandidateCount}</dd></div>
               </dl>
               <p className="repair-hash"><b>源 ZIP SHA-256</b><code>{prepared.sourceSha256}</code><span>{prepared.algorithmVersion}</span></p>
